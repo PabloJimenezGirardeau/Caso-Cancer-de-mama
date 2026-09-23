@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Datos
+test/
+train/
+metadata/
+
+# Apuntes de clase (c) del profesor, no redistribuir en el repo publico
+CNN/
