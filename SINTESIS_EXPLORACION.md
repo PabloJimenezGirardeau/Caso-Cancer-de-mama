@@ -169,6 +169,46 @@ Ordenadas por impacto práctico.
    composición de fold se calcula en código directamente desde `samples.csv` /
    `patients.csv`, nunca copiando cifras de este documento ni de la guía. Las cifras
    de este documento son una fotografía de la exploración, no valores de entrada.
+   **Corroboración independiente:** `presentacion_caso.pdf` (diapositivas del mismo
+   profesor, del mismo caso, no versionado en este repo por tener su copyright)
+   trae una tabla de folds con cortes/pacientes 2.186/219, 2.190/219, 2.192/220,
+   2.192/220, 2.185/219 — igual que `samples.csv` real y distinta de la tabla larga
+   de `GUIA.md` C1. Confirma, con una fuente más, que el error está en la tabla de
+   `GUIA.md`, no en `samples.csv`.
+
+8. **`presentacion_caso.pdf`: contenido completo (9 páginas).** En una primera
+   lectura solo se extrajo el texto y se dieron por vistas 5 páginas; en realidad
+   tiene 9, y las páginas 4, 5, 6 y 8 son imágenes sin texto extraíble. Renderizadas
+   y revisadas todas después. Aporta, respecto a `GUIA.md`:
+   - **Pág. 8, "Arquitectura de referencia · el embudo de la CNN":** 4 bloques
+     `conv 3×3 + ReLU` + `maxpool 2×2` con canales 16-32-64-128 (256² → 16²), global
+     average pooling (128), densa 64 + dropout, 1 logit; sigmoide solo al evaluar,
+     "probabilidad del corte → agregar los cortes de la paciente". Sin BatchNorm.
+     La diapositiva dice "≈ 105.761 parámetros": **verificado en código, exacto**
+     (convoluciones con bias). Campo receptivo final calculado: 46 px. Advertencia
+     literal: *"Es un punto de partida, no la solución: la tuya la justificas tú."*
+   - **Pág. 5, recuadro "Invalida el trabajo":** cortes de una paciente en train y
+     validación; *"pesos preentrenados o arquitectura de catálogo"*; tocar el modelo
+     tras mirar test. El término "arquitectura de catálogo" no aparece en `GUIA.md`.
+   - **Pág. 4, "Esquema de los datos":** `slice_index` "0…85, tras recorte" y
+     `mask_start/end` "volumen original" (coherente con la aclaración de la sección
+     5); *"Las rutas son relativas a breastdcedl/ y usan /, también en Windows"*
+     (relevante para la pregunta 1); menciona un `LEEME.txt` dentro de `dataset/`
+     que **no existe** en esta descarga (ni está en la lista de `descargar_datos.py`).
+   - **Pág. 6, "Cómo se construye la tabla de entrenamiento":** el paso "entrena"
+     dice "8.759 cortes · 878 pacientes · 7.729 pCR=0 y 3.216 pCR=1". Los 8.759/878
+     son correctos para `fold_val=0`, pero 7.729/3.216 son los recuentos de *todo*
+     train; los reales del lado de entrenamiento con `fold_val=0` son **6.183 pCR=0
+     y 2.576 pCR=1** (calculado del CSV). Incoherencia interna de la diapositiva.
+   - **Lectura a fondo posterior** (transcripción completa y verificación en
+     `notas_presentacion_caso.md`, fichero local no versionado): creado por el
+     profesor el 2026-09-23; todas sus cifras cuadran con los datos salvo la de la
+     pág. 6 y el `LEEME.txt`. La figura de la pág. 3 es `ISPY1_1001_z012`, y nuestra
+     carga de imágenes reproduce al milésimo sus medias en tejido (0,354 / 0,445 /
+     0,473, con tejido = PRE > 0,1): el preprocesado es el mismo que el del profesor.
+     El "70,6 % son pCR=0" de la pág. 2 es la cifra de train, no la del total. La
+     arquitectura de referencia no especifica la activación tras la densa de 64 ni
+     la tasa de dropout.
 3. **Licencia. [verificado]** El fichero `LICENSE` del repositorio es **CC BY 4.0**
    (permite uso comercial); la guía (A3, D6) y el PDF §15 dicen **CC BY-NC 4.0**.
 4. **Comprobación de fases PRE<EARLY / LATE>EARLY. [verificado]** Guía/PDF: 100 %
@@ -221,11 +261,49 @@ ficheros salvo las que tienen menos de 10 cortes.
   PNG son 256×256 igualmente.
 - **Intensidad media en tejido (PRE / EARLY / LATE, corte a paciente):** duke
   0,26 / 0,38 / 0,41; spy1 0,28 / 0,39 / 0,42; spy2 0,28 / 0,43 / 0,44.
-- **`slice_index` frente a `mask_start`/`mask_end`:** en Duke el 100 % de los
-  cortes cae dentro de [`mask_start`, `mask_end`]; en spy1 el 47 % y en spy2 el 29 %.
-  En spy, ningún corte supera `mask_end`; el resto queda por debajo de
-  `mask_start`. La documentación dice que en spy se eligen por superficie de máscara
-  3D, sin explicar el sistema de coordenadas de `mask_start/end` para esas cohortes.
+- **`slice_index` frente a `mask_start`/`mask_end`: aclarado y verificado.** El
+  usuario aportó la explicación y se ha comprobado en código (sin pandas, por el
+  bloqueo de DLL — ver nota de entorno más abajo) contra `samples.csv` y
+  `patients.csv` completos:
+  - En **I-SPY1 e I-SPY2** los PNG salen de un volumen ya **recortado**
+    alrededor del tumor; `slice_index` cuenta cortes de ese recorte, mientras
+    que `mask_start`/`mask_end` (y `n_z`, `sraw`, `eraw`, `scol`, `ecol`) se
+    cuentan en el volumen **original**, sin recortar. Son dos numeraciones
+    distintas del mismo eje, desplazadas entre sí. En estas cohortes se
+    entregan los 10 cortes con mayor área tumoral según la máscara 3D, que no
+    tienen por qué ser contiguos.
+  - En **Duke** no hay máscara 3D completa: se entregan los cortes centrales
+    entre `mask_start` y `mask_end` (todos si el rango mide 10 o menos), y esa
+    numeración sí coincide con `slice_index`.
+  - **Verificado con el código exacto que compara min/max de `slice_index` por
+    paciente contra `[mask_start, mask_end]`:** duke 251/251 dentro, spy1
+    44/139, spy2 173/883 — cifras que coinciden con el análisis del usuario.
+  - **Ejemplo verificado, `ISPY2-782334`:** `mask_start=112`, `mask_end=139`
+    (ancho 28), `n_z=176`; `slice_index` en `samples.csv` es
+    `[10,11,12,13,14,17,18,19,20,21]` y los ficheros en disco son exactamente
+    `z010`-`z014` y `z017`-`z021` (hueco en z015/z016) — coincide con lo
+    documentado por el usuario.
+  - **Confirmación adicional no incluida en la nota original:** en las 6
+    pacientes Duke con menos de 10 cortes, el número de cortes entregados
+    coincide *exactamente* con `mask_end-mask_start+1` en las 6 (8=8, 5=5,
+    6=6, 7=7, 6=6, 6=6). En las Duke con máscara más ancha que 10, los cortes
+    entregados son siempre menos que `mask_end-mask_start+1` (245 de 251 con
+    diferencia, hasta -121 cortes), consistente con "coge los centrales si el
+    rango excede 10, cógelos todos si no".
+  - **Huecos en `slice_index` por paciente:** 0 % en duke, 33,1 % en spy1,
+    30,4 % en spy2 — coherente con "duke = rango contiguo" vs. "spy1/spy2 = los
+    de mayor área, sin garantía de contigüidad".
+  - **Caso que no encaja con el modelo, sin explicar:** `ISPY2-553012` (spy2)
+    tiene `mask_start == mask_end` (ancho de máscara = 1 corte) pero se
+    entregan 5 cortes; si el criterio fuera "los de mayor área dentro de
+    `[mask_start, mask_end]`" no debería poder salir más de 1. Queda como
+    excepción sin explicación, no como refutación del mecanismo general.
+  - **Regla de uso que se sigue de esto:** no usar `mask_start`/`mask_end` para
+    localizar o filtrar cortes en spy1/spy2 (todos los PNG entregados ya
+    contienen tumor); sí puede usarse `mask_end-mask_start+1` como extensión
+    axial del tumor, que no depende del recorte; `slice_index` solo sirve para
+    ordenar los cortes de una misma paciente, no para comparar entre pacientes
+    ni cohortes.
 - **Visualización [verificado]:** corrí los tres modos de `ver_muestras.py`
   (`muestra`, `paciente`, `comparar`) con el enlace descrito. PRE se ve más oscuro
   que EARLY; el realce EARLY−PRE resalta la zona que capta contraste; LATE es
@@ -239,6 +317,15 @@ ficheros salvo las que tienen menos de 10 cortes.
   ilustra el `except Exception` silencioso de `evaluar_por_paciente`. `torch` no
   está instalado en ninguna parte, luego `BreastDCEDataset` vale `None` en este
   entorno.
+  **Actualización:** el mismo bloqueo de DLL por "política de Control de
+  aplicaciones" apareció después también con `pandas` (en `pandas._libs.window.
+  indexers`, necesario ya solo con `import pandas`), tanto en un directorio
+  temporal como instalado dentro del propio `.venv` del proyecto — no es
+  exclusivo de rutas temporales. Verificaciones posteriores sobre `samples.csv`/
+  `patients.csv` se hicieron en Python puro con el módulo `csv`, sin pandas, para
+  evitarlo. Como el entrenamiento se hará en un dispositivo GPU externo (pregunta
+  2 de la sección 7, ya resuelta), este bloqueo local no debería afectar al
+  entrenamiento en sí, solo a explorar datos en esta máquina.
 - **Git:** `.gitignore` ignora `train/`, `test/` y `metadata/` (con lo que ni las
   imágenes ni los CSV entran en el repo). Solo hay dos commits; `GUIA.md`, `LICENSE`,
   los scripts y `documentation/` están sin añadir.
@@ -293,7 +380,10 @@ No he modificado ningún fichero del proyecto salvo crear este documento.
 1. **Disposición de carpetas.** ¿Es intencionado que `metadata/` y los scripts
    estén en la raíz y `dataset/` dentro de `breastdcedl/`? Hoy `cargar_imagen`,
    `BreastDCEDataset` y `ver_muestras.py` no encuentran las imágenes con sus
-   valores por defecto.
+   valores por defecto. *Evidencia nueva:* la pág. 4 de `presentacion_caso.pdf`
+   dice que "las rutas son relativas a breastdcedl/", es decir, el curso espera
+   todo (metadatos, scripts e imágenes) dentro de `breastdcedl/`, como en
+   `GUIA.md` A3. Sigue pendiente de respuesta del usuario.
 2. **Entorno de entrenamiento.** ~~¿Dónde vas a entrenar?~~ **Resuelta:** en GPU,
    conectando a un dispositivo externo (no local). El `.venv` del repo solo tiene
    `requests` y no hay `torch` instalado en ningún sitio de este proyecto; sigue
@@ -313,8 +403,10 @@ No he modificado ningún fichero del proyecto salvo crear este documento.
    cohorte como entrada del modelo, o solo las imágenes?
 7. **Pacientes anómalas.** `ISPY1_1139` (EARLY == LATE en todos los cortes) y las
    cuatro con PRE ≥ EARLY: ¿son conocidas/esperadas? No las he tocado.
-8. **`mask_start`/`mask_end` en spy1/spy2.** El 53 % y el 71 % de sus cortes caen por
-   debajo de `mask_start`; no sé en qué sistema de coordenadas están esos campos.
+8. **`mask_start`/`mask_end` en spy1/spy2.** ~~No sé en qué sistema de coordenadas
+   están esos campos.~~ **Resuelta por el usuario y verificada:** ver sección 5,
+   "`slice_index` frente a `mask_start`/`mask_end`". `slice_index` cuenta sobre
+   el volumen recortado; `mask_start`/`mask_end` sobre el original.
 9. **Motivo de las exclusiones.** El CSV solo trae `('Breast_MRI_001', 4)`; ¿tienes
    más contexto del "4"?
 10. **Validación privada.** ¿Hay alguna información adicional sobre cómo se

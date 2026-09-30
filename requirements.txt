@@ -1,0 +1,20 @@
+# Dependencias del caso BreastDCEDL (GUIA.md, A3).
+#
+# PyTorch CON soporte de GPU NVIDIA hay que instalarlo aparte, desde el indice
+# de PyTorch (el de PyPI en Windows trae solo la version CPU). Elige la version
+# de CUDA en https://pytorch.org/get-started/locally/ ; por ejemplo:
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+#
+# y despues el resto:
+#
+#   pip install -r requirements.txt
+#
+# Comprobacion: python -c "import torch; print(torch.cuda.is_available())"  -> True
+
+numpy
+pandas
+pillow
+matplotlib
+scikit-learn
+requests

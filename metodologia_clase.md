@@ -28,6 +28,12 @@ arquitectura o qué normalización usar sigue siendo una decisión de diseño
 pendiente), pero fija que, ante contradicción, las reglas del caso ganan sobre
 la práctica general enseñada en clase.
 
+**Actualización (2026-09-23):** `presentacion_caso.pdf` (diapositivas del profesor
+sobre el caso) se añade también como fuente de verdad, **pero no absoluta**: sus
+propuestas de diseño, como la arquitectura de referencia, son el punto de partida
+por defecto, y hay libertad para usar ideas mejores si están justificadas. Queda por
+encima de estos tres PDFs de clase y por debajo de `GUIA.md` y el enunciado.
+
 ---
 
 ## 1. `CNN/03_CNN1.pdf` — Redes neuronales convolucionales I
