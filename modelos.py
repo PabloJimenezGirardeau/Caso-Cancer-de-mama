@@ -43,8 +43,34 @@ ARQUITECTURAS: dict[str, dict] = {
     "R":    {"canales": [16, 32, 64, 128],      "bn": False},
     "R_BN": {"canales": [16, 32, 64, 128],      "bn": True},
     "R5":   {"canales": [16, 32, 64, 128, 256], "bn": True},
+    # RX2 DESCARTADA (DECISIONES.md, D6): 1,7x mas lenta y ~4x mas parametros
+    # que R_BN, sin ventaja observable. Se conserva solo para poder cargar su
+    # checkpoint y reproducir la criba; no se usa en los experimentos nuevos.
     "RX2":  {"canales": [32, 64, 128, 256],     "bn": True},
 }
+
+
+ENTRADAS = ("fases", "realce")
+
+
+class EntradaRealce(nn.Module):
+    """Convierte (PRE, EARLY, LATE) en (PRE, EARLY-PRE, LATE-EARLY).
+
+    Canal 0: la anatomia (la fase sin contraste). Canal 1: cuanto capta
+    contraste cada pixel (el realce, que es la señal del problema). Canal 2:
+    cuanto cambia despues (lavado o *washout*). Es una combinacion lineal de
+    los mismos tres canales: no se pierde ni se añade informacion, solo se le
+    da a la red ya calculado lo que tendria que descubrir sola. Sin parametros.
+
+    Va DENTRO del modelo, como primera operacion, y no en el Dataset: asi quien
+    use el modelo (el entrenamiento, la evaluacion o la app) le entrega siempre
+    PRE, EARLY y LATE tal cual, y el calculo no puede diferir entre
+    entrenamiento e inferencia.
+    """
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:          # (N, 3, H, W)
+        pre, early, late = x[:, 0], x[:, 1], x[:, 2]
+        return torch.stack([pre, early - pre, late - early], dim=1)
 
 
 class BloqueConv(nn.Module):
@@ -84,8 +110,11 @@ class EmbudoCNN(nn.Module):
     """
 
     def __init__(self, canales: list[int], bn: bool, in_channels: int = 3,
-                 oculta: int = OCULTA, dropout: float = DROPOUT):
+                 oculta: int = OCULTA, dropout: float = DROPOUT, entrada: str = "fases"):
         super().__init__()
+        if entrada not in ENTRADAS:
+            raise ValueError(f"entrada debe ser una de {ENTRADAS}, recibido {entrada!r}")
+        self.entrada = EntradaRealce() if entrada == "realce" else nn.Identity()
         capas = []
         c_in = in_channels
         for c_out in canales:
@@ -104,18 +133,23 @@ class EmbudoCNN(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.entrada(x)            # (N, 3, H, W): fases tal cual, o realce
         x = self.extractor(x)          # (N, C, h, w)
         x = x.mean(dim=(2, 3))         # GAP -> (N, C)
         x = self.clasificador(x)       # (N, 1)
         return x.squeeze(1)            # (N,)
 
 
-def crear_modelo(nombre: str) -> EmbudoCNN:
-    """Crea una de las cuatro arquitecturas candidatas por su nombre corto."""
+def crear_modelo(nombre: str, entrada: str = "fases", dropout: float = DROPOUT) -> EmbudoCNN:
+    """Crea una de las arquitecturas candidatas por su nombre corto.
+
+    `entrada`: "fases" (PRE, EARLY, LATE tal cual) o "realce" (ver EntradaRealce).
+    `dropout`: probabilidad de apagado en la capa densa.
+    """
     if nombre not in ARQUITECTURAS:
         raise ValueError(f"arquitectura desconocida {nombre!r}; opciones: {list(ARQUITECTURAS)}")
     cfg = ARQUITECTURAS[nombre]
-    return EmbudoCNN(canales=cfg["canales"], bn=cfg["bn"])
+    return EmbudoCNN(canales=cfg["canales"], bn=cfg["bn"], entrada=entrada, dropout=dropout)
 
 
 def contar_parametros(modelo: nn.Module) -> int:
@@ -126,11 +160,17 @@ if __name__ == "__main__":
     # Paso 6 del metodo de clase ("Construir una CNN desde cero"): comprobar
     # formas y parametros con un tensor falso ANTES de entrenar nada de verdad.
     x = torch.randn(2, 3, 256, 256)
-    print(f"{'arquitectura':6s}  {'parametros':>11s}  {'salida':>10s}")
+    print(f"{'arquitectura':6s}  {'entrada':>8s}  {'parametros':>11s}  {'salida':>10s}")
     for nombre in ARQUITECTURAS:
-        m = crear_modelo(nombre)
-        y = m(x)
-        assert y.shape == (2,), f"forma de salida inesperada: {tuple(y.shape)}"
-        print(f"{nombre:6s}  {contar_parametros(m):>11,}  {tuple(y.shape)!s:>10s}")
+        for entrada in ENTRADAS:
+            m = crear_modelo(nombre, entrada=entrada)
+            y = m(x)
+            assert y.shape == (2,), f"forma de salida inesperada: {tuple(y.shape)}"
+            print(f"{nombre:6s}  {entrada:>8s}  {contar_parametros(m):>11,}  {tuple(y.shape)!s:>10s}")
+    # el realce debe ser exactamente (PRE, EARLY-PRE, LATE-EARLY)
+    r = EntradaRealce()(x)
+    assert torch.equal(r[:, 0], x[:, 0]) and torch.equal(r[:, 1], x[:, 1] - x[:, 0]) \
+        and torch.equal(r[:, 2], x[:, 2] - x[:, 1]), "EntradaRealce no calcula lo esperado"
+    print("EntradaRealce: (PRE, EARLY-PRE, LATE-EARLY) correcto")
     print("\nSi ves un AssertionError o una excepcion arriba, NO entrenes todavia:")
     print("el fallo es de dimensiones, no de aprendizaje (ver 04_CNN2.pdf, Paso 6).")

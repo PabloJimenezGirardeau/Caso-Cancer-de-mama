@@ -103,6 +103,102 @@ de Python ejecutables en Windows, no un cuaderno de Colab.
 
 ---
 
+## D6 · 2026-10-01 · Resultado de la criba y descarte de RX2
+
+**Resultados** (fold 0, pérdida ponderada, AUC por paciente con agregación `mean`, en la
+mejor época; GPU AMD Radeon RX 6700 XT con ROCm):
+
+| Red | Mejor época | AUC val | Épocas | s/época | Pérdida train (final) |
+|---|---|---|---|---|---|
+| R | 1 | 0,5654 | 9 | 28 | 0,974 |
+| R_BN | 2 | 0,5734 | 10 | 30 | 0,901 |
+| R5 | 2 | 0,5591 | 10 | 30 | 0,919 |
+| RX2 | 2 | 0,5481 | 10 | 50 | 0,924 |
+
+**Lectura:** las cuatro quedan entre 0,548 y 0,573, dentro del ruido (IC95 de ≈ ±0,08 con
+un fold de 219 pacientes) y cerca del azar; ninguna gana. El AUC de "mejor época" es
+optimista, porque la época se elige sobre la propia validación (siempre la 1 o la 2).
+R apenas aprende (pérdida 0,9795 → 0,9739; una red constante tiene 0,9786 con este
+`pos_weight`). Como referencia, identificar solo la cohorte da AUC 0,534 en este fold
+(0,526-0,593 en los demás), y el subtipo tumoral solo, 0,662 (no disponible para la app).
+
+**Comprobación del código:** prueba de sobreajuste (paso 6B de los apuntes) con R_BN y 20
+pacientes: pérdida de entrenamiento 0,664 → 0,070 en 150 épocas. La red memoriza, luego
+el entrenamiento funciona.
+
+**Decisión:** se descarta **RX2**. No por su AUC (la diferencia no es significativa),
+sino por coste y ausencia de ventaja: es 1,7 veces más lenta, tiene casi 4 veces más
+parámetros que R_BN (más riesgo de sobreajuste con ~878 pacientes) y su papel de
+comparación limpia frente a R5 ("¿falta contexto o faltan filtros?") no se puede
+resolver con este nivel de ruido. Se mantienen **R** (referencia del profesor), **R_BN**
+y **R5**.
+
+**Alternativas:** descartar también R (sin BatchNorm no aprende en 9 épocas) — se
+descartó la idea a petición del usuario, que prefiere conservar la arquitectura base;
+mantener las cuatro.
+
+---
+
+## D7 · 2026-10-01 · Aumentado geométrico más fuerte (opción `--aumentado fuerte`)
+
+**Decisión:** probar, frente al aumentado básico (solo volteo horizontal), un aumentado
+"fuerte": volteo horizontal (p=0,5) + rotación aleatoria de ±15° + desplazamiento de
+±10 % del lado + escala entre 0,9 y 1,1. Se sortea **una sola transformación por muestra**
+y se aplica con la misma malla a las tres fases (PRE, EARLY, LATE no pueden desalinearse).
+El hueco se rellena con 0 (fondo negro). Sin cambios de brillo ni de color: las fases no son
+colores. Solo en entrenamiento; validación y test no se aumentan.
+
+**Por qué:** con ~878 pacientes de entrenamiento la red memoriza (prueba de sobreajuste:
+pérdida 0,664 → 0,070) sin generalizar (AUC de validación ~0,55, igual que identificar solo la
+cohorte). Más variedad geométrica es la forma estándar y barata de regularizar.
+
+**Verificado en código:** los tres canales se transforman siempre igual (canales idénticos
+siguen idénticos; cada canal sale igual que transformado por separado con el mismo sorteo);
+sin rotación/escala/desplazamiento equivale a `torch.flip` (error 3·10⁻⁵); forma y rango
+[0,1] conservados; resultados idénticos entre ejecuciones con la misma semilla.
+
+**Alternativas:** aumentado más suave o más agresivo; aumentos fotométricos (descartados por
+la regla del caso sobre color/ImageNet); más aumentado solo sobre la ganadora.
+
+---
+
+## D8 · 2026-10-01 · Canales de realce (opción `--entrada realce`)
+
+**Decisión:** probar como entrada de la red **(PRE, EARLY−PRE, LATE−EARLY)** en lugar de
+(PRE, EARLY, LATE). Canal 0: anatomía; canal 1: captación de contraste (la señal del problema);
+canal 2: lavado posterior (*washout*). Sigue siendo `in_channels=3`. Es una combinación lineal de
+los mismos canales: no se pierde ni se añade información.
+
+**Dónde se calcula:** **dentro del modelo**, como primera operación fija y sin parámetros
+(`EntradaRealce` en `modelos.py`), no en el `Dataset`. Así el entrenamiento, la evaluación y la
+app le entregan al modelo siempre PRE, EARLY y LATE tal cual, y el cálculo no puede diferir entre
+entrenamiento e inferencia (comprobación explícita de la defensa).
+
+**Por qué:** la señal está en la diferencia entre fases; una convolución podría aprender esa
+resta, pero con pocos pacientes es más fácil dársela hecha.
+
+**Verificado en código:** el cálculo es exactamente (PRE, EARLY−PRE, LATE−EARLY); los parámetros
+de las redes no cambian; los checkpoints antiguos siguen cargando. Rangos en un corte de ejemplo:
+canal 1 ∈ [−0,23; 0,64], canal 2 ∈ [−0,37; 0,60].
+
+**Alternativas:** (PRE, EARLY−PRE, LATE−PRE); añadir canales en vez de sustituir
+(`in_channels` > 3, contra la guía); reescalar las diferencias.
+
+**Plan de pruebas (fold 0, R_BN, protocolo D4 sin más cambios):**
+
+| Prueba | Aumentado | Entrada |
+|---|---|---|
+| Referencia (hecha en la criba) | básico | fases |
+| 1 | fuerte | fases |
+| 2 | básico | realce |
+| 3 | fuerte | realce |
+
+Los ficheros de salida incluyen ahora la configuración en el nombre (y las pruebas rápidas
+`prueba<N>`), y `entrenar.py` se niega a sobrescribir un resultado existente salvo con
+`--sobrescribir`.
+
+---
+
 ## Decisiones previas (fase de exploración)
 
 - `metadata/samples.csv` es la fuente de verdad de los folds; la tabla de `GUIA.md` C1

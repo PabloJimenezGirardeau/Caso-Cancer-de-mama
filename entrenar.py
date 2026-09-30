@@ -4,8 +4,14 @@ Protocolo comun a las cuatro arquitecturas (DECISIONES.md, D4), para que la
 comparacion entre ellas sea justa:
 
     Entrada         tal cual llega de utils_caso, en [0,1], sin normalizar mas
-    Aumentado       volteo horizontal (p=0.5) al tensor de 3 canales completo,
-                    solo en entrenamiento
+    Aumentado       --aumentado basico (por defecto): volteo horizontal (p=0.5).
+                    --aumentado fuerte: volteo + rotacion (+-15 grados) +
+                    desplazamiento (+-10 %) + escala (0,9-1,1). En ambos casos
+                    al tensor de 3 canales completo y solo en entrenamiento.
+    Entrada         --entrada fases (por defecto): PRE, EARLY, LATE tal cual.
+                    --entrada realce: el modelo calcula (PRE, EARLY-PRE,
+                    LATE-EARLY) como primera operacion (ver modelos.py).
+    Dropout         --dropout 0.5 por defecto (capa densa).
     Optimizador     AdamW, lr=1e-3, weight_decay=1e-4
     Scheduler       ReduceLROnPlateau sobre el AUC de validacion (factor 0.5,
                     paciencia 3 epocas)
@@ -48,6 +54,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import time
@@ -59,6 +66,7 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader
 
@@ -66,6 +74,8 @@ import modelos as mo
 import utils_caso as uc
 
 RAIZ_SCRIPT = Path(__file__).resolve().parent
+LR_DEFECTO = 1e-3
+WD_DEFECTO = 1e-4
 
 
 # --------------------------------------------------------------------------- #
@@ -127,6 +137,59 @@ class VolteoHorizontal:
         return x
 
 
+class AumentadoAfin:
+    """Volteo horizontal + rotacion + desplazamiento + escala, al azar, sobre el
+    tensor (3, H, W) completo.
+
+    Se sortea UNA sola transformacion afin por muestra y se aplica con la misma
+    malla de muestreo a los tres canales, asi que PRE, EARLY y LATE no pueden
+    desalinearse. Lo que queda fuera de la imagen se rellena con 0, que es el
+    fondo negro. Sin cambios de brillo ni de color: las fases no son colores.
+    Solo usa PyTorch (affine_grid + grid_sample).
+    """
+
+    def __init__(self, p_volteo: float = 0.5, grados: float = 15.0,
+                 desplazamiento: float = 0.10, escala: tuple = (0.9, 1.1)):
+        self.p_volteo, self.grados = p_volteo, grados
+        self.desplazamiento, self.escala = desplazamiento, escala
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        u = torch.rand(5).tolist()                              # 5 sorteos en [0, 1)
+        volteo = -1.0 if u[0] < self.p_volteo else 1.0
+        ang = (2 * u[1] - 1) * self.grados * math.pi / 180
+        # el lado de la imagen mide 2 en coordenadas normalizadas [-1, 1]
+        tx = (2 * u[2] - 1) * self.desplazamiento * 2
+        ty = (2 * u[3] - 1) * self.desplazamiento * 2
+        s = self.escala[0] + u[4] * (self.escala[1] - self.escala[0])
+        c, sn = math.cos(ang), math.sin(ang)
+        theta = torch.tensor([[[volteo * c / s, -sn / s, tx],
+                               [volteo * sn / s, c / s, ty]]], dtype=x.dtype)
+        malla = F.affine_grid(theta, (1, *x.shape), align_corners=False)
+        salida = F.grid_sample(x.unsqueeze(0), malla, mode="bilinear",
+                               padding_mode="zeros", align_corners=False)
+        return salida.squeeze(0)
+
+
+def prefijo_salida(args) -> str:
+    """Nombre de los ficheros de salida. Incluye todo lo que se aparte de los
+    valores por defecto, para que dos configuraciones distintas (o una prueba
+    rapida) nunca se sobrescriban entre si."""
+    partes = [args.arch, f"fold{args.fold}", args.loss]
+    if args.entrada != "fases":
+        partes.append(args.entrada)
+    if args.aumentado != "basico":
+        partes.append(f"aug-{args.aumentado}")
+    if args.dropout != mo.DROPOUT:
+        partes.append(f"do{args.dropout:g}")
+    if args.lr != LR_DEFECTO:
+        partes.append(f"lr{args.lr:g}")
+    if args.wd != WD_DEFECTO:
+        partes.append(f"wd{args.wd:g}")
+    if args.muestra_rapida:
+        partes.append(f"prueba{args.muestra_rapida}")
+    return "_".join(partes)
+
+
 # --------------------------------------------------------------------------- #
 # Un epoca de entrenamiento / validacion
 # --------------------------------------------------------------------------- #
@@ -177,8 +240,15 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--epocas", type=int, default=40)
     p.add_argument("--paciencia", type=int, default=8, help="epocas sin mejorar el AUC antes de parar")
     p.add_argument("--lote", type=int, default=32)
-    p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--wd", type=float, default=1e-4)
+    p.add_argument("--lr", type=float, default=LR_DEFECTO)
+    p.add_argument("--wd", type=float, default=WD_DEFECTO)
+    p.add_argument("--dropout", type=float, default=mo.DROPOUT, help="dropout de la capa densa")
+    p.add_argument("--aumentado", choices=["basico", "fuerte"], default="basico",
+                   help="basico: solo volteo horizontal; fuerte: volteo + rotacion + desplazamiento + escala")
+    p.add_argument("--entrada", choices=list(mo.ENTRADAS), default="fases",
+                   help="fases: (PRE, EARLY, LATE); realce: (PRE, EARLY-PRE, LATE-EARLY) calculado dentro del modelo")
+    p.add_argument("--sobrescribir", action="store_true",
+                   help="permitir sobrescribir resultados existentes con el mismo nombre")
     p.add_argument("--factor-lr", type=float, default=0.5)
     p.add_argument("--paciencia-lr", type=int, default=3)
     p.add_argument("--semilla", type=int, default=42)
@@ -202,6 +272,14 @@ def main() -> None:
     except ImportError:
         raise SystemExit("Falta scikit-learn: sin el, el AUC sale nan y la comparacion "
                          "no vale. Instalalo con:  pip install scikit-learn")
+
+    prefijo = prefijo_salida(args)
+    ruta_checkpoint = args.salida / f"{prefijo}.pt"
+    ruta_log = args.salida / f"{prefijo}_epocas.csv"
+    ruta_resumen = args.salida / f"{prefijo}_resumen.json"
+    if ruta_resumen.exists() and not args.sobrescribir:
+        raise SystemExit(f"Ya existe {ruta_resumen}.\nNo lo sobrescribo para no perder un resultado: "
+                         "usa --sobrescribir si es lo que quieres.")
 
     fijar_semilla(args.semilla)
 
@@ -227,7 +305,8 @@ def main() -> None:
           f"{entrenamiento.patient_id.nunique()} pacientes, valida {len(validacion)} / "
           f"{validacion.patient_id.nunique()}")
 
-    ds_tr = uc.BreastDCEDataset(entrenamiento, raiz=raiz_img, transform=VolteoHorizontal(0.5))
+    transformacion = VolteoHorizontal(0.5) if args.aumentado == "basico" else AumentadoAfin()
+    ds_tr = uc.BreastDCEDataset(entrenamiento, raiz=raiz_img, transform=transformacion)
     ds_va = uc.BreastDCEDataset(validacion, raiz=raiz_img, transform=None)  # sin aumentado en validacion
 
     # persistent_workers: en Windows cada proceso lector tarda segundos en
@@ -241,7 +320,7 @@ def main() -> None:
     dl_va = DataLoader(ds_va, batch_size=64, shuffle=False,   # shuffle=False: obligatorio, ver GUIA.md D2
                        **opciones_loader)
 
-    modelo = mo.crear_modelo(args.arch).to(device)
+    modelo = mo.crear_modelo(args.arch, entrada=args.entrada, dropout=args.dropout).to(device)
     n_params = mo.contar_parametros(modelo)
 
     valor_pos_weight = None
@@ -258,10 +337,9 @@ def main() -> None:
         optimizador, mode="max", factor=args.factor_lr, patience=args.paciencia_lr)
 
     args.salida.mkdir(parents=True, exist_ok=True)
-    prefijo = f"{args.arch}_fold{args.fold}_{args.loss}"
-    ruta_checkpoint = args.salida / f"{prefijo}.pt"
-    ruta_log = args.salida / f"{prefijo}_epocas.csv"
-    ruta_resumen = args.salida / f"{prefijo}_resumen.json"
+    print(f"configuracion: arch={args.arch} entrada={args.entrada} aumentado={args.aumentado} "
+          f"dropout={args.dropout:g} lr={args.lr:g} wd={args.wd:g} loss={args.loss}")
+    print(f"salida: {args.salida / prefijo}*")
 
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
@@ -304,6 +382,8 @@ def main() -> None:
                 epocas_sin_mejora = 0
                 torch.save({
                     "arch": args.arch, "fold": args.fold, "loss": args.loss,
+                    "entrada": args.entrada, "aumentado": args.aumentado,
+                    "dropout": args.dropout,
                     "epoca": epoca, "auc_val": auc, "umbral": args.umbral,
                     "metodo_agregacion": args.metodo_agregacion,
                     "state_dict": modelo.state_dict(),
@@ -322,6 +402,9 @@ def main() -> None:
         "parametros": n_params,
         "fold": args.fold,
         "perdida": args.loss,
+        "entrada": args.entrada,
+        "aumentado": args.aumentado,
+        "dropout": args.dropout,
         "pos_weight": valor_pos_weight,
         "pacientes_train": int(entrenamiento.patient_id.nunique()),
         "pacientes_val": int(validacion.patient_id.nunique()),
