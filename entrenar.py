@@ -1,53 +1,37 @@
-"""Entrena y evalua una de las arquitecturas candidatas (ver modelos.py).
+"""Entrena la red base y deja el diagnostico completo: curvas, ROC y matriz de confusion.
 
-Protocolo comun a las cuatro arquitecturas (DECISIONES.md, D4), para que la
-comparacion entre ellas sea justa:
+Ajustes acordados (ver DECISIONES.md):
+    red            RedBase (modelos.py): la arquitectura de referencia del profesor
+    perdida        --perdida normal | ponderada     (se entrenan las dos y se comparan)
+    optimizador    Adam, learning rate 0,0003
+    lote           128
+    epocas         40 fijas, SIN parada temprana (se ve la curva entera);
+                   se guarda el modelo de la epoca con mejor AUC por paciente en validacion
+    datos          sin aumentado, entrada tal cual (PRE, EARLY, LATE en [0, 1])
+    validacion     un fold (--fold, por defecto 0); el test NO se toca
+    metricas       por PACIENTE: se promedian las probabilidades de sus cortes, umbral 0,5
 
-    Entrada         tal cual llega de utils_caso, en [0,1], sin normalizar mas
-    Aumentado       --aumentado basico (por defecto): volteo horizontal (p=0.5).
-                    --aumentado fuerte: volteo + rotacion (+-15 grados) +
-                    desplazamiento (+-10 %) + escala (0,9-1,1). En ambos casos
-                    al tensor de 3 canales completo y solo en entrenamiento.
-    Entrada         --entrada fases (por defecto): PRE, EARLY, LATE tal cual.
-                    --entrada realce: el modelo calcula (PRE, EARLY-PRE,
-                    LATE-EARLY) como primera operacion (ver modelos.py).
-    Dropout         --dropout 0.5 por defecto (capa densa).
-    Optimizador     AdamW, lr=1e-3, weight_decay=1e-4
-    Scheduler       ReduceLROnPlateau sobre el AUC de validacion (factor 0.5,
-                    paciencia 3 epocas)
-    Lote            32
-    Epocas          maximo 40, parada si el AUC por paciente no mejora en 8
-    Metrica         AUC por paciente (agregacion "mean", provisional: el
-                    metodo definitivo se decide mas adelante)
-    Semilla         42 (Python, NumPy, PyTorch, cuDNN determinista)
+Cada epoca se mide en validacion (sobre todos los cortes del fold) y tambien, para
+poder ver el sobreajuste, sobre un grupo fijo de pacientes de ENTRENAMIENTO
+(--pacientes-vigilados) con el modelo en modo evaluacion.
 
-Rutas: `metadata/` y `dataset/` se buscan por separado, primero en --raiz y
-luego en --raiz/breastdcedl/ (por defecto --raiz es la carpeta de este script).
-Asi funciona tanto con la disposicion de GUIA.md (todo dentro de breastdcedl/,
-lo que crea `descargar_datos.py` en una maquina nueva) como con la de este
-repositorio (metadata/ en la raiz, imagenes en breastdcedl/dataset/).
-
-Requisitos: torch (con CUDA para usar la GPU), numpy, pandas, pillow y
-scikit-learn. Sin scikit-learn, utils_caso devuelve AUC = nan sin avisar, asi
-que el script se niega a arrancar si no esta instalado.
+Salida, en resultados/ (los nombres incluyen la perdida y el fold):
+    *_epocas.csv        una fila por epoca (los datos en bruto)
+    *_curvas.png        perdida y AUC por epoca, entrenamiento frente a validacion
+    *_roc.png           curva ROC por paciente, en la mejor epoca
+    *_confusion.png     matriz de confusion por paciente, en la mejor epoca
+    *_probs_val.csv     probabilidad de cada corte de validacion en la mejor epoca
+    *.pt                pesos de la mejor epoca
+    *_resumen.json      configuracion, resultado, dispositivo y tiempos
 
 Ejemplos:
+    python entrenar.py --perdida normal                      # entrenamiento real
+    python entrenar.py --perdida ponderada
+    python entrenar.py --perdida normal --muestra-rapida 20 --epocas 3 --num-workers 0   # prueba rapida
 
-    # comprobacion rapida (2-3 min), antes de lanzar nada largo
-    python entrenar.py --arch R_BN --fold 0 --muestra-rapida 20 --epocas 2
-
-    # criba: las 4 arquitecturas en el fold 0, perdida ponderada
-    python entrenar.py --arch R      --fold 0
-    python entrenar.py --arch R_BN   --fold 0
-    python entrenar.py --arch R5     --fold 0
-    python entrenar.py --arch RX2    --fold 0
-
-    # confirmacion de las 2 finalistas en los folds 1-4
-    python entrenar.py --arch R_BN --fold 1
-    ...
-
-    # comparacion obligatoria de perdidas, solo sobre la ganadora
-    python entrenar.py --arch R_BN --fold 0 --loss normal
+En el PC con GPU AMD (ROCm) hay que exportar antes:
+    export HSA_OVERRIDE_GFX_VERSION=10.3.0
+    export HSA_ENABLE_SDMA=0
 """
 
 from __future__ import annotations
@@ -60,26 +44,23 @@ import random
 import time
 from pathlib import Path
 
-# Necesario para que cuBLAS (capas lineales en GPU) sea determinista con
-# torch.use_deterministic_algorithms; tiene que fijarse antes de usar CUDA.
+# Para que las capas lineales en GPU sean deterministas; hay que fijarlo antes de usar CUDA.
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader
 
+import graficas
 import modelos as mo
 import utils_caso as uc
 
-RAIZ_SCRIPT = Path(__file__).resolve().parent
-LR_DEFECTO = 1e-3
-WD_DEFECTO = 1e-4
+RAIZ = Path(__file__).resolve().parent
 
 
 # --------------------------------------------------------------------------- #
-# Reproducibilidad
+# Utilidades
 # --------------------------------------------------------------------------- #
 
 def fijar_semilla(semilla: int) -> None:
@@ -92,137 +73,73 @@ def fijar_semilla(semilla: int) -> None:
     torch.use_deterministic_algorithms(True, warn_only=True)
 
 
-# --------------------------------------------------------------------------- #
-# Rutas y seleccion de pacientes
-# --------------------------------------------------------------------------- #
-
-def localizar(raiz: Path, subcarpeta: str) -> Path:
-    """Devuelve la carpeta que contiene `subcarpeta` (metadata o dataset):
-    `raiz` o `raiz/breastdcedl`."""
+def localizar(subcarpeta: str, raiz: Path) -> Path:
+    """Carpeta que contiene `subcarpeta` (metadata o dataset): `raiz` o `raiz/breastdcedl`
+    (la disposicion cambia entre ordenadores)."""
     for base in (raiz, raiz / "breastdcedl"):
         if (base / subcarpeta).is_dir():
             return base
-    raise FileNotFoundError(
-        f"No encuentro '{subcarpeta}/' ni en {raiz} ni en {raiz / 'breastdcedl'}. "
-        "Descarga los datos con `python descargar_datos.py` o indica --raiz.")
+    raise FileNotFoundError(f"No encuentro '{subcarpeta}/' en {raiz} ni en {raiz / 'breastdcedl'}. "
+                            "Descarga los datos con `python descargar_datos.py` o usa --raiz.")
 
 
-def muestra_estratificada(filas, n: int):
-    """Las filas de n pacientes (mitad pCR=1, mitad pCR=0), para --muestra-rapida.
-    Con pacientes de una sola clase el AUC no se puede calcular."""
-    por_paciente = filas.groupby("patient_id").pCR.first()
-    positivas = sorted(por_paciente[por_paciente == 1].index)[: n // 2]
-    negativas = sorted(por_paciente[por_paciente == 0].index)[: n - len(positivas)]
+def muestra_estratificada(filas, n_pacientes: int):
+    """Las filas de `n_pacientes` pacientes, mitad pCR=1 y mitad pCR=0, siempre los
+    mismos (orden por identificador). Con pacientes de una sola clase no hay AUC."""
+    etiqueta = filas.groupby("patient_id").pCR.first()
+    positivas = sorted(etiqueta[etiqueta == 1].index)[: n_pacientes // 2]
+    negativas = sorted(etiqueta[etiqueta == 0].index)[: n_pacientes - len(positivas)]
     return filas[filas.patient_id.isin(positivas + negativas)]
 
 
-# --------------------------------------------------------------------------- #
-# Aumentado: al tensor de 3 canales completo, nunca canal a canal
-# --------------------------------------------------------------------------- #
-
-class VolteoHorizontal:
-    """Voltea horizontalmente el tensor (3, H, W) completo, con probabilidad p.
-
-    Se aplica a las tres fases a la vez. Voltear una fase por separado
-    desalinearia PRE/EARLY/LATE y destruiria el realce, que es la señal del
-    problema (GUIA.md, B5 y D2).
-    """
-
-    def __init__(self, p: float = 0.5):
-        self.p = p
-
-    def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        if torch.rand(1).item() < self.p:
-            x = torch.flip(x, dims=[-1])
-        return x
+def perdida_de_referencia(proporcion_pcr: float, peso_positivos: float) -> float:
+    """La menor perdida que se puede conseguir SIN mirar la imagen: la de una red que
+    diera a todos los cortes la mejor probabilidad constante. Si la perdida de validacion
+    se queda cerca de este valor, la red no esta aportando nada."""
+    a = peso_positivos * proporcion_pcr          # peso total de los positivos
+    b = 1.0 - proporcion_pcr                     # peso total de los negativos
+    p = a / (a + b)                              # probabilidad constante optima
+    return -(a * math.log(p) + b * math.log(1.0 - p))
 
 
-class AumentadoAfin:
-    """Volteo horizontal + rotacion + desplazamiento + escala, al azar, sobre el
-    tensor (3, H, W) completo.
-
-    Se sortea UNA sola transformacion afin por muestra y se aplica con la misma
-    malla de muestreo a los tres canales, asi que PRE, EARLY y LATE no pueden
-    desalinearse. Lo que queda fuera de la imagen se rellena con 0, que es el
-    fondo negro. Sin cambios de brillo ni de color: las fases no son colores.
-    Solo usa PyTorch (affine_grid + grid_sample).
-    """
-
-    def __init__(self, p_volteo: float = 0.5, grados: float = 15.0,
-                 desplazamiento: float = 0.10, escala: tuple = (0.9, 1.1)):
-        self.p_volteo, self.grados = p_volteo, grados
-        self.desplazamiento, self.escala = desplazamiento, escala
-
-    def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        u = torch.rand(5).tolist()                              # 5 sorteos en [0, 1)
-        volteo = -1.0 if u[0] < self.p_volteo else 1.0
-        ang = (2 * u[1] - 1) * self.grados * math.pi / 180
-        # el lado de la imagen mide 2 en coordenadas normalizadas [-1, 1]
-        tx = (2 * u[2] - 1) * self.desplazamiento * 2
-        ty = (2 * u[3] - 1) * self.desplazamiento * 2
-        s = self.escala[0] + u[4] * (self.escala[1] - self.escala[0])
-        c, sn = math.cos(ang), math.sin(ang)
-        theta = torch.tensor([[[volteo * c / s, -sn / s, tx],
-                               [volteo * sn / s, c / s, ty]]], dtype=x.dtype)
-        malla = F.affine_grid(theta, (1, *x.shape), align_corners=False)
-        salida = F.grid_sample(x.unsqueeze(0), malla, mode="bilinear",
-                               padding_mode="zeros", align_corners=False)
-        return salida.squeeze(0)
-
-
-def prefijo_salida(args) -> str:
-    """Nombre de los ficheros de salida. Incluye todo lo que se aparte de los
-    valores por defecto, para que dos configuraciones distintas (o una prueba
-    rapida) nunca se sobrescriban entre si."""
-    partes = [args.arch, f"fold{args.fold}", args.loss]
-    if args.entrada != "fases":
-        partes.append(args.entrada)
-    if args.aumentado != "basico":
-        partes.append(f"aug-{args.aumentado}")
-    if args.dropout != mo.DROPOUT:
-        partes.append(f"do{args.dropout:g}")
-    if args.lr != LR_DEFECTO:
-        partes.append(f"lr{args.lr:g}")
-    if args.wd != WD_DEFECTO:
-        partes.append(f"wd{args.wd:g}")
-    if args.muestra_rapida:
-        partes.append(f"prueba{args.muestra_rapida}")
-    return "_".join(partes)
+def por_paciente(filas, probs):
+    """(etiqueta, probabilidad media) de cada paciente, en el mismo orden."""
+    agregado = uc.agregar_por_paciente(filas.patient_id.values, probs, "mean")
+    etiqueta = filas.groupby("patient_id").pCR.first().loc[agregado.index]
+    return etiqueta.values, agregado.prob.values
 
 
 # --------------------------------------------------------------------------- #
-# Un epoca de entrenamiento / validacion
+# Una epoca de entrenamiento y la medicion
 # --------------------------------------------------------------------------- #
 
 def entrenar_una_epoca(modelo, dl, criterio, optimizador, device) -> float:
+    """Pasa una vez por todos los datos de entrenamiento, lote a lote. Devuelve la
+    perdida media de la epoca (con el dropout activo, tal como se entrena)."""
     modelo.train()
-    perdida_total = 0.0
-    n = 0
+    suma, n = 0.0, 0
     for x, y in dl:
         x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
-        optimizador.zero_grad()          # PyTorch acumula gradientes si no se limpian
-        logits = modelo(x)
-        perdida = criterio(logits, y)
+        optimizador.zero_grad()              # PyTorch acumula gradientes si no se limpian
+        perdida = criterio(modelo(x), y)
         perdida.backward()
         optimizador.step()
-        perdida_total += perdida.item() * x.size(0)
+        suma += perdida.item() * x.size(0)
         n += x.size(0)
-    return perdida_total / n
+    return suma / n
 
 
 @torch.no_grad()
-def validar(modelo, dl, filas_val, device, umbral: float, metodo: str) -> dict:
-    """Evalua por paciente. `dl` debe iterar con shuffle=False sobre `filas_val`
-    en el mismo orden, o las probabilidades dejan de casar con las filas
-    (GUIA.md, D2 y D3)."""
+def medir(modelo, dl, filas, criterio, device, umbral: float):
+    """Modo evaluacion (sin dropout) sobre `filas`. `dl` debe iterar con shuffle=False
+    sobre esas mismas filas, o las probabilidades dejan de casar con ellas.
+    Devuelve (perdida por corte, metricas por paciente, probabilidad de cada corte)."""
     modelo.eval()
-    probs = []
-    for x, _ in dl:
-        x = x.to(device, non_blocking=True)
-        logits = modelo(x)
-        probs.append(torch.sigmoid(logits).cpu().numpy())
-    probs = np.concatenate(probs)
-    return uc.evaluar_por_paciente(probs, filas_val, umbral=umbral, metodo=metodo)
+    logits = torch.cat([modelo(x.to(device, non_blocking=True)) for x, _ in dl])
+    y = torch.as_tensor(filas.pCR.values, dtype=torch.float32, device=device)
+    perdida = criterio(logits, y).item()
+    probs = torch.sigmoid(logits).cpu().numpy()
+    return perdida, uc.evaluar_por_paciente(probs, filas, umbral=umbral, metodo="mean"), probs
 
 
 # --------------------------------------------------------------------------- #
@@ -230,37 +147,25 @@ def validar(modelo, dl, filas_val, device, umbral: float, metodo: str) -> dict:
 # --------------------------------------------------------------------------- #
 
 def construir_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--arch", required=True, choices=list(mo.ARQUITECTURAS),
-                   help="arquitectura candidata (ver modelos.py)")
-    p.add_argument("--fold", type=int, default=0, help="fold_val para uc.particion (0-4)")
-    p.add_argument("--loss", choices=["ponderada", "normal"], default="ponderada",
-                   help="ponderada: BCEWithLogitsLoss(pos_weight=uc.pos_weight(...))")
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--perdida", choices=["normal", "ponderada"], default="normal",
+                   help="ponderada: BCEWithLogitsLoss(pos_weight = N0/N1 de las filas de entrenamiento)")
+    p.add_argument("--fold", type=int, default=0, help="fold de validacion (0-4)")
     p.add_argument("--epocas", type=int, default=40)
-    p.add_argument("--paciencia", type=int, default=8, help="epocas sin mejorar el AUC antes de parar")
-    p.add_argument("--lote", type=int, default=32)
-    p.add_argument("--lr", type=float, default=LR_DEFECTO)
-    p.add_argument("--wd", type=float, default=WD_DEFECTO)
-    p.add_argument("--dropout", type=float, default=mo.DROPOUT, help="dropout de la capa densa")
-    p.add_argument("--aumentado", choices=["basico", "fuerte"], default="basico",
-                   help="basico: solo volteo horizontal; fuerte: volteo + rotacion + desplazamiento + escala")
-    p.add_argument("--entrada", choices=list(mo.ENTRADAS), default="fases",
-                   help="fases: (PRE, EARLY, LATE); realce: (PRE, EARLY-PRE, LATE-EARLY) calculado dentro del modelo")
-    p.add_argument("--sobrescribir", action="store_true",
-                   help="permitir sobrescribir resultados existentes con el mismo nombre")
-    p.add_argument("--factor-lr", type=float, default=0.5)
-    p.add_argument("--paciencia-lr", type=int, default=3)
+    p.add_argument("--lote", type=int, default=128)
+    p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--umbral", type=float, default=0.5)
     p.add_argument("--semilla", type=int, default=42)
-    p.add_argument("--umbral", type=float, default=0.5, help="solo afecta a la matriz de confusion, no al AUC")
-    p.add_argument("--metodo-agregacion", default="mean", choices=uc.METODOS_AGREGACION,
-                   help="provisional para elegir arquitectura; la definitiva se decide aparte")
-    p.add_argument("--raiz", type=Path, default=RAIZ_SCRIPT,
+    p.add_argument("--pacientes-vigilados", type=int, default=200,
+                   help="pacientes de entrenamiento sobre los que tambien se mide cada epoca")
+    p.add_argument("--raiz", type=Path, default=RAIZ,
                    help="donde buscar metadata/ y dataset/ (tambien en su subcarpeta breastdcedl/)")
-    p.add_argument("--salida", type=Path, default=RAIZ_SCRIPT / "resultados")
+    p.add_argument("--salida", type=Path, default=RAIZ / "resultados")
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--muestra-rapida", type=int, default=0,
-                   help="si > 0, limita a N pacientes por lado para una prueba rapida del pipeline")
+                   help="si > 0, usa solo N pacientes por lado: prueba rapida del flujo completo")
+    p.add_argument("--sobrescribir", action="store_true",
+                   help="permitir sobrescribir resultados existentes con el mismo nombre")
     return p
 
 
@@ -268,170 +173,124 @@ def main() -> None:
     args = construir_parser().parse_args()
 
     try:
-        import sklearn  # noqa: F401  (utils_caso lo usa para el AUC)
+        import sklearn  # noqa: F401   (utils_caso lo usa para el AUC)
     except ImportError:
-        raise SystemExit("Falta scikit-learn: sin el, el AUC sale nan y la comparacion "
-                         "no vale. Instalalo con:  pip install scikit-learn")
+        raise SystemExit("Falta scikit-learn: sin el, el AUC sale nan. Instalalo con: pip install scikit-learn")
 
-    prefijo = prefijo_salida(args)
-    ruta_checkpoint = args.salida / f"{prefijo}.pt"
-    ruta_log = args.salida / f"{prefijo}_epocas.csv"
-    ruta_resumen = args.salida / f"{prefijo}_resumen.json"
-    if ruta_resumen.exists() and not args.sobrescribir:
-        raise SystemExit(f"Ya existe {ruta_resumen}.\nNo lo sobrescribo para no perder un resultado: "
+    prefijo = f"base_{args.perdida}_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else "")
+    args.salida.mkdir(parents=True, exist_ok=True)
+    ruta = {k: args.salida / f"{prefijo}{s}" for k, s in
+            dict(csv="_epocas.csv", curvas="_curvas.png", roc="_roc.png", conf="_confusion.png",
+                 probs="_probs_val.csv", pesos=".pt", resumen="_resumen.json").items()}
+    if ruta["resumen"].exists() and not args.sobrescribir:
+        raise SystemExit(f"Ya existe {ruta['resumen']}.\nNo lo sobrescribo para no perder un resultado: "
                          "usa --sobrescribir si es lo que quieres.")
 
     fijar_semilla(args.semilla)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
-        print("*** AVISO: no se detecta GPU CUDA. Se entrena en CPU, muchisimo mas lento. ***\n"
-              "*** Si esperabas usar la GPU, revisa que torch este instalado con CUDA.     ***")
+        print("*** AVISO: no se detecta GPU. Se entrena en CPU, mucho mas lento. ***")
 
-    raiz_meta = localizar(args.raiz, "metadata")
-    raiz_img = localizar(args.raiz, "dataset")
-    print(f"metadata/ en {raiz_meta}   |   dataset/ en {raiz_img}")
-
-    samples = uc.cargar_samples(raiz_meta)
+    # --- datos: entrenamiento y validacion por PACIENTE (columna `fold`), test intacto ---
+    samples = uc.cargar_samples(localizar("metadata", args.raiz))
+    raiz_img = localizar("dataset", args.raiz)
     entrenamiento, validacion = uc.particion(samples, fold_val=args.fold)
-
     if args.muestra_rapida:
         entrenamiento = muestra_estratificada(entrenamiento, args.muestra_rapida)
         validacion = muestra_estratificada(validacion, args.muestra_rapida)
-        print(f"--muestra-rapida: {entrenamiento.patient_id.nunique()} pacientes train, "
-              f"{validacion.patient_id.nunique()} val (mitad pCR=1)")
+    vigilados = muestra_estratificada(entrenamiento, args.pacientes_vigilados)
+    print(f"fold {args.fold}: entrena {len(entrenamiento)} cortes / {entrenamiento.patient_id.nunique()} pacientes; "
+          f"valida {len(validacion)} / {validacion.patient_id.nunique()}; "
+          f"vigilados de entrenamiento: {vigilados.patient_id.nunique()} pacientes")
 
-    print(f"fold {args.fold}: entrena {len(entrenamiento)} cortes / "
-          f"{entrenamiento.patient_id.nunique()} pacientes, valida {len(validacion)} / "
-          f"{validacion.patient_id.nunique()}")
+    opciones = dict(num_workers=args.num_workers, pin_memory=(device.type == "cuda"),
+                    persistent_workers=args.num_workers > 0)
+    dl_train = DataLoader(uc.BreastDCEDataset(entrenamiento, raiz=raiz_img), batch_size=args.lote, shuffle=True,
+                          generator=torch.Generator().manual_seed(args.semilla), **opciones)
+    # shuffle=False en validacion y vigilados: obligatorio para que las probabilidades casen con las filas
+    dl_val = DataLoader(uc.BreastDCEDataset(validacion, raiz=raiz_img), batch_size=args.lote, shuffle=False, **opciones)
+    dl_vig = DataLoader(uc.BreastDCEDataset(vigilados, raiz=raiz_img), batch_size=args.lote, shuffle=False, **opciones)
 
-    transformacion = VolteoHorizontal(0.5) if args.aumentado == "basico" else AumentadoAfin()
-    ds_tr = uc.BreastDCEDataset(entrenamiento, raiz=raiz_img, transform=transformacion)
-    ds_va = uc.BreastDCEDataset(validacion, raiz=raiz_img, transform=None)  # sin aumentado en validacion
-
-    # persistent_workers: en Windows cada proceso lector tarda segundos en
-    # arrancar; sin esto se relanzarian en cada epoca.
-    opciones_loader = dict(num_workers=args.num_workers,
-                           pin_memory=(device.type == "cuda"),
-                           persistent_workers=args.num_workers > 0)
-    generador = torch.Generator().manual_seed(args.semilla)
-    dl_tr = DataLoader(ds_tr, batch_size=args.lote, shuffle=True,
-                       generator=generador, **opciones_loader)
-    dl_va = DataLoader(ds_va, batch_size=64, shuffle=False,   # shuffle=False: obligatorio, ver GUIA.md D2
-                       **opciones_loader)
-
-    modelo = mo.crear_modelo(args.arch, entrada=args.entrada, dropout=args.dropout).to(device)
-    n_params = mo.contar_parametros(modelo)
-
-    valor_pos_weight = None
-    if args.loss == "ponderada":
-        valor_pos_weight = uc.pos_weight(entrenamiento)   # N0/N1 de ESTE fold, desde el CSV
-        criterio = nn.BCEWithLogitsLoss(
-            pos_weight=torch.tensor(valor_pos_weight, dtype=torch.float32, device=device))
-        print(f"pos_weight calculado de este fold de entrenamiento: {valor_pos_weight:.4f}")
+    # --- modelo, perdida y optimizador ---
+    modelo = mo.RedBase().to(device)
+    if args.perdida == "ponderada":
+        peso = uc.pos_weight(entrenamiento)          # N0/N1 de ESTAS filas de entrenamiento, calculado del CSV
+        criterio = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(peso, dtype=torch.float32, device=device))
     else:
+        peso = 1.0
         criterio = nn.BCEWithLogitsLoss()
-
-    optimizador = torch.optim.AdamW(modelo.parameters(), lr=args.lr, weight_decay=args.wd)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizador, mode="max", factor=args.factor_lr, patience=args.paciencia_lr)
-
-    args.salida.mkdir(parents=True, exist_ok=True)
-    print(f"configuracion: arch={args.arch} entrada={args.entrada} aumentado={args.aumentado} "
-          f"dropout={args.dropout:g} lr={args.lr:g} wd={args.wd:g} loss={args.loss}")
-    print(f"salida: {args.salida / prefijo}*")
-
+    proporcion = float((entrenamiento.pCR == 1).mean())
+    referencia = perdida_de_referencia(proporcion, peso)
+    print(f"perdida {args.perdida}" + (f" (pos_weight = {peso:.4f})" if args.perdida == "ponderada" else "") +
+          f"; proporcion de cortes con pCR=1: {proporcion:.3f}; "
+          f"mejor perdida sin mirar la imagen: {referencia:.4f}")
+    optimizador = torch.optim.Adam(modelo.parameters(), lr=args.lr)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
-    mejor_auc = -1.0
-    mejor_epoca = -1
-    epocas_sin_mejora = 0
-    tiempos_epoca = []
-    t_inicio = time.time()
-
-    with open(ruta_log, "w", encoding="utf-8") as f:
-        f.write("epoca,perdida_train,auc_val,accuracy_val,sensibilidad_val,especificidad_val,lr,tiempo_seg\n")
-
+    # --- bucle de entrenamiento: epocas fijas, nos quedamos con la mejor segun el AUC de validacion ---
+    mejor_auc, mejor_epoca, mejor_probs = -1.0, 0, None
+    tiempos, t_inicio = [], time.time()
+    with open(ruta["csv"], "w", encoding="utf-8") as f:
+        f.write("epoca,perdida_train,perdida_val,auc_train,auc_val,accuracy_val,sensibilidad_val,"
+                "especificidad_val,lr,tiempo_seg\n")
         for epoca in range(1, args.epocas + 1):
             t0 = time.time()
-            perdida = entrenar_una_epoca(modelo, dl_tr, criterio, optimizador, device)
-            resultado = validar(modelo, dl_va, validacion, device, args.umbral, args.metodo_agregacion)
-            duracion = time.time() - t0
-            tiempos_epoca.append(duracion)
-
-            lr_actual = optimizador.param_groups[0]["lr"]
-            auc = resultado["auc"]
-            scheduler.step(auc if not np.isnan(auc) else 0.0)
-
-            f.write(f"{epoca},{perdida:.6f},{auc:.6f},{resultado['accuracy']:.6f},"
-                    f"{resultado['sensibilidad']:.6f},{resultado['especificidad']:.6f},"
-                    f"{lr_actual:.8f},{duracion:.2f}\n")
+            perdida_train = entrenar_una_epoca(modelo, dl_train, criterio, optimizador, device)
+            perdida_val, res_val, probs_val = medir(modelo, dl_val, validacion, criterio, device, args.umbral)
+            _, res_vig, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
+            dur = time.time() - t0
+            tiempos.append(dur)
+            f.write(f"{epoca},{perdida_train:.6f},{perdida_val:.6f},{res_vig['auc']:.6f},{res_val['auc']:.6f},"
+                    f"{res_val['accuracy']:.6f},{res_val['sensibilidad']:.6f},{res_val['especificidad']:.6f},"
+                    f"{args.lr:.8f},{dur:.2f}\n")
             f.flush()
+            print(f"epoca {epoca:3d}/{args.epocas}  perdida train {perdida_train:.4f} val {perdida_val:.4f}  "
+                  f"AUC train {res_vig['auc']:.3f} val {res_val['auc']:.3f}  "
+                  f"(val: acc {res_val['accuracy']:.3f} sens {res_val['sensibilidad']:.3f} "
+                  f"espec {res_val['especificidad']:.3f})  {dur:.1f}s", flush=True)
 
-            print(f"epoca {epoca:3d}/{args.epocas}  perdida={perdida:.4f}  "
-                  f"AUC={auc:.4f}  acc={resultado['accuracy']:.4f}  "
-                  f"sens={resultado['sensibilidad']:.4f}  espec={resultado['especificidad']:.4f}  "
-                  f"lr={lr_actual:.2e}  {duracion:.1f}s")
-
-            # la primera epoca se guarda siempre: si el AUC saliera nan, al menos
-            # queda un checkpoint (nan > x siempre es False)
-            if mejor_epoca == -1 or auc > mejor_auc:
-                mejor_auc = auc
-                mejor_epoca = epoca
-                epocas_sin_mejora = 0
-                torch.save({
-                    "arch": args.arch, "fold": args.fold, "loss": args.loss,
-                    "entrada": args.entrada, "aumentado": args.aumentado,
-                    "dropout": args.dropout,
-                    "epoca": epoca, "auc_val": auc, "umbral": args.umbral,
-                    "metodo_agregacion": args.metodo_agregacion,
-                    "state_dict": modelo.state_dict(),
-                }, ruta_checkpoint)
-            else:
-                epocas_sin_mejora += 1
-                if epocas_sin_mejora >= args.paciencia:
-                    print(f"Parada temprana: sin mejora en {args.paciencia} epocas "
-                          f"(mejor: epoca {mejor_epoca}, AUC={mejor_auc:.4f})")
-                    break
-
+            if epoca == 1 or res_val["auc"] > mejor_auc:     # la 1.a se guarda siempre (por si el AUC fuera nan)
+                mejor_auc, mejor_epoca, mejor_probs = res_val["auc"], epoca, probs_val
+                torch.save({"red": "RedBase", "perdida": args.perdida, "fold": args.fold, "epoca": epoca,
+                            "auc_val": res_val["auc"], "lr": args.lr, "lote": args.lote,
+                            "state_dict": modelo.state_dict()}, ruta["pesos"])
+                with open(ruta["probs"], "w", encoding="utf-8") as g:
+                    g.write("sample_id,patient_id,pCR,prob\n")
+                    for fila, p in zip(validacion.itertuples(), probs_val):
+                        g.write(f"{fila.sample_id},{fila.patient_id},{fila.pCR},{p:.6f}\n")
     t_total = time.time() - t_inicio
 
-    resumen = {
-        "arquitectura": args.arch,
-        "parametros": n_params,
-        "fold": args.fold,
-        "perdida": args.loss,
-        "entrada": args.entrada,
-        "aumentado": args.aumentado,
-        "dropout": args.dropout,
-        "pos_weight": valor_pos_weight,
-        "pacientes_train": int(entrenamiento.patient_id.nunique()),
-        "pacientes_val": int(validacion.patient_id.nunique()),
-        "muestra_rapida": args.muestra_rapida,
-        "semilla": args.semilla,
-        "umbral": args.umbral,
-        "metodo_agregacion": args.metodo_agregacion,
-        "mejor_epoca": mejor_epoca,
-        "auc_val": mejor_auc,
-        "epocas_entrenadas": epoca,
-        "tiempo_total_seg": round(t_total, 1),
-        "tiempo_medio_por_epoca_seg": round(sum(tiempos_epoca) / len(tiempos_epoca), 2),
-        "dispositivo": torch.cuda.get_device_name(0) if device.type == "cuda" else "cpu",
-        "memoria_gpu_max_mb": round(torch.cuda.max_memory_allocated(device) / 2**20, 1)
-                               if device.type == "cuda" else None,
-        "version_torch": torch.__version__,
-        "version_cuda": torch.version.cuda,
-        "lote": args.lote, "lr": args.lr, "weight_decay": args.wd,
-        "checkpoint": str(ruta_checkpoint),
-        "log_por_epoca": str(ruta_log),
-    }
-    with open(ruta_resumen, "w", encoding="utf-8") as f:
-        json.dump(resumen, f, indent=2, ensure_ascii=False)
+    # --- gráficas del diagnostico, en la mejor epoca ---
+    titulo = f"Red base · pérdida {args.perdida} · fold {args.fold}"
+    graficas.dibujar_curvas_entrenamiento(ruta["csv"], ruta["curvas"], titulo, referencia, mejor_epoca)
+    y_pac, p_pac = por_paciente(validacion, mejor_probs)
+    graficas.dibujar_roc(y_pac, p_pac, ruta["roc"], f"ROC por paciente · época {mejor_epoca}", args.umbral)
+    mejor = uc.evaluar_por_paciente(mejor_probs, validacion, umbral=args.umbral, metodo="mean")
+    mc = mejor["matriz_confusion"]
+    graficas.dibujar_matriz_confusion(mc["VP"], mc["VN"], mc["FP"], mc["FN"], ruta["conf"],
+                                      f"Matriz de confusión por paciente · época {mejor_epoca} · umbral {args.umbral:g}")
 
-    print(f"\nMejor epoca: {mejor_epoca}  AUC(val)={mejor_auc:.4f}")
-    print(f"Guardado: {ruta_checkpoint}")
-    print(f"Resumen:  {ruta_resumen}")
+    resumen = {
+        "red": "RedBase", "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
+        "pos_weight": peso if args.perdida == "ponderada" else None, "fold": args.fold,
+        "optimizador": "Adam", "lr": args.lr, "lote": args.lote, "epocas": args.epocas, "semilla": args.semilla,
+        "umbral": args.umbral, "agregacion": "mean", "muestra_rapida": args.muestra_rapida,
+        "pacientes_train": int(entrenamiento.patient_id.nunique()), "pacientes_val": int(validacion.patient_id.nunique()),
+        "perdida_de_referencia": referencia, "mejor_epoca": mejor_epoca, "auc_val": mejor_auc,
+        "matriz_confusion_val": mc, "sensibilidad_val": mejor["sensibilidad"],
+        "especificidad_val": mejor["especificidad"], "accuracy_val": mejor["accuracy"],
+        "tiempo_total_seg": round(t_total, 1), "tiempo_medio_por_epoca_seg": round(sum(tiempos) / len(tiempos), 2),
+        "dispositivo": torch.cuda.get_device_name(0) if device.type == "cuda" else "cpu",
+        "memoria_gpu_max_mb": round(torch.cuda.max_memory_allocated(device) / 2**20, 1) if device.type == "cuda" else None,
+        "version_torch": torch.__version__, "version_hip": getattr(torch.version, "hip", None),
+    }
+    with open(ruta["resumen"], "w", encoding="utf-8") as g:
+        json.dump(resumen, g, indent=2, ensure_ascii=False)
+
+    print(f"\nMejor epoca: {mejor_epoca}  AUC por paciente en validacion = {mejor_auc:.4f}")
+    print(f"Matriz de confusion (umbral {args.umbral:g}): {mc}")
+    print(f"Resultados en {args.salida}  (prefijo {prefijo})")
 
 
 if __name__ == "__main__":

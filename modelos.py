@@ -1,33 +1,32 @@
-"""Arquitecturas candidatas para el caso BreastDCEDL.
+"""Red base del caso BreastDCEDL: la arquitectura de referencia del profesor.
 
-Las cuatro derivan de la arquitectura de referencia de `presentacion_caso.pdf`
-(diapositiva 8): bloques Conv 3x3 + ReLU + MaxPool 2x2, terminando en Global
-Average Pooling + una capa densa + 1 logit. Cada variante cambia una sola cosa
-respecto a la referencia, para poder atribuir el efecto a ese cambio concreto
-(ver DECISIONES.md, D1):
+Sale de `presentacion_caso.pdf` (diapositiva 8, "el embudo de la CNN"):
 
-    R     referencia tal cual: canales 16-32-64-128, sin BatchNorm.
-    R_BN  + BatchNorm2d tras cada convolucion (bloque canonico de clase).
-    R5    + BatchNorm + una 5a etapa de 256 canales (mas campo receptivo).
-    RX2   + BatchNorm + el doble de canales en cada etapa (mas capacidad).
+    entrada          3 @ 256x256   las 3 fases (PRE, EARLY, LATE), NO son colores
+    bloque 1         conv 3x3 + ReLU -> 16 @ 256x256,  maxpool 2x2 -> 16 @ 128x128
+    bloque 2         conv 3x3 + ReLU -> 32 @ 128x128,  maxpool 2x2 -> 32 @  64x64
+    bloque 3         conv 3x3 + ReLU -> 64 @  64x64,   maxpool 2x2 -> 64 @  32x32
+    bloque 4         conv 3x3 + ReLU -> 128 @ 32x32,   maxpool 2x2 -> 128 @ 16x16
+    media global     128 numeros (la media de cada mapa)
+    densa + dropout  64
+    salida           1 logit  (la sigmoide se aplica fuera, solo al evaluar)
 
-Parametros verificados en codigo (deben coincidir exactamente al ejecutar
-este fichero, ver el bloque de auto-comprobacion al final):
+Lo que la diapositiva NO dice y hemos decidido nosotros:
+    - hay una ReLU despues de la capa densa de 64
+    - el dropout apaga el 50 % de esas 64 neuronas (solo durante el entrenamiento)
 
-    R      105.761   (coincide con la cifra de presentacion_caso.pdf)
-    R_BN   106.001
-    R5     409.617
-    RX2    405.409
-
-in_channels=3 siempre: son las tres fases DCE (PRE, EARLY, LATE), nunca color.
-Salida: un unico logit por corte, sin sigmoid (BCEWithLogitsLoss ya la aplica
-internamente; la sigmoid solo se calcula al evaluar).
+Lo que se deduce de los numeros de la diapositiva (105.761 parametros):
+    - padding=1 y stride=1 en las convoluciones (el mapa no se encoge al convolucionar)
+    - las convoluciones llevan sesgo (bias) y no hay BatchNorm
 
 Uso:
 
     import modelos as mo
-    modelo = mo.crear_modelo("R_BN")
-    logits = modelo(x)   # x: (N, 3, 256, 256) -> logits: (N,)
+    modelo = mo.RedBase()
+    logits = modelo(x)        # x: (N, 3, 256, 256)  ->  logits: (N,)
+
+Ejecutar este fichero (`python modelos.py`) imprime el tamaño y los parametros
+de cada capa y comprueba que el total es 105.761.
 """
 
 from __future__ import annotations
@@ -35,142 +34,90 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-DROPOUT = 0.5   # capa densa antes del logit (regla de los apuntes de clase)
-OCULTA = 64     # neuronas de la capa densa oculta (igual que la referencia)
 
-# canales de salida de cada etapa, y si la etapa lleva BatchNorm2d
-ARQUITECTURAS: dict[str, dict] = {
-    "R":    {"canales": [16, 32, 64, 128],      "bn": False},
-    "R_BN": {"canales": [16, 32, 64, 128],      "bn": True},
-    "R5":   {"canales": [16, 32, 64, 128, 256], "bn": True},
-    # RX2 DESCARTADA (DECISIONES.md, D6): 1,7x mas lenta y ~4x mas parametros
-    # que R_BN, sin ventaja observable. Se conserva solo para poder cargar su
-    # checkpoint y reproducir la criba; no se usa en los experimentos nuevos.
-    "RX2":  {"canales": [32, 64, 128, 256],     "bn": True},
-}
+def bloque(canales_entrada: int, canales_salida: int) -> nn.Sequential:
+    """Un bloque: convolucion 3x3 -> ReLU -> maxpool 2x2.
 
-
-ENTRADAS = ("fases", "realce")
-
-
-class EntradaRealce(nn.Module):
-    """Convierte (PRE, EARLY, LATE) en (PRE, EARLY-PRE, LATE-EARLY).
-
-    Canal 0: la anatomia (la fase sin contraste). Canal 1: cuanto capta
-    contraste cada pixel (el realce, que es la señal del problema). Canal 2:
-    cuanto cambia despues (lavado o *washout*). Es una combinacion lineal de
-    los mismos tres canales: no se pierde ni se añade informacion, solo se le
-    da a la red ya calculado lo que tendria que descubrir sola. Sin parametros.
-
-    Va DENTRO del modelo, como primera operacion, y no en el Dataset: asi quien
-    use el modelo (el entrenamiento, la evaluacion o la app) le entrega siempre
-    PRE, EARLY y LATE tal cual, y el calculo no puede diferir entre
-    entrenamiento e inferencia.
+    - Conv2d: `canales_salida` filtros de 3x3. Cada filtro mira los `canales_entrada`
+      canales a la vez (3x3xcanales_entrada numeros + un sesgo). padding=1 anade un
+      borde de ceros para que el mapa conserve su tamaño.
+    - ReLU: los valores negativos pasan a 0.
+    - MaxPool2d(2): se queda con el maximo de cada cuadradito de 2x2 -> el mapa
+      pasa a tener la mitad de alto y de ancho.
     """
+    return nn.Sequential(
+        nn.Conv2d(canales_entrada, canales_salida, kernel_size=3, padding=1),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=2),
+    )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:          # (N, 3, H, W)
-        pre, early, late = x[:, 0], x[:, 1], x[:, 2]
-        return torch.stack([pre, early - pre, late - early], dim=1)
 
+class RedBase(nn.Module):
+    """La red base: 4 bloques, media global, capa densa y un logit."""
 
-class BloqueConv(nn.Module):
-    """Conv 3x3 (padding 1) [+ BatchNorm2d] + ReLU + MaxPool 2x2.
-
-    Sin BatchNorm la convolucion lleva sesgo (bias=True): no hay nada que lo
-    sustituya. Con BatchNorm, bias=False, porque BatchNorm ya recentra la
-    salida (apuntes de clase, 03_CNN1.pdf: "la convolucion no lleva sesgo,
-    porque BatchNorm lo sustituye").
-    """
-
-    def __init__(self, in_ch: int, out_ch: int, bn: bool):
+    def __init__(self, dropout: float = 0.5):
         super().__init__()
-        self.conv = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=not bn)
-        self.bn = nn.BatchNorm2d(out_ch) if bn else nn.Identity()
-        self.relu = nn.ReLU(inplace=True)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return self.pool(x)
-
-
-class EmbudoCNN(nn.Module):
-    """CNN "embudo": N bloques (Conv+[BN]+ReLU+MaxPool), GAP, densa, 1 logit.
-
-    Nota sobre la forma de salida: a diferencia del fragmento de GUIA.md C4
-    (`modelo(x).squeeze(1)`, que asume una salida (N,1)), este modelo ya
-    devuelve el logit aplanado a (N,). Hacerlo al reves -- devolver (N,1) y
-    olvidar el squeeze en el bucle de entrenamiento -- es el error de forma
-    mas peligroso posible aqui: BCEWithLogitsLoss no avisa si le pasas
-    logits (N,1) contra etiquetas (N,), simplemente hace broadcasting a
-    (N,N) y entrena con una perdida incorrecta sin lanzar ningun error.
-    Por eso se aplana aqui, una sola vez, dentro del propio modelo.
-    """
-
-    def __init__(self, canales: list[int], bn: bool, in_channels: int = 3,
-                 oculta: int = OCULTA, dropout: float = DROPOUT, entrada: str = "fases"):
-        super().__init__()
-        if entrada not in ENTRADAS:
-            raise ValueError(f"entrada debe ser una de {ENTRADAS}, recibido {entrada!r}")
-        self.entrada = EntradaRealce() if entrada == "realce" else nn.Identity()
-        capas = []
-        c_in = in_channels
-        for c_out in canales:
-            capas.append(BloqueConv(c_in, c_out, bn))
-            c_in = c_out
-        self.extractor = nn.Sequential(*capas)
-        # Global Average Pooling = media de cada canal sobre alto y ancho. Se
-        # calcula con .mean() en forward en vez de nn.AdaptiveAvgPool2d(1): el
-        # resultado es identico, pero el gradiente de AdaptiveAvgPool2d en CUDA
-        # no es determinista y romperia la reproducibilidad con semilla fija.
-        self.clasificador = nn.Sequential(
-            nn.Linear(c_in, oculta),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(oculta, 1),
+        self.extractor = nn.Sequential(
+            bloque(3, 16),      # 3 @ 256x256  ->  16 @ 128x128
+            bloque(16, 32),     # 16 @ 128x128 ->  32 @  64x64
+            bloque(32, 64),     # 32 @ 64x64   ->  64 @  32x32
+            bloque(64, 128),    # 64 @ 32x32   -> 128 @  16x16
+        )
+        self.cabeza = nn.Sequential(
+            nn.Linear(128, 64),     # cada una de las 64 neuronas mira los 128 numeros
+            nn.ReLU(),              # decision nuestra: la diapositiva no la indica
+            nn.Dropout(dropout),    # durante entrenar apaga al azar el 50 % de las 64
+            nn.Linear(64, 1),       # un unico logit
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.entrada(x)            # (N, 3, H, W): fases tal cual, o realce
-        x = self.extractor(x)          # (N, C, h, w)
-        x = x.mean(dim=(2, 3))         # GAP -> (N, C)
-        x = self.clasificador(x)       # (N, 1)
-        return x.squeeze(1)            # (N,)
-
-
-def crear_modelo(nombre: str, entrada: str = "fases", dropout: float = DROPOUT) -> EmbudoCNN:
-    """Crea una de las arquitecturas candidatas por su nombre corto.
-
-    `entrada`: "fases" (PRE, EARLY, LATE tal cual) o "realce" (ver EntradaRealce).
-    `dropout`: probabilidad de apagado en la capa densa.
-    """
-    if nombre not in ARQUITECTURAS:
-        raise ValueError(f"arquitectura desconocida {nombre!r}; opciones: {list(ARQUITECTURAS)}")
-    cfg = ARQUITECTURAS[nombre]
-    return EmbudoCNN(canales=cfg["canales"], bn=cfg["bn"], entrada=entrada, dropout=dropout)
+        x = self.extractor(x)        # (N, 128, 16, 16)
+        x = x.mean(dim=(2, 3))       # media global (GAP): cada mapa -> un numero  -> (N, 128)
+        x = self.cabeza(x)           # (N, 1)
+        # Se devuelve (N,) y no (N, 1): BCEWithLogitsLoss no avisa si le das logits (N, 1)
+        # contra etiquetas (N,), hace un broadcasting a (N, N) y entrena mal sin error.
+        return x.squeeze(1)
 
 
 def contar_parametros(modelo: nn.Module) -> int:
     return sum(p.numel() for p in modelo.parameters())
 
 
+def imprimir_resumen(modelo: nn.Module, forma_entrada=(1, 3, 256, 256)) -> int:
+    """Pasa un tensor de prueba por la red e imprime, capa a capa, el tamaño de la
+    salida y los parametros. Devuelve el total de parametros."""
+    filas = []
+
+    def anotar(nombre):
+        def gancho(modulo, entrada, salida):
+            propios = sum(p.numel() for p in modulo.parameters(recurse=False))
+            filas.append((nombre, tuple(salida.shape[1:]), propios))
+        return gancho
+
+    ganchos = []
+    for nombre, modulo in modelo.named_modules():
+        if isinstance(modulo, (nn.Conv2d, nn.ReLU, nn.MaxPool2d, nn.Linear, nn.Dropout)):
+            ganchos.append(modulo.register_forward_hook(anotar(nombre)))
+    modelo.eval()
+    with torch.no_grad():
+        salida = modelo(torch.zeros(*forma_entrada))
+    for g in ganchos:
+        g.remove()
+
+    print(f"{'capa':<24}{'tipo':<10}{'forma de salida':<20}{'parametros':>11}")
+    print(f"{'(entrada)':<24}{'':<10}{str(tuple(forma_entrada[1:])):<20}{'':>11}")
+    tipos = {nombre: type(m).__name__ for nombre, m in modelo.named_modules()}
+    for nombre, forma, p in filas:
+        print(f"{nombre:<24}{tipos[nombre]:<10}{str(forma):<20}{p:>11,}")
+        if nombre == "extractor.3.2":
+            print(f"{'(media global)':<24}{'mean':<10}{'(128,)':<20}{'0':>11}")
+    total = contar_parametros(modelo)
+    print(f"{'TOTAL':<54}{total:>11,}")
+    print(f"salida de la red para 1 corte: {tuple(salida.shape)}")
+    return total
+
+
 if __name__ == "__main__":
-    # Paso 6 del metodo de clase ("Construir una CNN desde cero"): comprobar
-    # formas y parametros con un tensor falso ANTES de entrenar nada de verdad.
-    x = torch.randn(2, 3, 256, 256)
-    print(f"{'arquitectura':6s}  {'entrada':>8s}  {'parametros':>11s}  {'salida':>10s}")
-    for nombre in ARQUITECTURAS:
-        for entrada in ENTRADAS:
-            m = crear_modelo(nombre, entrada=entrada)
-            y = m(x)
-            assert y.shape == (2,), f"forma de salida inesperada: {tuple(y.shape)}"
-            print(f"{nombre:6s}  {entrada:>8s}  {contar_parametros(m):>11,}  {tuple(y.shape)!s:>10s}")
-    # el realce debe ser exactamente (PRE, EARLY-PRE, LATE-EARLY)
-    r = EntradaRealce()(x)
-    assert torch.equal(r[:, 0], x[:, 0]) and torch.equal(r[:, 1], x[:, 1] - x[:, 0]) \
-        and torch.equal(r[:, 2], x[:, 2] - x[:, 1]), "EntradaRealce no calcula lo esperado"
-    print("EntradaRealce: (PRE, EARLY-PRE, LATE-EARLY) correcto")
-    print("\nSi ves un AssertionError o una excepcion arriba, NO entrenes todavia:")
-    print("el fallo es de dimensiones, no de aprendizaje (ver 04_CNN2.pdf, Paso 6).")
+    total = imprimir_resumen(RedBase())
+    assert total == 105_761, f"se esperaban 105.761 parametros y hay {total:,}"
+    print("\nOK: 105.761 parametros, igual que la diapositiva del profesor.")
