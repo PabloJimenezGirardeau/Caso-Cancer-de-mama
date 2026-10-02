@@ -96,6 +96,18 @@ Fold 0 con pérdida ponderada (`pos_weight` = 2,4002): mejor AUC 0,578 (época 3
 **Defectos conocidos a corregir:** la línea de "mejor red sin mirar la imagen" de las gráficas usa la proporción de
 pCR del entrenamiento y no la de cada fold de validación; aviso inofensivo de NumPy ("array not writable").
 
+## NOTA OFICIAL DE LA BASE (red del profesor, pérdida normal, 5 folds)
+
+Calculada con `comparar.py base_normal`, métrica oficial (media del AUC por paciente en validación de las últimas 10 épocas):
+
+| Fold | 0 | 1 | 2 | 3 | 4 | **Media** |
+|---|---|---|---|---|---|---|
+| Media ult. 10 épocas | 0,5982 | 0,5634 | 0,5385 | 0,4898 | 0,5505 | **0,5481** |
+
+Desviación entre folds 0,0395; **intervalo de confianza del 95 %: 0,499 a 0,597** (roza el 0,5). Con la última época: 0,5476
+(0,489-0,606); con la mejor época de cada fold (optimista): 0,5749 (0,518-0,631). **Esta es la cifra contra la que se compara
+cualquier cambio.**
+
 ## Cómo se comparan configuraciones (decidido el 2026-10-02)
 
 El ruido de la medida es del tamaño de lo que queremos detectar (±0,05 entre folds y fluctuaciones de ±0,02-0,04 entre
@@ -115,6 +127,23 @@ El ruido de la medida es del tamaño de lo que queremos detectar (±0,05 entre f
   ponderada), reconstruidos de los registros de entrenamiento porque los originales se borraron del PC por error. Se
   comprobó que el máximo de cada CSV coincide con la mejor época registrada. `comparar.py` busca primero en `resultados/`
   y luego en `referencia/`. Hábito: nunca borrar con comodines (`rm base_normal_fold*`); copiar a `referencia/` lo importante.
+
+## Plan de exploración (decidido el 2026-10-03) y experimento 1: aumentado geométrico
+
+**Plan con límite de tiempo:** dos experimentos sobre la base, de uno en uno, medidos en los mismos 5 folds con la métrica oficial
+y la comparación emparejada; después se da la exploración por cerrada y se pasa a lo obligatorio (umbral, agregación por paciente,
+comparación de pérdidas, test una sola vez, app, informe, defensa). Un cambio solo se adopta si el intervalo de confianza de la
+diferencia emparejada excluye el 0; si no, nos quedamos con la base.
+
+1. **Aumentado geométrico** (`--aumentado geometrico`): volteo horizontal (p = 0,5), rotación de hasta ±15°, desplazamiento de
+   hasta ±10 % del lado y escala entre 0,9 y 1,1; una sola transformación por corte aplicada a las tres fases a la vez, relleno
+   con 0, sin cambios de brillo ni de color, solo en entrenamiento. **Por qué primero:** el problema diagnosticado es el
+   sobreajuste (AUC de entrenamiento 0,65-0,75 frente a ~0,55 en validación), y el aumentado es el remedio más directo; además
+   es el más barato (≈ 2,5-3 h de GPU, sin añadir parámetros). Verificado en código: las fases no se desalinean, el volteo
+   puro equivale a `torch.flip`, el rango [0,1] se conserva y es reproducible con la misma semilla. Resultados en
+   `base_normal_aug_fold<k>_*`; se compara con `python comparar.py base_normal base_normal_aug`.
+2. **conv + conv + pool** (idea del profesor): dos convoluciones 3×3 + ReLU por bloque, mismos canales (16-32-64-128), pool al
+   final; ≈ 301.800 parámetros (casi 3× la base), campo receptivo 76 px, ≈ 4 h de GPU estimadas. Pendiente de implementar.
 
 ## Pendiente de decidir
 

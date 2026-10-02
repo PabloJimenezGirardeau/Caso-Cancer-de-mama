@@ -7,7 +7,8 @@ Ajustes acordados (ver DECISIONES.md):
     lote           128
     epocas         40 fijas, SIN parada temprana (se ve la curva entera);
                    se guarda el modelo de la epoca con mejor AUC por paciente en validacion
-    datos          sin aumentado, entrada tal cual (PRE, EARLY, LATE en [0, 1])
+    datos          entrada tal cual (PRE, EARLY, LATE en [0, 1]);
+                   --aumentado ninguno (por defecto) | geometrico (ver AumentadoAfin)
     validacion     un fold (--fold, por defecto 0); el test NO se toca
     metricas       por PACIENTE: se promedian las probabilidades de sus cortes, umbral 0,5
 
@@ -49,6 +50,7 @@ os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader
 
@@ -62,6 +64,44 @@ RAIZ = Path(__file__).resolve().parent
 # --------------------------------------------------------------------------- #
 # Utilidades
 # --------------------------------------------------------------------------- #
+
+class AumentadoAfin:
+    """Aumentado geometrico: volteo horizontal + rotacion + desplazamiento + escala.
+
+    Cada corte de entrenamiento se transforma de una forma ligeramente distinta en cada
+    epoca, para que la red no pueda memorizarlo tal cual (sobreajuste).
+
+    - volteo horizontal con probabilidad 0,5;
+    - rotacion aleatoria de hasta +-15 grados;
+    - desplazamiento aleatorio de hasta +-10 % del lado (unos 25 pixeles);
+    - escala aleatoria entre 0,9 y 1,1.
+
+    Se sortea UNA sola transformacion por corte y se aplica con la misma malla de
+    muestreo a los tres canales: PRE, EARLY y LATE no pueden desalinearse (desalinearlas
+    destruiria el realce, que es la señal del problema). Lo que queda fuera de la imagen
+    se rellena con 0, el fondo negro. Sin cambios de brillo ni de color: las fases no son
+    colores. Solo se aplica al entrenamiento; validacion y test no se tocan.
+    """
+
+    def __init__(self, p_volteo: float = 0.5, grados: float = 15.0,
+                 desplazamiento: float = 0.10, escala: tuple = (0.9, 1.1)):
+        self.p_volteo, self.grados = p_volteo, grados
+        self.desplazamiento, self.escala = desplazamiento, escala
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:        # x: (3, H, W)
+        u = torch.rand(5).tolist()                              # cinco sorteos en [0, 1)
+        volteo = -1.0 if u[0] < self.p_volteo else 1.0
+        ang = (2 * u[1] - 1) * self.grados * math.pi / 180
+        tx = (2 * u[2] - 1) * self.desplazamiento * 2           # el lado mide 2 en coordenadas [-1, 1]
+        ty = (2 * u[3] - 1) * self.desplazamiento * 2
+        s = self.escala[0] + u[4] * (self.escala[1] - self.escala[0])
+        c, sn = math.cos(ang), math.sin(ang)
+        theta = torch.tensor([[[volteo * c / s, -sn / s, tx],
+                               [volteo * sn / s, c / s, ty]]], dtype=x.dtype)
+        malla = F.affine_grid(theta, (1, *x.shape), align_corners=False)
+        return F.grid_sample(x.unsqueeze(0), malla, mode="bilinear",
+                             padding_mode="zeros", align_corners=False).squeeze(0)
+
 
 def fijar_semilla(semilla: int) -> None:
     random.seed(semilla)
@@ -164,6 +204,8 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--muestra-rapida", type=int, default=0,
                    help="si > 0, usa solo N pacientes por lado: prueba rapida del flujo completo")
+    p.add_argument("--aumentado", choices=["ninguno", "geometrico"], default="ninguno",
+                   help="geometrico: volteo + rotacion + desplazamiento + escala, solo en entrenamiento")
     p.add_argument("--sobrescribir", action="store_true",
                    help="permitir sobrescribir resultados existentes con el mismo nombre")
     return p
@@ -177,7 +219,10 @@ def main() -> None:
     except ImportError:
         raise SystemExit("Falta scikit-learn: sin el, el AUC sale nan. Instalalo con: pip install scikit-learn")
 
-    prefijo = f"base_{args.perdida}_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else "")
+    # El nombre incluye todo lo que se aparte de la base, para que configuraciones distintas
+    # nunca se sobrescriban entre si y comparar.py las distinga: base_normal_fold0, base_normal_aug_fold0, ...
+    prefijo = (f"base_{args.perdida}" + ("_aug" if args.aumentado == "geometrico" else "") +
+               f"_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else ""))
     args.salida.mkdir(parents=True, exist_ok=True)
     ruta = {k: args.salida / f"{prefijo}{s}" for k, s in
             dict(csv="_epocas.csv", curvas="_curvas.png", roc="_roc.png", conf="_confusion.png",
@@ -205,7 +250,9 @@ def main() -> None:
 
     opciones = dict(num_workers=args.num_workers, pin_memory=(device.type == "cuda"),
                     persistent_workers=args.num_workers > 0)
-    dl_train = DataLoader(uc.BreastDCEDataset(entrenamiento, raiz=raiz_img), batch_size=args.lote, shuffle=True,
+    transformacion = AumentadoAfin() if args.aumentado == "geometrico" else None   # solo en entrenamiento
+    dl_train = DataLoader(uc.BreastDCEDataset(entrenamiento, raiz=raiz_img, transform=transformacion),
+                          batch_size=args.lote, shuffle=True,
                           generator=torch.Generator().manual_seed(args.semilla), **opciones)
     # shuffle=False en validacion y vigilados: obligatorio para que las probabilidades casen con las filas
     dl_val = DataLoader(uc.BreastDCEDataset(validacion, raiz=raiz_img), batch_size=args.lote, shuffle=False, **opciones)
@@ -279,6 +326,7 @@ def main() -> None:
 
     resumen = {
         "red": "RedBase", "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
+        "aumentado": args.aumentado,
         "pos_weight": peso if args.perdida == "ponderada" else None, "fold": args.fold,
         "optimizador": "Adam", "lr": args.lr, "lote": args.lote, "epocas": args.epocas, "semilla": args.semilla,
         "umbral": args.umbral, "agregacion": "mean", "muestra_rapida": args.muestra_rapida,
