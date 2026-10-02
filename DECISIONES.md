@@ -54,6 +54,64 @@ en la defensa. Se actualiza según avanzamos.
   baja de 0,6925 a 0,005 y la accuracy llega al 100 % sobre esos cortes. El código, la pérdida y el
   optimizador funcionan. No demuestra generalización.
 
+## Primeros resultados de la red base (en el PC de la universidad, GPU AMD, 45 s por época)
+
+Pérdida normal, AUC por paciente en validación (media de las probabilidades de los cortes, umbral 0,5):
+
+| Fold | Mejor época | AUC (mejor) | AUC (época 40) | VP / VN / FP / FN | Sensibilidad |
+|---|---|---|---|---|---|
+| 0 | 30 | 0,602 | 0,600 | 3 / 152 / 3 / 61 | 5 % |
+| 1 | 40 | 0,585 | 0,585 | 1 / 152 / 5 / 61 | 2 % |
+| 2 | 38 | 0,587 | 0,508 | 0 / 160 / 1 / 59 | 0 % |
+| 3 | 38 | 0,495 | 0,491 | 5 / 139 / 6 / 70 | 7 % |
+| 4 | 15 | 0,605 | 0,554 | 0 / 157 / 0 / 62 | 0 % |
+| **Media (5 folds)** | | **0,575** (desviación entre folds 0,045) | **0,548** (desviación 0,047) | | |
+
+Con los 5 folds, el AUC medio es **0,575** si se toma la mejor época de cada fold (intervalo de confianza del 95 %:
+0,52-0,63) y **0,548** si se toma la última (intervalo 0,49-0,61, que **incluye el 0,5**). La mejor época varía mucho de
+un fold a otro (15, 30, 38, 38, 40) y elegirla es optimista. Cifra honesta: **≈ 0,55**, por encima del azar por poco
+y sin que se pueda descartar que sea ruido.
+
+Sumando los cinco folds (en la mejor época), con umbral 0,5: 9 de las 322 pacientes pCR detectadas (sensibilidad 2,8 %),
+760 de las 775 no pCR bien clasificadas (especificidad 98,1 %), accuracy 70,1 %: la red con pérdida normal dice "no pCR"
+a casi todas.
+
+Fold 0 con pérdida ponderada (`pos_weight` = 2,4002): mejor AUC 0,578 (época 35), matriz 37 / 78 / 77 / 27
+(sensibilidad 58 %, especificidad 50 %, accuracy 52,5 %).
+
+**Qué se concluye:**
+- La red base aprende una señal **débil**: AUC ≈ 0,55 de media, con una variación de ±0,05 entre folds
+  (de 0,495 a 0,602). El fold 3 no muestra señal. Con esta forma de medir solo se detectarían mejoras grandes.
+- **Sobreajuste:** el AUC de entrenamiento sube a 0,65-0,75 y el de validación se queda en 0,5-0,6. Con la pérdida
+  ponderada, la pérdida de validación sube de 0,97 a 1,07 mientras la de entrenamiento baja.
+- **Elegir la mejor época infla el resultado** (media 0,567 frente a 0,546 en la última época): la cifra honesta
+  está cerca de 0,55.
+- **Pérdida normal y umbral 0,5:** la red dice "no pCR" a casi todas (sensibilidad 0-7 %, accuracy ≈ proporción de
+  negativos). El AUC es casi igual con las dos pérdidas; la ponderada solo mueve el punto de operación
+  (sensibilidad 5 % → 58 %, especificidad 98 % → 50 %). El umbral definitivo hay que elegirlo con validación.
+- La curva ROC es modesta en las dos pérdidas (algo por encima de la diagonal); para detectar la mitad de las pCR
+  habría que aceptar ~30 % de falsos positivos.
+- Referencia de datos: identificar solo la cohorte da AUC de 0,53-0,59 según el fold.
+
+**Defectos conocidos a corregir:** la línea de "mejor red sin mirar la imagen" de las gráficas usa la proporción de
+pCR del entrenamiento y no la de cada fold de validación; aviso inofensivo de NumPy ("array not writable").
+
+## Cómo se comparan configuraciones (decidido el 2026-10-02)
+
+El ruido de la medida es del tamaño de lo que queremos detectar (±0,05 entre folds y fluctuaciones de ±0,02-0,04 entre
+épocas), así que se fija una forma de comparar que no haga trampa:
+
+- **Métrica oficial: la media del AUC por paciente en validación de las últimas 10 épocas** (31-40), no la mejor época.
+  Es estable y no elige nada mirando la validación. En los folds 0-3 de la base da 0,598 / 0,563 / 0,539 / 0,490
+  (media 0,547), casi igual que la última época (0,546) y por debajo de "la mejor época" (0,567).
+- **Siempre en los mismos 5 folds** y con comparación **emparejada** (diferencia fold a fold), que cancela el ruido del
+  reparto: un fold difícil lo es igual para los dos modelos.
+- **Semillas repetidas solo para los finalistas** (2-3 semillas), antes de dar una mejora por buena. Pruebas normales con
+  una semilla (semilla 42). Cada configuración cuesta 5 entrenamientos (≈ 2,5 h de GPU).
+- La pérdida de validación se mira como dato complementario, no para decidir.
+- Una mejora solo cuenta si el intervalo de confianza de la diferencia emparejada no incluye el 0.
+- Herramienta: `comparar.py` (lee los `*_epocas.csv`; sirve también para los resultados ya obtenidos de la base).
+
 ## Pendiente de decidir
 
 Agregación y umbral definitivos · cuántos folds evaluar · aumentado de datos · primer cambio sobre la

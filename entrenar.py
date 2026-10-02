@@ -136,7 +136,7 @@ def medir(modelo, dl, filas, criterio, device, umbral: float):
     Devuelve (perdida por corte, metricas por paciente, probabilidad de cada corte)."""
     modelo.eval()
     logits = torch.cat([modelo(x.to(device, non_blocking=True)) for x, _ in dl])
-    y = torch.as_tensor(filas.pCR.values, dtype=torch.float32, device=device)
+    y = torch.as_tensor(np.array(filas.pCR.values), dtype=torch.float32, device=device)   # np.array copia: sin aviso
     perdida = criterio(logits, y).item()
     probs = torch.sigmoid(logits).cpu().numpy()
     return perdida, uc.evaluar_por_paciente(probs, filas, umbral=umbral, metodo="mean"), probs
@@ -221,15 +221,17 @@ def main() -> None:
         criterio = nn.BCEWithLogitsLoss()
     proporcion = float((entrenamiento.pCR == 1).mean())
     referencia = perdida_de_referencia(proporcion, peso)
+    referencia_val = perdida_de_referencia(float((validacion.pCR == 1).mean()), peso)   # con la proporcion de la VALIDACION
     print(f"perdida {args.perdida}" + (f" (pos_weight = {peso:.4f})" if args.perdida == "ponderada" else "") +
           f"; proporcion de cortes con pCR=1: {proporcion:.3f}; "
-          f"mejor perdida sin mirar la imagen: {referencia:.4f}")
+          f"mejor perdida sin mirar la imagen: {referencia:.4f} (entrenamiento), {referencia_val:.4f} (validacion)")
     optimizador = torch.optim.Adam(modelo.parameters(), lr=args.lr)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
     # --- bucle de entrenamiento: epocas fijas, nos quedamos con la mejor segun el AUC de validacion ---
     mejor_auc, mejor_epoca, mejor_probs = -1.0, 0, None
+    auc_historial = []                       # AUC de validacion de cada epoca (para la metrica oficial)
     tiempos, t_inicio = [], time.time()
     with open(ruta["csv"], "w", encoding="utf-8") as f:
         f.write("epoca,perdida_train,perdida_val,auc_train,auc_val,accuracy_val,sensibilidad_val,"
@@ -238,6 +240,7 @@ def main() -> None:
             t0 = time.time()
             perdida_train = entrenar_una_epoca(modelo, dl_train, criterio, optimizador, device)
             perdida_val, res_val, probs_val = medir(modelo, dl_val, validacion, criterio, device, args.umbral)
+            auc_historial.append(res_val["auc"])
             _, res_vig, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
             dur = time.time() - t0
             tiempos.append(dur)
@@ -263,7 +266,10 @@ def main() -> None:
 
     # --- gráficas del diagnostico, en la mejor epoca ---
     titulo = f"Red base · pérdida {args.perdida} · fold {args.fold}"
-    graficas.dibujar_curvas_entrenamiento(ruta["csv"], ruta["curvas"], titulo, referencia, mejor_epoca)
+    graficas.dibujar_curvas_entrenamiento(ruta["csv"], ruta["curvas"], titulo, referencia, mejor_epoca, referencia_val)
+    # metrica OFICIAL (DECISIONES.md): media del AUC de validacion de las ultimas 10 epocas
+    n_ult = min(10, len(auc_historial))
+    auc_media_ult = sum(auc_historial[-n_ult:]) / n_ult
     y_pac, p_pac = por_paciente(validacion, mejor_probs)
     graficas.dibujar_roc(y_pac, p_pac, ruta["roc"], f"ROC por paciente · época {mejor_epoca}", args.umbral)
     mejor = uc.evaluar_por_paciente(mejor_probs, validacion, umbral=args.umbral, metodo="mean")
@@ -277,7 +283,10 @@ def main() -> None:
         "optimizador": "Adam", "lr": args.lr, "lote": args.lote, "epocas": args.epocas, "semilla": args.semilla,
         "umbral": args.umbral, "agregacion": "mean", "muestra_rapida": args.muestra_rapida,
         "pacientes_train": int(entrenamiento.patient_id.nunique()), "pacientes_val": int(validacion.patient_id.nunique()),
-        "perdida_de_referencia": referencia, "mejor_epoca": mejor_epoca, "auc_val": mejor_auc,
+        "perdida_de_referencia": referencia, "perdida_de_referencia_val": referencia_val,
+        "mejor_epoca": mejor_epoca, "auc_val": mejor_auc,
+        "auc_val_media_ultimas10": auc_media_ult, "auc_val_ultima": auc_historial[-1],
+        "matriz_confusion_val_ultima": res_val["matriz_confusion"],
         "matriz_confusion_val": mc, "sensibilidad_val": mejor["sensibilidad"],
         "especificidad_val": mejor["especificidad"], "accuracy_val": mejor["accuracy"],
         "tiempo_total_seg": round(t_total, 1), "tiempo_medio_por_epoca_seg": round(sum(tiempos) / len(tiempos), 2),
@@ -288,7 +297,9 @@ def main() -> None:
     with open(ruta["resumen"], "w", encoding="utf-8") as g:
         json.dump(resumen, g, indent=2, ensure_ascii=False)
 
-    print(f"\nMejor epoca: {mejor_epoca}  AUC por paciente en validacion = {mejor_auc:.4f}")
+    print(f"\nMETRICA OFICIAL: media del AUC de validacion de las ultimas {n_ult} epocas = {auc_media_ult:.4f}")
+    print(f"Mejor epoca: {mejor_epoca}  AUC por paciente en validacion = {mejor_auc:.4f}  "
+          f"(optimista: se elige mirando la validacion)")
     print(f"Matriz de confusion (umbral {args.umbral:g}): {mc}")
     print(f"Resultados en {args.salida}  (prefijo {prefijo})")
 
