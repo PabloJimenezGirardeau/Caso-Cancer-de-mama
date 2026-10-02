@@ -111,6 +111,10 @@ El ruido de la medida es del tamaño de lo que queremos detectar (±0,05 entre f
 - La pérdida de validación se mira como dato complementario, no para decidir.
 - Una mejora solo cuenta si el intervalo de confianza de la diferencia emparejada no incluye el 0.
 - Herramienta: `comparar.py` (lee los `*_epocas.csv`; sirve también para los resultados ya obtenidos de la base).
+- **Copias de seguridad en git:** `referencia/` guarda los CSV de la base (folds 0-3 con pérdida normal y fold 0 con la
+  ponderada), reconstruidos de los registros de entrenamiento porque los originales se borraron del PC por error. Se
+  comprobó que el máximo de cada CSV coincide con la mejor época registrada. `comparar.py` busca primero en `resultados/`
+  y luego en `referencia/`. Hábito: nunca borrar con comodines (`rm base_normal_fold*`); copiar a `referencia/` lo importante.
 
 ## Pendiente de decidir
 

@@ -25,6 +25,7 @@ import math
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent
+REFERENCIA = RAIZ / "referencia"      # copias en git de los resultados importantes (la base, etc.)
 # valor de la t de Student para un intervalo de confianza del 95 %, segun los grados de libertad
 T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262}
 
@@ -43,9 +44,12 @@ def cargar(carpeta: Path, nombre: str) -> dict[int, dict]:
     """Metricas de cada fold disponible de la configuracion `nombre`."""
     por_fold = {}
     for k in range(5):
-        ruta = carpeta / f"{nombre}_fold{k}_epocas.csv"
-        if ruta.exists():
-            por_fold[k] = metricas(leer_auc(ruta))
+        # primero resultados/ (lo recien entrenado) y, si no esta, referencia/ (copias guardadas en git)
+        for base in (carpeta, REFERENCIA):
+            ruta = base / f"{nombre}_fold{k}_epocas.csv"
+            if ruta.exists():
+                por_fold[k] = metricas(leer_auc(ruta))
+                break
     if not por_fold:
         raise SystemExit(f"No encuentro ningun {nombre}_fold<k>_epocas.csv en {carpeta}")
     return por_fold
