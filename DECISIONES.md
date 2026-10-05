@@ -142,6 +142,21 @@ diferencia emparejada excluye el 0; si no, nos quedamos con la base.
    es el más barato (≈ 2,5-3 h de GPU, sin añadir parámetros). Verificado en código: las fases no se desalinean, el volteo
    puro equivale a `torch.flip`, el rango [0,1] se conserva y es reproducible con la misma semilla. Resultados en
    `base_normal_aug_fold<k>_*`; se compara con `python comparar.py base_normal base_normal_aug`.
+   **RESULTADO del experimento 1 (aumentado geométrico, pérdida normal, 5 folds; métrica oficial):**
+
+   | Fold | 0 | 1 | 2 | 3 | 4 | Media |
+   |---|---|---|---|---|---|---|
+   | Base | 0,598 | 0,563 | 0,539 | 0,490 | 0,551 | 0,548 |
+   | Aumentado | 0,537 | 0,497 | 0,528 | 0,455 | 0,582 | 0,520 |
+   | Diferencia | −0,062 | −0,066 | −0,011 | −0,035 | +0,032 | **−0,028** |
+
+   Diferencia emparejada: **−0,028, IC95 de −0,078 a +0,022: no concluyente** (incluye el 0, con tendencia a peor).
+   **No se adopta; seguimos con la base.** Lectura: el aumentado sí frena la memorización (AUC de entrenamiento en la época 40:
+   0,555 frente a 0,640 de la base) pero no mejora la validación. Además, el AUC de validación tras **una sola época** ya es
+   0,52 en las dos configuraciones, y tras 40 épocas de entrenamiento solo sube a unos 0,55: casi todo lo que mide el AUC
+   de validación está ya presente al empezar, y entrenar añade muy poco que generalice. El problema no parece ser solo
+   sobreajuste de una señal que existe.
+
 2. **conv + conv + pool** (idea del profesor): dos convoluciones 3×3 + ReLU por bloque, mismos canales (16-32-64-128), pool al
    final; ≈ 301.800 parámetros (casi 3× la base), campo receptivo 76 px, ≈ 4 h de GPU estimadas. Pendiente de implementar.
 
