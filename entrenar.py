@@ -1,7 +1,8 @@
 """Entrena la red base y deja el diagnostico completo: curvas, ROC y matriz de confusion.
 
 Ajustes acordados (ver DECISIONES.md):
-    red            RedBase (modelos.py): la arquitectura de referencia del profesor
+    red            RedBase (modelos.py): la arquitectura de referencia del profesor;
+                   --batchnorm la entrena con BatchNorm tras cada convolucion
     perdida        --perdida normal | ponderada     (se entrenan las dos y se comparan)
     optimizador    Adam, learning rate 0,0003
     lote           128
@@ -22,6 +23,8 @@ Salida, en resultados/ (los nombres incluyen la perdida y el fold):
     *_roc.png           curva ROC por paciente, en la mejor epoca
     *_confusion.png     matriz de confusion por paciente, en la mejor epoca
     *_probs_val.csv     probabilidad de cada corte de validacion en la mejor epoca
+    *_probs_val_final.csv  probabilidad de cada corte en la ULTIMA epoca (prob) y la media de
+                        sus probabilidades en las ultimas 10 epocas (prob_media10)
     *.pt                pesos de la mejor epoca
     *_resumen.json      configuracion, resultado, dispositivo y tiempos
 
@@ -206,6 +209,8 @@ def construir_parser() -> argparse.ArgumentParser:
                    help="si > 0, usa solo N pacientes por lado: prueba rapida del flujo completo")
     p.add_argument("--aumentado", choices=["ninguno", "geometrico"], default="ninguno",
                    help="geometrico: volteo + rotacion + desplazamiento + escala, solo en entrenamiento")
+    p.add_argument("--batchnorm", action="store_true",
+                   help="BatchNorm tras cada convolucion (Conv -> BN -> ReLU -> pool)")
     p.add_argument("--sobrescribir", action="store_true",
                    help="permitir sobrescribir resultados existentes con el mismo nombre")
     return p
@@ -220,13 +225,16 @@ def main() -> None:
         raise SystemExit("Falta scikit-learn: sin el, el AUC sale nan. Instalalo con: pip install scikit-learn")
 
     # El nombre incluye todo lo que se aparte de la base, para que configuraciones distintas
-    # nunca se sobrescriban entre si y comparar.py las distinga: base_normal_fold0, base_normal_aug_fold0, ...
-    prefijo = (f"base_{args.perdida}" + ("_aug" if args.aumentado == "geometrico" else "") +
+    # nunca se sobrescriban entre si y comparar.py las distinga:
+    #   base_normal_fold0, base_normal_aug_fold0, bn_normal_fold0, ...
+    red = "bn" if args.batchnorm else "base"
+    prefijo = (f"{red}_{args.perdida}" + ("_aug" if args.aumentado == "geometrico" else "") +
                f"_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else ""))
     args.salida.mkdir(parents=True, exist_ok=True)
     ruta = {k: args.salida / f"{prefijo}{s}" for k, s in
             dict(csv="_epocas.csv", curvas="_curvas.png", roc="_roc.png", conf="_confusion.png",
-                 probs="_probs_val.csv", pesos=".pt", resumen="_resumen.json").items()}
+                 probs="_probs_val.csv", probs_final="_probs_val_final.csv",
+                 pesos=".pt", resumen="_resumen.json").items()}
     if ruta["resumen"].exists() and not args.sobrescribir:
         raise SystemExit(f"Ya existe {ruta['resumen']}.\nNo lo sobrescribo para no perder un resultado: "
                          "usa --sobrescribir si es lo que quieres.")
@@ -259,7 +267,9 @@ def main() -> None:
     dl_vig = DataLoader(uc.BreastDCEDataset(vigilados, raiz=raiz_img), batch_size=args.lote, shuffle=False, **opciones)
 
     # --- modelo, perdida y optimizador ---
-    modelo = mo.RedBase().to(device)
+    modelo = mo.RedBase(batchnorm=args.batchnorm).to(device)
+    print(f"red: {'RedBase con BatchNorm' if args.batchnorm else 'RedBase (la de la diapositiva)'}, "
+          f"{mo.contar_parametros(modelo):,} parametros")
     if args.perdida == "ponderada":
         peso = uc.pos_weight(entrenamiento)          # N0/N1 de ESTAS filas de entrenamiento, calculado del CSV
         criterio = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(peso, dtype=torch.float32, device=device))
@@ -279,6 +289,8 @@ def main() -> None:
     # --- bucle de entrenamiento: epocas fijas, nos quedamos con la mejor segun el AUC de validacion ---
     mejor_auc, mejor_epoca, mejor_probs = -1.0, 0, None
     auc_historial = []                       # AUC de validacion de cada epoca (para la metrica oficial)
+    n_ult = min(10, args.epocas)
+    suma_probs_ult = np.zeros(len(validacion))   # suma de las probabilidades de las ultimas n_ult epocas
     tiempos, t_inicio = [], time.time()
     with open(ruta["csv"], "w", encoding="utf-8") as f:
         f.write("epoca,perdida_train,perdida_val,auc_train,auc_val,accuracy_val,sensibilidad_val,"
@@ -288,6 +300,8 @@ def main() -> None:
             perdida_train = entrenar_una_epoca(modelo, dl_train, criterio, optimizador, device)
             perdida_val, res_val, probs_val = medir(modelo, dl_val, validacion, criterio, device, args.umbral)
             auc_historial.append(res_val["auc"])
+            if epoca > args.epocas - n_ult:
+                suma_probs_ult += probs_val
             _, res_vig, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
             dur = time.time() - t0
             tiempos.append(dur)
@@ -302,7 +316,8 @@ def main() -> None:
 
             if epoca == 1 or res_val["auc"] > mejor_auc:     # la 1.a se guarda siempre (por si el AUC fuera nan)
                 mejor_auc, mejor_epoca, mejor_probs = res_val["auc"], epoca, probs_val
-                torch.save({"red": "RedBase", "perdida": args.perdida, "fold": args.fold, "epoca": epoca,
+                torch.save({"red": "RedBase", "batchnorm": args.batchnorm,
+                            "perdida": args.perdida, "fold": args.fold, "epoca": epoca,
                             "auc_val": res_val["auc"], "lr": args.lr, "lote": args.lote,
                             "state_dict": modelo.state_dict()}, ruta["pesos"])
                 with open(ruta["probs"], "w", encoding="utf-8") as g:
@@ -312,11 +327,20 @@ def main() -> None:
     t_total = time.time() - t_inicio
 
     # --- gráficas del diagnostico, en la mejor epoca ---
-    titulo = f"Red base · pérdida {args.perdida} · fold {args.fold}"
+    titulo = (f"Red {'con BatchNorm' if args.batchnorm else 'base'} · pérdida {args.perdida}"
+              + (" · aumentado" if args.aumentado == "geometrico" else "") + f" · fold {args.fold}")
     graficas.dibujar_curvas_entrenamiento(ruta["csv"], ruta["curvas"], titulo, referencia, mejor_epoca, referencia_val)
     # metrica OFICIAL (DECISIONES.md): media del AUC de validacion de las ultimas 10 epocas
-    n_ult = min(10, len(auc_historial))
     auc_media_ult = sum(auc_historial[-n_ult:]) / n_ult
+
+    # probabilidades de la ULTIMA epoca y media de las ultimas n_ult epocas ("ensemble temporal":
+    # promediar predicciones de varias epocas reduce el ruido de una epoca concreta)
+    probs_media_ult = suma_probs_ult / n_ult
+    with open(ruta["probs_final"], "w", encoding="utf-8") as g:
+        g.write("sample_id,patient_id,pCR,prob,prob_media10\n")
+        for fila, p, pm in zip(validacion.itertuples(), probs_val, probs_media_ult):
+            g.write(f"{fila.sample_id},{fila.patient_id},{fila.pCR},{p:.6f},{pm:.6f}\n")
+    auc_ensemble = uc.evaluar_por_paciente(probs_media_ult, validacion, umbral=args.umbral, metodo="mean")["auc"]
     y_pac, p_pac = por_paciente(validacion, mejor_probs)
     graficas.dibujar_roc(y_pac, p_pac, ruta["roc"], f"ROC por paciente · época {mejor_epoca}", args.umbral)
     mejor = uc.evaluar_por_paciente(mejor_probs, validacion, umbral=args.umbral, metodo="mean")
@@ -325,7 +349,8 @@ def main() -> None:
                                       f"Matriz de confusión por paciente · época {mejor_epoca} · umbral {args.umbral:g}")
 
     resumen = {
-        "red": "RedBase", "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
+        "red": "RedBase", "batchnorm": args.batchnorm,
+        "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
         "aumentado": args.aumentado,
         "pos_weight": peso if args.perdida == "ponderada" else None, "fold": args.fold,
         "optimizador": "Adam", "lr": args.lr, "lote": args.lote, "epocas": args.epocas, "semilla": args.semilla,
@@ -334,6 +359,7 @@ def main() -> None:
         "perdida_de_referencia": referencia, "perdida_de_referencia_val": referencia_val,
         "mejor_epoca": mejor_epoca, "auc_val": mejor_auc,
         "auc_val_media_ultimas10": auc_media_ult, "auc_val_ultima": auc_historial[-1],
+        "auc_val_ensemble_ultimas10": auc_ensemble,
         "matriz_confusion_val_ultima": res_val["matriz_confusion"],
         "matriz_confusion_val": mc, "sensibilidad_val": mejor["sensibilidad"],
         "especificidad_val": mejor["especificidad"], "accuracy_val": mejor["accuracy"],
@@ -346,6 +372,7 @@ def main() -> None:
         json.dump(resumen, g, indent=2, ensure_ascii=False)
 
     print(f"\nMETRICA OFICIAL: media del AUC de validacion de las ultimas {n_ult} epocas = {auc_media_ult:.4f}")
+    print(f"AUC promediando las predicciones de las ultimas {n_ult} epocas (ensemble) = {auc_ensemble:.4f}")
     print(f"Mejor epoca: {mejor_epoca}  AUC por paciente en validacion = {mejor_auc:.4f}  "
           f"(optimista: se elige mirando la validacion)")
     print(f"Matriz de confusion (umbral {args.umbral:g}): {mc}")

@@ -157,7 +157,24 @@ diferencia emparejada excluye el 0; si no, nos quedamos con la base.
    de validación está ya presente al empezar, y entrenar añade muy poco que generalice. El problema no parece ser solo
    sobreajuste de una señal que existe.
 
-2. **conv + conv + pool** (idea del profesor): dos convoluciones 3×3 + ReLU por bloque, mismos canales (16-32-64-128), pool al
+   **Análisis por cohorte del aumentado** (`analizar_cohortes.py base_normal_aug`, 1.097 pacientes, probabilidades de la mejor época):
+   AUC global 0,531 (0,494-0,570); dentro de duke 0,524, spy1 0,543, spy2 0,528 (todos los IC incluyen 0,5); estratificado 0,528
+   (0,487-0,570); referencia "solo cohorte" 0,523. Probabilidad media por cohorte casi plana (0,282 / 0,275 / 0,294 frente a pCR real
+   21 / 25 / 32 %). **La red no explota la cohorte, pero tampoco muestra señal del tumor.** Prueba débil: en 3 de 5 folds la mejor
+   época fue la 1-4 (red casi sin entrenar). Pendiente: guardar también las probabilidades de la última época.
+
+2. **BatchNorm tras cada convolución** (`--batchnorm`, decidido el 2026-10-07; sustituye a conv + conv como siguiente experimento).
+   **Por qué:** el diagnóstico apunta a que la red *aprende mal*, no a que le falte capacidad: AUC de entrenamiento de solo 0,64 tras
+   40 épocas, meseta inicial, AUC que salta entre épocas y gradiente 12 veces más débil en la primera convolución. BatchNorm
+   estabiliza el entrenamiento y mejora el paso del gradiente; es el bloque canónico de los apuntes (Conv → BN → ReLU). Las
+   convoluciones pasan a no llevar sesgo: 106.001 parámetros (verificado). Todo lo demás igual que la base (Adam 3e-4, lote 128,
+   40 épocas, pérdida normal, sin aumentado) para que la comparación sea limpia. Ficheros `bn_normal_fold<k>_*`; se compara con
+   `python comparar.py base_normal bn_normal`.
+   **Además:** desde ahora `entrenar.py` guarda las probabilidades de la última época y la media de las 10 últimas
+   (`*_probs_val_final.csv`) e imprime el AUC del **ensemble temporal** (promediar las predicciones de las 10 últimas épocas), que
+   no cuesta GPU extra. `analizar_cohortes.py --probs ultima|media10` usa esas probabilidades.
+
+3. **conv + conv + pool** (idea del profesor; queda como opcional tras el análisis): dos convoluciones 3×3 + ReLU por bloque, mismos canales (16-32-64-128), pool al
    final; ≈ 301.800 parámetros (casi 3× la base), campo receptivo 76 px, ≈ 4 h de GPU estimadas. Pendiente de implementar.
 
 ## Pendiente de decidir

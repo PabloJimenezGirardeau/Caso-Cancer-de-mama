@@ -57,24 +57,32 @@ def leer_csv(ruta: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def cargar_predicciones(config: str, carpetas: list[Path]) -> dict[str, dict]:
+FUENTES = {   # --probs: de qué fichero y qué columna salen las probabilidades
+    "mejor":   ("_probs_val.csv", "prob"),                 # la época con mejor AUC (optimista)
+    "ultima":  ("_probs_val_final.csv", "prob"),           # la última época
+    "media10": ("_probs_val_final.csv", "prob_media10"),   # media de las últimas 10 épocas
+}
+
+
+def cargar_predicciones(config: str, carpetas: list[Path], fuente: str = "mejor") -> dict[str, dict]:
     """Por paciente: etiqueta, probabilidad media de sus cortes y fold en el que se validó."""
+    sufijo, columna = FUENTES[fuente]
     cortes = defaultdict(list)
     etiqueta, fold_de = {}, {}
     folds_encontrados = []
     for k in range(5):
-        ruta = next((c / f"{config}_fold{k}_probs_val.csv" for c in carpetas
-                     if (c / f"{config}_fold{k}_probs_val.csv").exists()), None)
+        ruta = next((c / f"{config}_fold{k}{sufijo}" for c in carpetas
+                     if (c / f"{config}_fold{k}{sufijo}").exists()), None)
         if ruta is None:
             continue
         folds_encontrados.append(k)
         for fila in leer_csv(ruta):
             pid = fila["patient_id"]
-            cortes[pid].append(float(fila["prob"]))
+            cortes[pid].append(float(fila[columna]))
             etiqueta[pid] = int(fila["pCR"])
             fold_de[pid] = k
     if not cortes:
-        raise SystemExit(f"No encuentro ningún {config}_fold<k>_probs_val.csv en: " +
+        raise SystemExit(f"No encuentro ningún {config}_fold<k>{sufijo} en: " +
                          ", ".join(str(c) for c in carpetas))
     if len(folds_encontrados) < 5:
         faltan = sorted(set(range(5)) - set(folds_encontrados))
@@ -139,9 +147,11 @@ def main() -> None:
     p.add_argument("config", help="nombre de la configuración, p. ej. base_normal_aug")
     p.add_argument("--carpeta", type=Path, default=RAIZ / "resultados")
     p.add_argument("--repeticiones", type=int, default=2000, help="remuestreos del bootstrap")
+    p.add_argument("--probs", choices=list(FUENTES), default="mejor",
+                   help="probabilidades de la mejor época (optimista), de la última o la media de las últimas 10")
     args = p.parse_args()
 
-    pred = cargar_predicciones(args.config, [args.carpeta, RAIZ / "referencia"])
+    pred = cargar_predicciones(args.config, [args.carpeta, RAIZ / "referencia"], args.probs)
     meta = localizar("metadata")
     cohorte = {f["pid"]: f["dataset"] for f in leer_csv(meta / "metadata" / "patients.csv")}
     fold_train = {}                                  # fold de cada paciente de entrenamiento (samples.csv)
@@ -171,7 +181,8 @@ def main() -> None:
     grupos = [np.where(g == c)[0] for c in COHORTES]
     todos = np.arange(len(pids))
 
-    print(f"Configuración: {args.config}   ·   {len(pids)} pacientes con predicción de validación\n")
+    print(f"Configuración: {args.config}   ·   probabilidades: {args.probs}   ·   "
+          f"{len(pids)} pacientes con predicción de validación\n")
     print(f"{'grupo':<26}{'pacientes':>10}{'pCR real':>10}{'prob. media':>13}{'AUC':>8}{'IC95':>18}")
     filas_grafica = []
 
@@ -210,8 +221,9 @@ def main() -> None:
     print("  - Con pocas pacientes por cohorte (spy1 ~100) los intervalos son anchos: no sobreinterpretar.")
 
     try:
-        dibujar(filas_grafica, y, s, g, args.carpeta / f"cohortes_{args.config}.png", args.config)
-        print(f"\nGráfica: {args.carpeta / f'cohortes_{args.config}.png'}")
+        ruta_png = args.carpeta / f"cohortes_{args.config}_{args.probs}.png"
+        dibujar(filas_grafica, y, s, g, ruta_png, f"{args.config} ({args.probs})")
+        print(f"\nGráfica: {ruta_png}")
     except ImportError:
         print("\n(sin matplotlib: no se dibuja la gráfica)")
 

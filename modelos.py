@@ -35,33 +35,44 @@ import torch
 from torch import nn
 
 
-def bloque(canales_entrada: int, canales_salida: int) -> nn.Sequential:
-    """Un bloque: convolucion 3x3 -> ReLU -> maxpool 2x2.
+def bloque(canales_entrada: int, canales_salida: int, batchnorm: bool = False) -> nn.Sequential:
+    """Un bloque: convolucion 3x3 -> [BatchNorm] -> ReLU -> maxpool 2x2.
 
     - Conv2d: `canales_salida` filtros de 3x3. Cada filtro mira los `canales_entrada`
       canales a la vez (3x3xcanales_entrada numeros + un sesgo). padding=1 anade un
       borde de ceros para que el mapa conserve su tamaño.
+    - BatchNorm2d (opcional): reescala cada canal para que, dentro del lote, tenga media 0
+      y varianza 1, y lo reajusta con dos parametros aprendidos (gamma y beta). Estabiliza
+      el entrenamiento y ayuda a que el gradiente llegue a las primeras capas. Con BatchNorm
+      la convolucion va SIN sesgo: BatchNorm resta la media justo despues y su beta hace de
+      sesgo ("orden canonico" de los apuntes: Conv -> BN -> ReLU).
     - ReLU: los valores negativos pasan a 0.
     - MaxPool2d(2): se queda con el maximo de cada cuadradito de 2x2 -> el mapa
       pasa a tener la mitad de alto y de ancho.
     """
-    return nn.Sequential(
-        nn.Conv2d(canales_entrada, canales_salida, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(kernel_size=2),
-    )
+    capas = [nn.Conv2d(canales_entrada, canales_salida, kernel_size=3, padding=1, bias=not batchnorm)]
+    if batchnorm:
+        capas.append(nn.BatchNorm2d(canales_salida))
+    capas += [nn.ReLU(), nn.MaxPool2d(kernel_size=2)]
+    return nn.Sequential(*capas)
 
 
 class RedBase(nn.Module):
-    """La red base: 4 bloques, media global, capa densa y un logit."""
+    """La red base: 4 bloques, media global, capa densa y un logit.
 
-    def __init__(self, dropout: float = 0.5):
+    batchnorm=False -> la arquitectura de la diapositiva tal cual (105.761 parametros).
+    batchnorm=True  -> igual, con BatchNorm tras cada convolucion (106.001 parametros:
+                       se quitan los 240 sesgos de las convoluciones y se anaden 480
+                       parametros de BatchNorm, gamma y beta por canal).
+    """
+
+    def __init__(self, dropout: float = 0.5, batchnorm: bool = False):
         super().__init__()
         self.extractor = nn.Sequential(
-            bloque(3, 16),      # 3 @ 256x256  ->  16 @ 128x128
-            bloque(16, 32),     # 16 @ 128x128 ->  32 @  64x64
-            bloque(32, 64),     # 32 @ 64x64   ->  64 @  32x32
-            bloque(64, 128),    # 64 @ 32x32   -> 128 @  16x16
+            bloque(3, 16, batchnorm),      # 3 @ 256x256  ->  16 @ 128x128
+            bloque(16, 32, batchnorm),     # 16 @ 128x128 ->  32 @  64x64
+            bloque(32, 64, batchnorm),     # 32 @ 64x64   ->  64 @  32x32
+            bloque(64, 128, batchnorm),    # 64 @ 32x32   -> 128 @  16x16
         )
         self.cabeza = nn.Sequential(
             nn.Linear(128, 64),     # cada una de las 64 neuronas mira los 128 numeros
@@ -96,7 +107,7 @@ def imprimir_resumen(modelo: nn.Module, forma_entrada=(1, 3, 256, 256)) -> int:
 
     ganchos = []
     for nombre, modulo in modelo.named_modules():
-        if isinstance(modulo, (nn.Conv2d, nn.ReLU, nn.MaxPool2d, nn.Linear, nn.Dropout)):
+        if isinstance(modulo, (nn.Conv2d, nn.BatchNorm2d, nn.ReLU, nn.MaxPool2d, nn.Linear, nn.Dropout)):
             ganchos.append(modulo.register_forward_hook(anotar(nombre)))
     modelo.eval()
     with torch.no_grad():
@@ -104,15 +115,16 @@ def imprimir_resumen(modelo: nn.Module, forma_entrada=(1, 3, 256, 256)) -> int:
     for g in ganchos:
         g.remove()
 
-    print(f"{'capa':<24}{'tipo':<10}{'forma de salida':<20}{'parametros':>11}")
-    print(f"{'(entrada)':<24}{'':<10}{str(tuple(forma_entrada[1:])):<20}{'':>11}")
+    print(f"{'capa':<24}{'tipo':<13}{'forma de salida':<20}{'parametros':>11}")
+    print(f"{'(entrada)':<24}{'':<13}{str(tuple(forma_entrada[1:])):<20}{'':>11}")
     tipos = {nombre: type(m).__name__ for nombre, m in modelo.named_modules()}
+    ultima_del_extractor = [n for n, _, _ in filas if n.startswith("extractor")][-1]
     for nombre, forma, p in filas:
-        print(f"{nombre:<24}{tipos[nombre]:<10}{str(forma):<20}{p:>11,}")
-        if nombre == "extractor.3.2":
-            print(f"{'(media global)':<24}{'mean':<10}{'(128,)':<20}{'0':>11}")
+        print(f"{nombre:<24}{tipos[nombre]:<13}{str(forma):<20}{p:>11,}")
+        if nombre == ultima_del_extractor:
+            print(f"{'(media global)':<24}{'mean':<13}{'(128,)':<20}{'0':>11}")
     total = contar_parametros(modelo)
-    print(f"{'TOTAL':<54}{total:>11,}")
+    print(f"{'TOTAL':<57}{total:>11,}")
     print(f"salida de la red para 1 corte: {tuple(salida.shape)}")
     return total
 
@@ -120,4 +132,7 @@ def imprimir_resumen(modelo: nn.Module, forma_entrada=(1, 3, 256, 256)) -> int:
 if __name__ == "__main__":
     total = imprimir_resumen(RedBase())
     assert total == 105_761, f"se esperaban 105.761 parametros y hay {total:,}"
-    print("\nOK: 105.761 parametros, igual que la diapositiva del profesor.")
+    print("\nOK: 105.761 parametros, igual que la diapositiva del profesor.\n")
+    total_bn = imprimir_resumen(RedBase(batchnorm=True))
+    assert total_bn == 106_001, f"con BatchNorm se esperaban 106.001 parametros y hay {total_bn:,}"
+    print("\nOK: con BatchNorm, 106.001 parametros (-240 sesgos de las convoluciones, +480 de BatchNorm).")
