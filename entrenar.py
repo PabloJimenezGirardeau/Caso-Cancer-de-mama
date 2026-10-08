@@ -3,6 +3,7 @@
 Ajustes acordados (ver DECISIONES.md):
     red            RedBase (modelos.py): la arquitectura de referencia del profesor;
                    --batchnorm la entrena con BatchNorm tras cada convolucion;
+                   --realce añade dentro de la red los canales EARLY-PRE (realce) y EARLY-LATE (lavado);
                    --aux añade la tarea auxiliar: predecir tambien HR y HER2 (patients.csv)
                    solo durante el entrenamiento; la red final sigue dando un unico logit
     perdida        --perdida normal | ponderada     (se entrenan las dos y se comparan)
@@ -283,6 +284,8 @@ def construir_parser() -> argparse.ArgumentParser:
                    help="geometrico: volteo + rotacion + desplazamiento + escala, solo en entrenamiento")
     p.add_argument("--batchnorm", action="store_true",
                    help="BatchNorm tras cada convolucion (Conv -> BN -> ReLU -> pool)")
+    p.add_argument("--realce", action="store_true",
+                   help="añadir dentro de la red los canales EARLY-PRE (realce) y EARLY-LATE (lavado)")
     p.add_argument("--aux", action="store_true",
                    help="tarea auxiliar: predecir tambien HR y HER2 (de patients.csv) durante el entrenamiento")
     p.add_argument("--peso-aux", type=float, default=0.5,
@@ -305,7 +308,7 @@ def main() -> None:
     #   base_normal_fold0, base_normal_aug_fold0, bn_normal_fold0, ...
     red = "bn" if args.batchnorm else "base"
     prefijo = (f"{red}_{args.perdida}" + ("_aug" if args.aumentado == "geometrico" else "") +
-               ("_aux" if args.aux else "") +
+               ("_realce" if args.realce else "") + ("_aux" if args.aux else "") +
                f"_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else ""))
     args.salida.mkdir(parents=True, exist_ok=True)
     ruta = {k: args.salida / f"{prefijo}{s}" for k, s in
@@ -351,8 +354,10 @@ def main() -> None:
     dl_vig = DataLoader(uc.BreastDCEDataset(vigilados, raiz=raiz_img), batch_size=args.lote, shuffle=False, **opciones)
 
     # --- modelo, perdida y optimizador ---
-    modelo = mo.RedBase(batchnorm=args.batchnorm, n_auxiliares=len(AUXILIARES) if args.aux else 0).to(device)
-    print(f"red: {'RedBase con BatchNorm' if args.batchnorm else 'RedBase (la de la diapositiva)'}, "
+    modelo = mo.RedBase(batchnorm=args.batchnorm, n_auxiliares=len(AUXILIARES) if args.aux else 0,
+                        realce=args.realce).to(device)
+    print(f"red: {'RedBase con BatchNorm' if args.batchnorm else 'RedBase (la de la diapositiva)'}"
+          f"{' + canales de realce y lavado' if args.realce else ''}, "
           f"{mo.contar_parametros(modelo):,} parametros")
     if args.perdida == "ponderada":
         peso = uc.pos_weight(entrenamiento)          # N0/N1 de ESTAS filas de entrenamiento, calculado del CSV
@@ -406,7 +411,7 @@ def main() -> None:
 
             if epoca == 1 or res_val["auc"] > mejor_auc:     # la 1.a se guarda siempre (por si el AUC fuera nan)
                 mejor_auc, mejor_epoca, mejor_probs = res_val["auc"], epoca, probs_val
-                torch.save({"red": "RedBase", "batchnorm": args.batchnorm, "aux": args.aux,
+                torch.save({"red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "aux": args.aux,
                             "perdida": args.perdida, "fold": args.fold, "epoca": epoca,
                             "auc_val": res_val["auc"], "lr": args.lr, "lote": args.lote,
                             "state_dict": modelo.state_dict()}, ruta["pesos"])
@@ -419,6 +424,7 @@ def main() -> None:
     # --- gráficas del diagnostico, en la mejor epoca ---
     titulo = (f"Red {'con BatchNorm' if args.batchnorm else 'base'} · pérdida {args.perdida}"
               + (" · aumentado" if args.aumentado == "geometrico" else "")
+              + (" · realce y lavado" if args.realce else "")
               + (" · tarea auxiliar HR/HER2" if args.aux else "") + f" · fold {args.fold}")
     graficas.dibujar_curvas_entrenamiento(ruta["csv"], ruta["curvas"], titulo, referencia, mejor_epoca, referencia_val)
     # metrica OFICIAL (DECISIONES.md): media del AUC de validacion de las ultimas 10 epocas
@@ -440,7 +446,7 @@ def main() -> None:
                                       f"Matriz de confusión por paciente · época {mejor_epoca} · umbral {args.umbral:g}")
 
     resumen = {
-        "red": "RedBase", "batchnorm": args.batchnorm,
+        "red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce,
         "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
         "aumentado": args.aumentado, "aux": args.aux, "peso_aux": args.peso_aux if args.aux else None,
         "auc_val_hr_ultima": auc_aux[0] if args.aux else None,

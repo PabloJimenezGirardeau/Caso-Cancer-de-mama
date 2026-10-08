@@ -269,6 +269,87 @@ comparan, emparejados por fold, solo clínico / solo CNN / combinado. Matiz para
 fold que se evalúa; es la práctica habitual del stacking, pero no es una validación perfectamente limpia.
 Siguiente: `python combinar.py bn_normal` en el PC (usa los `bn_normal_fold<k>_probs_val_final.csv` que ya existen, sin entrenar).
 
+**RESULTADO (2026-10-08): ¿añade algo la CNN con BatchNorm (media de las 10 últimas épocas) a los datos clínicos?**
+
+| AUC por paciente | Fold 0 | 1 | 2 | 3 | 4 | Media |
+|---|---|---|---|---|---|---|
+| Solo clínico | 0,757 | 0,712 | 0,679 | 0,712 | 0,675 | 0,707 |
+| Solo CNN | 0,558 | 0,565 | 0,559 | 0,533 | 0,588 | 0,561 |
+| CNN + clínico | 0,759 | 0,710 | 0,691 | 0,713 | 0,682 | **0,711** |
+
+- CNN + clínico − solo clínico: **+0,004, IC95 −0,003 a +0,011: no concluyente** (positivo en 4 de 5 folds, pero diminuto).
+  La regresión da a la CNN un peso muy pequeño (logit_cnn +0,071, odds ×1,07); los coeficientes clínicos casi no cambian.
+  Por corte (lo que ve la app): 0,707 → 0,710.
+- **Dónde acierta la CNN** (`analizar_cohortes.py bn_normal --probs media10`, 1.097 pacientes):
+  - Por subtipo: dentro de HR+/HER2− 0,508 (nada; es el 41 % de las pacientes), HR+/HER2+ 0,603 (0,507-0,692), HR−/HER2+ 0,545,
+    triple negativo 0,563 (0,504-0,627). **Estratificado por subtipo 0,545 (0,501-0,589)**, casi igual que el global (0,557):
+    la poca señal de la CNN **no es el subtipo** (sus probabilidades medias por subtipo apenas siguen la pCR real). No es
+    redundante, es débil.
+  - Por tamaño: pequeño 0,579, mediano 0,551, grande 0,532 (intervalos solapados); estratificado 0,555. No depende del tamaño.
+  - Por cohorte: estratificado 0,563, igual que el global: el AUC no viene de reconocer la cohorte. Sus probabilidades medias sí
+    siguen el orden de la pCR de cada cohorte (0,318 / 0,334 / 0,386 frente a 21 / 25 / 32 %). spy1 0,421 (104 pacientes, IC 0,29-0,55).
+- **Conclusión:** la CNN actual tiene una señal propia pero muy débil, y apenas mejora el modelo clínico. Mejor resultado hasta
+  ahora: CNN + clínico 0,711. El problema no es que la CNN repita el subtipo, sino que lo que aprende generaliza poco (memoriza:
+  AUC de entrenamiento 1,0).
+
+## Experimento 3: frenar la memorización con aumentado sobre BatchNorm (decidido el 2026-10-08)
+
+**Por qué:** la CNN con BatchNorm memoriza (AUC de entrenamiento 1,0, validación 0,56) y su señal casi no añade nada a los datos
+clínicos. El problema medido es que lo que aprende no generaliza. **Cambio único:** `--batchnorm --aumentado geometrico` (el mismo
+aumentado del experimento 1: volteo, rotación ±15°, desplazamiento ±10 %, escala 0,9-1,1, igual en las tres fases). Todo lo demás
+como bn_normal.
+**Por qué el aumentado antes que el weight decay:** ataca la memorización de forma directa (cada época la imagen es algo distinta);
+con BatchNorm el weight decay de las convoluciones actúa de forma poco intuitiva (sus pesos se pueden escalar sin cambiar la
+salida, así que el freno se convierte sobre todo en un cambio de la velocidad de aprendizaje); y ya está implementado y probado.
+En el experimento 1 el aumentado no ayudó, pero entonces la red no memorizaba (AUC de entrenamiento 0,64): no había nada que frenar.
+**Cómo se mide:** con la CNN sola (`comparar.py bn_normal bn_normal_aug`) y, sobre todo, con el modelo combinado
+(`combinar.py bn_normal_aug` frente a los 0,711 de `combinar.py bn_normal`), emparejado por fold.
+
+**RESULTADO del experimento 3 (5 folds):**
+
+| Fold | 0 | 1 | 2 | 3 | 4 | Media |
+|---|---|---|---|---|---|---|
+| CNN sola, BatchNorm (oficial) | 0,549 | 0,556 | 0,549 | 0,530 | 0,583 | 0,554 |
+| CNN sola, BatchNorm + aumentado | 0,509 | 0,523 | 0,544 | 0,529 | 0,504 | 0,522 |
+| CNN + clínico, con BatchNorm | 0,759 | 0,710 | 0,691 | 0,713 | 0,682 | 0,711 |
+| CNN + clínico, con BatchNorm + aumentado | 0,758 | 0,709 | 0,677 | 0,712 | 0,675 | 0,706 |
+
+- CNN sola: −0,032, IC95 −0,071 a +0,007, no concluyente, pero **peor en los 5 folds**. Ensemble de las 10 últimas épocas 0,524 (antes 0,561).
+- CNN + clínico − solo clínico: −0,0006 (IC95 −0,002 a +0,001). La regresión da a esta CNN peso cero (logit_cnn −0,010).
+- **El freno sobre la memorización sí funciona** (AUC de entrenamiento final 0,75-0,85 en vez de 0,99-1,0), **pero la validación no
+  mejora**. El mejor AUC de validación aparece muy pronto en varios folds (épocas 1-3 en los folds 0, 2 y 4) y luego baja, como en el
+  experimento 1: lo poco que generaliza se capta al principio y el resto del entrenamiento aprende cosas que no sirven fuera.
+- **No se adopta.** La mejor CNN sigue siendo bn_normal (con el ensemble de las 10 últimas épocas). La memorización no era lo que
+  tapaba una señal fuerte: la señal de la imagen, con esta red, es débil.
+
+## Experimento 4: canales de realce y lavado (decidido el 2026-10-08; último intento de la parte de imagen)
+
+**Por qué:** frenar la memorización no destapó señal (experimento 3): la red no encuentra en la imagen información que generalice.
+Se le da ya calculada la información que, según la GUIA, contiene la señal: **EARLY−PRE (realce)** y **EARLY−LATE (lavado)**.
+**Cambio único:** `--batchnorm --realce` (sin aumentado), todo lo demás como bn_normal. Las restas se calculan **dentro de la red**
+(`RedBase(realce=True)`), así que la app las hará exactamente igual. 106.289 parámetros (+288 en la primera convolución).
+Verificado: la primera convolución recibe PRE, EARLY, LATE, EARLY−PRE y EARLY−LATE; reproducible; sin `--realce` todo da igual que antes.
+**Cómo se mide:** `comparar.py bn_normal bn_normal_realce` y `combinar.py bn_normal_realce` (frente a 0,711).
+**Límite acordado:** salga lo que salga, después se pasa a lo obligatorio (pérdidas, umbral, calibración, modelo final, test, app,
+informe, diapositivas).
+
+## Ideas guardadas para probar en el futuro (2026-10-08)
+
+Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
+(imagen + datos clínicos) en los mismos 5 folds. Por orden de interés:
+
+1. **Canales de realce y lavado:** entrada de 5 canales = PRE, EARLY, LATE + EARLY−PRE (realce) + EARLY−LATE (lavado). La GUIA
+   dice que la señal está en la diferencia entre fases, y el lavado es clínicamente relevante (17 % de las pacientes). Es
+   información de la imagen que no está en el subtipo ni en el volumen. Solo cambia la primera capa (~300 parámetros más). La app
+   tendría que calcular las restas igual que el entrenamiento.
+2. **conv+conv con BatchNorm** (ya estaba en la lista por el profesor; ~294.000 parámetros, campo receptivo 76 px).
+3. **Media + máximo en el pooling global** (256 números en vez de 128): una zona pequeña muy marcada puede pesar.
+4. **Cabeza más simple:** Dropout → Linear directo a 1 logit, en vez de 128 → 64 → 1.
+
+Descartadas de esa propuesta: attention pooling por paciente (en la defensa llega un solo corte), early stopping sobre validación
+(resultado optimista), escalado de intensidad (altera el realce), GroupNorm (nuestros lotes son de 128). Su premisa "no hay
+máscara y el tumor ocupa pocos píxeles" no se cumple aquí: las imágenes son recortes del tumor llevados a 256×256.
+
 ## Pendiente de decidir
 
 Agregación y umbral definitivos · cuántos folds evaluar · aumentado de datos · primer cambio sobre la
