@@ -2,7 +2,9 @@
 
 Ajustes acordados (ver DECISIONES.md):
     red            RedBase (modelos.py): la arquitectura de referencia del profesor;
-                   --batchnorm la entrena con BatchNorm tras cada convolucion
+                   --batchnorm la entrena con BatchNorm tras cada convolucion;
+                   --aux añade la tarea auxiliar: predecir tambien HR y HER2 (patients.csv)
+                   solo durante el entrenamiento; la red final sigue dando un unico logit
     perdida        --perdida normal | ponderada     (se entrenan las dos y se comparan)
     optimizador    Adam, learning rate 0,0003
     lote           128
@@ -153,36 +155,106 @@ def por_paciente(filas, probs):
 
 
 # --------------------------------------------------------------------------- #
+# Tarea auxiliar: el subtipo del tumor (HR y HER2) como objetivo extra de entrenamiento
+# --------------------------------------------------------------------------- #
+
+AUXILIARES = ("HR", "HER2")
+
+
+def cargar_etiquetas_aux(raiz_meta: Path) -> dict[str, tuple[float, float]]:
+    """HR y HER2 de cada paciente (1/0), sacados de patients.csv; nan si falta el dato."""
+    pacientes = uc.cargar_patients(raiz_meta)
+    return {fila.pid: tuple(float(getattr(fila, c)) for c in AUXILIARES)       # NaN se conserva como nan
+            for fila in pacientes.itertuples()}
+
+
+class ConAuxiliares(torch.utils.data.Dataset):
+    """Envuelve un BreastDCEDataset y añade, a cada corte, las etiquetas auxiliares de su
+    paciente y una máscara (1 si el dato existe, 0 si falta: esas no cuentan en la pérdida).
+    Solo se usa con los datos de ENTRENAMIENTO."""
+
+    def __init__(self, base, filas, etiquetas_aux: dict):
+        self.base = base
+        pids = filas.reset_index(drop=True).patient_id.values      # mismo orden que el BreastDCEDataset
+        aux = np.array([etiquetas_aux.get(p, (np.nan,) * len(AUXILIARES)) for p in pids], dtype=np.float32)
+        self.mascara = torch.from_numpy((~np.isnan(aux)).astype(np.float32))
+        self.aux = torch.from_numpy(np.nan_to_num(aux, nan=0.0))
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, i):
+        x, y = self.base[i]
+        return x, y, self.aux[i], self.mascara[i]
+
+
+def auc_aux_por_paciente(filas, probs_aux, etiquetas_aux: dict) -> list[float]:
+    """AUC por paciente de cada etiqueta auxiliar (media de las probabilidades de sus cortes)."""
+    from sklearn.metrics import roc_auc_score
+    pids = filas.patient_id.values
+    resultados = []
+    for j in range(len(AUXILIARES)):
+        media = {}
+        for p, prob in zip(pids, probs_aux[:, j]):
+            media.setdefault(p, []).append(prob)
+        y, s = [], []
+        for p, ps in media.items():
+            etiqueta = etiquetas_aux.get(p, (np.nan,) * len(AUXILIARES))[j]
+            if not np.isnan(etiqueta):
+                y.append(etiqueta)
+                s.append(float(np.mean(ps)))
+        resultados.append(float(roc_auc_score(y, s)) if len(set(y)) == 2 else float("nan"))
+    return resultados
+
+
+# --------------------------------------------------------------------------- #
 # Una epoca de entrenamiento y la medicion
 # --------------------------------------------------------------------------- #
 
-def entrenar_una_epoca(modelo, dl, criterio, optimizador, device) -> float:
-    """Pasa una vez por todos los datos de entrenamiento, lote a lote. Devuelve la
-    perdida media de la epoca (con el dropout activo, tal como se entrena)."""
+def entrenar_una_epoca(modelo, dl, criterio, optimizador, device, peso_aux: float = 0.0):
+    """Pasa una vez por todos los datos de entrenamiento, lote a lote (con el dropout activo,
+    tal como se entrena). Devuelve (perdida media de pCR, perdida media auxiliar o None).
+
+    Con tarea auxiliar, la perdida que se minimiza es:
+        perdida_pCR + peso_aux * perdida_auxiliar   (media de HR y HER2, sin los datos que faltan)
+    La perdida de pCR que se devuelve es solo la de pCR, comparable con la de la base."""
     modelo.train()
-    suma, n = 0.0, 0
-    for x, y in dl:
-        x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+    suma, suma_aux, n = 0.0, 0.0, 0
+    for lote in dl:
+        x, y = lote[0].to(device, non_blocking=True), lote[1].to(device, non_blocking=True)
         optimizador.zero_grad()              # PyTorch acumula gradientes si no se limpian
-        perdida = criterio(modelo(x), y)
+        if len(lote) == 4:                   # con etiquetas auxiliares
+            aux, mascara = lote[2].to(device, non_blocking=True), lote[3].to(device, non_blocking=True)
+            logit, logit_aux = modelo.forward_multitarea(x)
+            perdida_pcr = criterio(logit, y)
+            por_elemento = F.binary_cross_entropy_with_logits(logit_aux, aux, reduction="none")
+            perdida_aux = (por_elemento * mascara).sum() / mascara.sum().clamp(min=1.0)
+            perdida = perdida_pcr + peso_aux * perdida_aux
+            suma_aux += perdida_aux.item() * x.size(0)
+        else:
+            perdida_pcr = perdida = criterio(modelo(x), y)
         perdida.backward()
         optimizador.step()
-        suma += perdida.item() * x.size(0)
+        suma += perdida_pcr.item() * x.size(0)
         n += x.size(0)
-    return suma / n
+    return suma / n, (suma_aux / n if modelo.n_auxiliares else None)
 
 
 @torch.no_grad()
 def medir(modelo, dl, filas, criterio, device, umbral: float):
     """Modo evaluacion (sin dropout) sobre `filas`. `dl` debe iterar con shuffle=False
     sobre esas mismas filas, o las probabilidades dejan de casar con ellas.
-    Devuelve (perdida por corte, metricas por paciente, probabilidad de cada corte)."""
+    Devuelve (perdida por corte, metricas por paciente, probabilidad de cada corte,
+    probabilidades auxiliares de cada corte o None)."""
     modelo.eval()
-    logits = torch.cat([modelo(x.to(device, non_blocking=True)) for x, _ in dl])
+    salidas = [modelo.forward_multitarea(x.to(device, non_blocking=True)) for x, _ in dl]
+    logits = torch.cat([s[0] for s in salidas])
+    probs_aux = (torch.sigmoid(torch.cat([s[1] for s in salidas])).cpu().numpy()
+                 if salidas[0][1] is not None else None)
     y = torch.as_tensor(np.array(filas.pCR.values), dtype=torch.float32, device=device)   # np.array copia: sin aviso
     perdida = criterio(logits, y).item()
     probs = torch.sigmoid(logits).cpu().numpy()
-    return perdida, uc.evaluar_por_paciente(probs, filas, umbral=umbral, metodo="mean"), probs
+    return perdida, uc.evaluar_por_paciente(probs, filas, umbral=umbral, metodo="mean"), probs, probs_aux
 
 
 # --------------------------------------------------------------------------- #
@@ -211,6 +283,10 @@ def construir_parser() -> argparse.ArgumentParser:
                    help="geometrico: volteo + rotacion + desplazamiento + escala, solo en entrenamiento")
     p.add_argument("--batchnorm", action="store_true",
                    help="BatchNorm tras cada convolucion (Conv -> BN -> ReLU -> pool)")
+    p.add_argument("--aux", action="store_true",
+                   help="tarea auxiliar: predecir tambien HR y HER2 (de patients.csv) durante el entrenamiento")
+    p.add_argument("--peso-aux", type=float, default=0.5,
+                   help="peso de la perdida auxiliar frente a la de pCR (solo con --aux)")
     p.add_argument("--sobrescribir", action="store_true",
                    help="permitir sobrescribir resultados existentes con el mismo nombre")
     return p
@@ -229,6 +305,7 @@ def main() -> None:
     #   base_normal_fold0, base_normal_aug_fold0, bn_normal_fold0, ...
     red = "bn" if args.batchnorm else "base"
     prefijo = (f"{red}_{args.perdida}" + ("_aug" if args.aumentado == "geometrico" else "") +
+               ("_aux" if args.aux else "") +
                f"_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else ""))
     args.salida.mkdir(parents=True, exist_ok=True)
     ruta = {k: args.salida / f"{prefijo}{s}" for k, s in
@@ -245,7 +322,8 @@ def main() -> None:
         print("*** AVISO: no se detecta GPU. Se entrena en CPU, mucho mas lento. ***")
 
     # --- datos: entrenamiento y validacion por PACIENTE (columna `fold`), test intacto ---
-    samples = uc.cargar_samples(localizar("metadata", args.raiz))
+    raiz_meta = localizar("metadata", args.raiz)
+    samples = uc.cargar_samples(raiz_meta)
     raiz_img = localizar("dataset", args.raiz)
     entrenamiento, validacion = uc.particion(samples, fold_val=args.fold)
     if args.muestra_rapida:
@@ -259,15 +337,21 @@ def main() -> None:
     opciones = dict(num_workers=args.num_workers, pin_memory=(device.type == "cuda"),
                     persistent_workers=args.num_workers > 0)
     transformacion = AumentadoAfin() if args.aumentado == "geometrico" else None   # solo en entrenamiento
-    dl_train = DataLoader(uc.BreastDCEDataset(entrenamiento, raiz=raiz_img, transform=transformacion),
-                          batch_size=args.lote, shuffle=True,
+    ds_train = uc.BreastDCEDataset(entrenamiento, raiz=raiz_img, transform=transformacion)
+    etiquetas_aux = None
+    if args.aux:   # HR y HER2 de patients.csv: solo como OBJETIVO de entrenamiento, nunca como entrada
+        etiquetas_aux = cargar_etiquetas_aux(raiz_meta)
+        ds_train = ConAuxiliares(ds_train, entrenamiento, etiquetas_aux)
+        print(f"tarea auxiliar: {' y '.join(AUXILIARES)} (peso {args.peso_aux:g}); con los dos datos en "
+              f"{int(ds_train.mascara.min(dim=1).values.sum())} de {len(ds_train)} cortes de entrenamiento")
+    dl_train = DataLoader(ds_train, batch_size=args.lote, shuffle=True,
                           generator=torch.Generator().manual_seed(args.semilla), **opciones)
     # shuffle=False en validacion y vigilados: obligatorio para que las probabilidades casen con las filas
     dl_val = DataLoader(uc.BreastDCEDataset(validacion, raiz=raiz_img), batch_size=args.lote, shuffle=False, **opciones)
     dl_vig = DataLoader(uc.BreastDCEDataset(vigilados, raiz=raiz_img), batch_size=args.lote, shuffle=False, **opciones)
 
     # --- modelo, perdida y optimizador ---
-    modelo = mo.RedBase(batchnorm=args.batchnorm).to(device)
+    modelo = mo.RedBase(batchnorm=args.batchnorm, n_auxiliares=len(AUXILIARES) if args.aux else 0).to(device)
     print(f"red: {'RedBase con BatchNorm' if args.batchnorm else 'RedBase (la de la diapositiva)'}, "
           f"{mo.contar_parametros(modelo):,} parametros")
     if args.perdida == "ponderada":
@@ -294,29 +378,35 @@ def main() -> None:
     tiempos, t_inicio = [], time.time()
     with open(ruta["csv"], "w", encoding="utf-8") as f:
         f.write("epoca,perdida_train,perdida_val,auc_train,auc_val,accuracy_val,sensibilidad_val,"
-                "especificidad_val,lr,tiempo_seg\n")
+                "especificidad_val,lr,tiempo_seg,perdida_aux_train,auc_val_hr,auc_val_her2\n")
         for epoca in range(1, args.epocas + 1):
             t0 = time.time()
-            perdida_train = entrenar_una_epoca(modelo, dl_train, criterio, optimizador, device)
-            perdida_val, res_val, probs_val = medir(modelo, dl_val, validacion, criterio, device, args.umbral)
+            perdida_train, perdida_aux = entrenar_una_epoca(modelo, dl_train, criterio, optimizador, device,
+                                                            args.peso_aux)
+            perdida_val, res_val, probs_val, probs_aux = medir(modelo, dl_val, validacion, criterio, device, args.umbral)
+            auc_aux = (auc_aux_por_paciente(validacion, probs_aux, etiquetas_aux)
+                       if probs_aux is not None else [float("nan")] * len(AUXILIARES))
             auc_historial.append(res_val["auc"])
             if epoca > args.epocas - n_ult:
                 suma_probs_ult += probs_val
-            _, res_vig, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
+            _, res_vig, _, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
             dur = time.time() - t0
             tiempos.append(dur)
             f.write(f"{epoca},{perdida_train:.6f},{perdida_val:.6f},{res_vig['auc']:.6f},{res_val['auc']:.6f},"
                     f"{res_val['accuracy']:.6f},{res_val['sensibilidad']:.6f},{res_val['especificidad']:.6f},"
-                    f"{args.lr:.8f},{dur:.2f}\n")
+                    f"{args.lr:.8f},{dur:.2f},"
+                    f"{'' if perdida_aux is None else f'{perdida_aux:.6f}'},{auc_aux[0]:.6f},{auc_aux[1]:.6f}\n")
             f.flush()
             print(f"epoca {epoca:3d}/{args.epocas}  perdida train {perdida_train:.4f} val {perdida_val:.4f}  "
                   f"AUC train {res_vig['auc']:.3f} val {res_val['auc']:.3f}  "
                   f"(val: acc {res_val['accuracy']:.3f} sens {res_val['sensibilidad']:.3f} "
-                  f"espec {res_val['especificidad']:.3f})  {dur:.1f}s", flush=True)
+                  f"espec {res_val['especificidad']:.3f})"
+                  + (f"  aux val HR {auc_aux[0]:.3f} HER2 {auc_aux[1]:.3f}" if args.aux else "")
+                  + f"  {dur:.1f}s", flush=True)
 
             if epoca == 1 or res_val["auc"] > mejor_auc:     # la 1.a se guarda siempre (por si el AUC fuera nan)
                 mejor_auc, mejor_epoca, mejor_probs = res_val["auc"], epoca, probs_val
-                torch.save({"red": "RedBase", "batchnorm": args.batchnorm,
+                torch.save({"red": "RedBase", "batchnorm": args.batchnorm, "aux": args.aux,
                             "perdida": args.perdida, "fold": args.fold, "epoca": epoca,
                             "auc_val": res_val["auc"], "lr": args.lr, "lote": args.lote,
                             "state_dict": modelo.state_dict()}, ruta["pesos"])
@@ -328,7 +418,8 @@ def main() -> None:
 
     # --- gráficas del diagnostico, en la mejor epoca ---
     titulo = (f"Red {'con BatchNorm' if args.batchnorm else 'base'} · pérdida {args.perdida}"
-              + (" · aumentado" if args.aumentado == "geometrico" else "") + f" · fold {args.fold}")
+              + (" · aumentado" if args.aumentado == "geometrico" else "")
+              + (" · tarea auxiliar HR/HER2" if args.aux else "") + f" · fold {args.fold}")
     graficas.dibujar_curvas_entrenamiento(ruta["csv"], ruta["curvas"], titulo, referencia, mejor_epoca, referencia_val)
     # metrica OFICIAL (DECISIONES.md): media del AUC de validacion de las ultimas 10 epocas
     auc_media_ult = sum(auc_historial[-n_ult:]) / n_ult
@@ -351,7 +442,9 @@ def main() -> None:
     resumen = {
         "red": "RedBase", "batchnorm": args.batchnorm,
         "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
-        "aumentado": args.aumentado,
+        "aumentado": args.aumentado, "aux": args.aux, "peso_aux": args.peso_aux if args.aux else None,
+        "auc_val_hr_ultima": auc_aux[0] if args.aux else None,
+        "auc_val_her2_ultima": auc_aux[1] if args.aux else None,
         "pos_weight": peso if args.perdida == "ponderada" else None, "fold": args.fold,
         "optimizador": "Adam", "lr": args.lr, "lote": args.lote, "epocas": args.epocas, "semilla": args.semilla,
         "umbral": args.umbral, "agregacion": "mean", "muestra_rapida": args.muestra_rapida,
@@ -376,6 +469,9 @@ def main() -> None:
     print(f"Mejor epoca: {mejor_epoca}  AUC por paciente en validacion = {mejor_auc:.4f}  "
           f"(optimista: se elige mirando la validacion)")
     print(f"Matriz de confusion (umbral {args.umbral:g}): {mc}")
+    if args.aux:
+        print(f"Tarea auxiliar, AUC por paciente en validacion (ultima epoca): "
+              f"HR {auc_aux[0]:.4f}  HER2 {auc_aux[1]:.4f}")
     print(f"Resultados en {args.salida}  (prefijo {prefijo})")
 
 

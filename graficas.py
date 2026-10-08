@@ -3,6 +3,7 @@
     dibujar_curva_perdida          perdida de entrenamiento por epoca (prueba de memorizacion)
     dibujar_curvas_entrenamiento   perdida y AUC por epoca, entrenamiento frente a validacion
     calcular_roc / dibujar_roc     curva ROC (por paciente)
+    dibujar_rocs                   varias curvas ROC juntas (comparar modelos)
     dibujar_matriz_confusion       matriz de confusion (por paciente)
 """
 
@@ -11,7 +12,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-AZUL, NARANJA, ROJO, GRIS = "#1f77b4", "#e76f51", "#c1121f", "#6c757d"
+AZUL, NARANJA, ROJO, GRIS, VERDE = "#1f77b4", "#e76f51", "#c1121f", "#6c757d", "#2a9d8f"
 
 
 def _plt():
@@ -176,6 +177,26 @@ def dibujar_roc(y, puntuacion, ruta_png: Path, titulo: str, umbral: float = 0.5)
     ax.grid(alpha=0.3); ax.legend(loc="lower right", fontsize=10)
     ruta_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(ruta_png, dpi=110, bbox_inches="tight", facecolor="white")
+
+
+def dibujar_rocs(curvas: dict, ruta_png: Path, titulo: str) -> None:
+    """Varias curvas ROC en la misma grafica, para comparar modelos.
+    `curvas`: {nombre: (etiquetas, puntuaciones)}."""
+    import numpy as np
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(6.2, 6.2), constrained_layout=True)
+    for (nombre, (y, s)), color in zip(curvas.items(), (NARANJA, VERDE, AZUL, ROJO)):
+        fpr, tpr, auc = calcular_roc(np.asarray(y), np.asarray(s, dtype=float))
+        ax.plot(fpr, tpr, color=color, lw=2.4, label=f"{nombre} (AUC = {auc:.3f})")
+    ax.plot([0, 1], [0, 1], color=GRIS, ls=":", lw=1.2, label="azar (AUC = 0,5)")
+    ax.set_xlim(-0.01, 1.01); ax.set_ylim(-0.01, 1.01); ax.set_aspect("equal")
+    ax.set_xlabel("1 − especificidad  (falsos positivos entre los no pCR)", fontsize=11)
+    ax.set_ylabel("sensibilidad  (pCR detectadas entre las pCR)", fontsize=11)
+    ax.set_title(titulo, fontsize=13, fontweight="bold")
+    ax.grid(alpha=0.3); ax.legend(loc="lower right", fontsize=10)
+    ruta_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(ruta_png, dpi=110, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
 
 
 def dibujar_matriz_confusion(vp: int, vn: int, fp: int, fn: int, ruta_png: Path, titulo: str) -> None:

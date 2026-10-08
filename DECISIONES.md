@@ -174,11 +174,103 @@ diferencia emparejada excluye el 0; si no, nos quedamos con la base.
    (`*_probs_val_final.csv`) e imprime el AUC del **ensemble temporal** (promediar las predicciones de las 10 últimas épocas), que
    no cuesta GPU extra. `analizar_cohortes.py --probs ultima|media10` usa esas probabilidades.
 
+   **RESULTADO del experimento 2 (BatchNorm, pérdida normal, 5 folds; métrica oficial):**
+
+   | Fold | 0 | 1 | 2 | 3 | 4 | Media | Desv. |
+   |---|---|---|---|---|---|---|---|
+   | Base | 0,598 | 0,563 | 0,539 | 0,490 | 0,551 | 0,548 | 0,040 |
+   | BatchNorm | 0,549 | 0,556 | 0,549 | 0,530 | 0,584 | 0,554 | 0,019 |
+   | BatchNorm, ensemble últimas 10 épocas | 0,558 | 0,565 | 0,559 | 0,533 | 0,588 | 0,561 | 0,020 |
+
+   - BatchNorm − base: **+0,006, IC95 de −0,039 a +0,050: no concluyente** → no se adopta como mejora del AUC.
+     Sí reduce a la mitad la variación entre folds y aprende mucho más rápido.
+   - **Sobreajuste claro:** AUC de entrenamiento 0,99-1,00 al final; pérdida de validación de ~0,60 a 1,2-1,8 (picos de
+     hasta 3,5); el AUC de validación tiene su pico en épocas intermedias (13-17 en tres folds).
+   - **Ensemble temporal** (promediar las predicciones de las 10 últimas épocas) frente a la media de sus AUC:
+     **+0,007 en los 5 folds, IC95 de +0,003 a +0,011** → mejora pequeña pero consistente y gratuita. Se usará en el modelo final.
+   - **Matrices de confusión (mejor época, umbral 0,5) muy distintas entre folds** (sensibilidad del 6 % al 72 %): no reflejan
+     la dificultad del fold sino dónde caen las probabilidades respecto al 0,5 en esa época, que oscila de una época a otra
+     (p. ej., fold 0: sensibilidad 3 % en la época 20 y 94 % en la 21). Sumando los 5 folds: sensibilidad 45 %, especificidad
+     66 %, accuracy 60 %, precisión 36 % (prevalencia 29 %). **El umbral 0,5 no es utilizable: hay que elegirlo con validación.**
+   - Copias de los registros en `referencia/bn_normal_fold<k>_epocas.csv`.
+
 3. **conv + conv + pool** (idea del profesor; queda como opcional tras el análisis): dos convoluciones 3×3 + ReLU por bloque, mismos canales (16-32-64-128), pool al
    final; ≈ 301.800 parámetros (casi 3× la base), campo receptivo 76 px, ≈ 4 h de GPU estimadas. Pendiente de implementar.
+
+## Datos clínicos de patients.csv (decidido el 2026-10-07)
+
+**Permiso del profesor:** se puede usar `patients.csv` entero para entrenar, y en la app y en la defensa **cada muestra llega con
+las mismas columnas**. Por tanto las variables clínicas pueden ser **entrada del modelo**, no solo ayuda durante el entrenamiento.
+
+**Tarea auxiliar (HR y HER2 como objetivo extra, `--aux`):** implementada y probada (reproducible; sin `--aux` todo da igual que
+antes), pero **aparcada sin lanzar**. Servía para meter el subtipo en la red cuando creíamos que en la app solo habría imagen; si el
+subtipo llega como dato, que la CNN lo aprenda a deducir es redundante. Lo que interesa de la imagen ahora es lo que el subtipo NO explica.
+
+**Análisis de las columnas** (solo las 1.097 pacientes de entrenamiento; el test no se mira):
+- pCR por subtipo: **HR+/HER2− 14 %**, HR+/HER2+ 34 %, triple negativo 38 %, **HR−/HER2+ 57 %**. Es la señal más fuerte.
+- AUC de cada columna sola (0,5 = nada; por debajo, relación inversa): HRposHER2neg 0,348 (≈ 0,65 al revés), HER2 0,586,
+  edad 0,458, tum_vol 0,454. Las de adquisición (n_xy, n_z, n_times, slice_thick, xy_spacing) y la raza ≈ 0,50-0,55.
+- Datos que faltan: menopause en **toda** spy1 y 30 de spy2; HR 2, HER2 3, edad 3, tum_vol 1.
+- `tum_vol`: mediana 6 en Duke frente a 15 en I-SPY (en Duke la máscara es incompleta): sesgo entre cohortes para el informe.
+- Las imágenes son recortes alrededor del tumor (`sraw…ecol`) llevados a 256×256: la CNN no ve el tamaño real del tumor.
+
+**Variables elegidas** (`clinicas.py`): **HR, HER2, HR×HER2, edad y log(volumen tumoral)**. No se usan: pCR/split/test (respuesta y
+reparto), dataset y adquisición (delatan cohorte o escáner), raza (la GUIA lo considera error metodológico), menopause (su hueco
+delata la cohorte spy1; la edad recoge lo mismo), las columnas de subtipo (se deducen de HR y HER2) y los límites del recorte.
+Huecos → media de entrenamiento; edad y log(volumen) estandarizados con medias de entrenamiento. La app usará los mismos valores.
+
+**RESULTADO: modelo solo clínico** (regresión logística, `python combinar.py`, mismos 5 folds, AUC por paciente):
+
+| Variables | Fold 0 | 1 | 2 | 3 | 4 | Media |
+|---|---|---|---|---|---|---|
+| Subtipo (3 grupos) | 0,709 | 0,647 | 0,630 | 0,675 | 0,647 | 0,662 |
+| HR, HER2, HR×HER2 | 0,723 | 0,649 | 0,652 | 0,703 | 0,675 | 0,680 |
+| + edad | 0,723 | 0,694 | 0,662 | 0,705 | 0,685 | 0,694 |
+| **+ edad + log(volumen)** | **0,757** | **0,712** | **0,679** | **0,712** | **0,675** | **0,707** (IC95 ±0,041) |
+| (+ cohorte, solo como referencia, no se usa) | 0,755 | 0,710 | 0,685 | 0,732 | 0,688 | 0,714 |
+
+- **0,707 frente a 0,561 de la mejor CNN.** Cada variable suma en todos los folds (+ edad +0,014; + volumen +0,013).
+- Coeficientes (todo el entrenamiento): HR −1,35 (odds ×0,26), HER2 +0,88 (×2,40), HR×HER2 +0,21, edad −0,25 por desviación (×0,78),
+  log(volumen) −0,30 por desviación (×0,74).
+- La cohorte apenas añade (+0,007): el modelo clínico no depende de ella.
+
+**¿Y con todas las columnas?** (`python comparar_variables.py`; mismas 5 variables + las columnas añadidas tal cual,
+estandarizadas, con indicador de hueco; pCR, split y test nunca)
+
+| Opción | Variables | AUC val | AUC entreno | Diferencia con las 5 (IC95) |
+|---|---|---|---|---|
+| **Las 5 de `clinicas.py`** | 5 | **0,707** | 0,714 | — |
+| TODAS las columnas | 36 | 0,704 | 0,743 | −0,003 (−0,016 a +0,011) no concluyente |
+| Todas menos la raza | 32 | 0,706 | 0,742 | −0,001 (−0,014 a +0,012) no concluyente |
+| + adquisición (escáner) | 12 | 0,711 | 0,726 | +0,004 (−0,008 a +0,015) no concluyente |
+| + coordenadas del recorte | 11 | 0,719 | 0,731 | +0,012 (+0,003 a +0,021) mejora |
+| + dimensiones del recorte en mm | 8 | 0,714 | 0,726 | +0,007 (−0,007 a +0,022) no concluyente |
+| + dimensiones del recorte en píxeles | 8 | 0,715 | 0,725 | +0,008 (+0,003 a +0,012) mejora |
+| + menopausia | 7 | 0,702 | 0,717 | −0,005 (−0,013 a +0,003) no concluyente |
+| + cohorte | 7 | 0,715 | 0,724 | +0,008 (−0,005 a +0,020) no concluyente |
+| + raza | 9 | 0,703 | 0,716 | −0,004 (−0,009 a +0,002) no concluyente |
+| + indicadores de subtipo | 11 | 0,704 | 0,714 | −0,003 (−0,008 a +0,003) no concluyente |
+
+- **Todas las columnas no mejora** (0,704) y el AUC de entrenamiento sube de 0,714 a 0,743: las 31 columnas extra sirven
+  para memorizar, no para predecir.
+- **Coordenadas del recorte:** la ganancia sale de las dimensiones, no de la posición (centro del recorte −0,003; lado de la
+  mama 0,000). Y depende de la unidad: en píxeles pasa la prueba, en milímetros no; el diámetro mayor en mm da −0,001 y el log
+  de las 3 dimensiones +0,004 (no concluyentes). Un efecto biológico del tamaño no dependería de contar píxeles o milímetros;
+  los píxeles dependen de la resolución del escáner, así que apunta más a la máquina que al tumor. El log(volumen) ya recoge
+  el tamaño (correlación 0,8 con el diámetro mayor).
+- Se han probado unas 15 opciones: que alguna "gane" por azar es esperable (la misma trampa que la mejor época).
+- **Decisión: se mantienen las 5 variables.** Además de los números: pCR es la respuesta, split/test el reparto, la raza
+  la excluye la GUIA, y cohorte y escáner dicen de qué hospital viene la imagen, no cómo es el tumor.
+
+**Plan: combinar la CNN con lo clínico ("stacking", `combinar.py`).** Una regresión logística con las 5 variables clínicas + el logit
+que la CNN da a cada corte, ajustada **por corte** (en la app y en la defensa llega un solo corte con los datos de su paciente). Para
+ajustarla se usan las predicciones de la CNN sobre la validación de cada fold (cada corte, predicho por una CNN que no lo vio). Se
+comparan, emparejados por fold, solo clínico / solo CNN / combinado. Matiz para el informe: las CNN de los otros folds sí vieron al
+fold que se evalúa; es la práctica habitual del stacking, pero no es una validación perfectamente limpia.
+Siguiente: `python combinar.py bn_normal` en el PC (usa los `bn_normal_fold<k>_probs_val_final.csv` que ya existen, sin entrenar).
 
 ## Pendiente de decidir
 
 Agregación y umbral definitivos · cuántos folds evaluar · aumentado de datos · primer cambio sobre la
 base (conv+conv+pool) · inicialización (por ahora, la de PyTorch por defecto) · método de comparación
-final entre pérdida normal y ponderada.
+final entre pérdida normal y ponderada · si la CNN aporta algo sobre lo clínico (y, si no, qué cambiar en ella).

@@ -64,10 +64,18 @@ class RedBase(nn.Module):
     batchnorm=True  -> igual, con BatchNorm tras cada convolucion (106.001 parametros:
                        se quitan los 240 sesgos de las convoluciones y se anaden 480
                        parametros de BatchNorm, gamma y beta por canal).
+
+    n_auxiliares > 0 -> anade una cabeza auxiliar (una capa lineal 128 -> n_auxiliares) que,
+                       a partir de las mismas 128 caracteristicas, predice otras etiquetas
+                       (el subtipo del tumor: HR y HER2). SOLO se usa durante el entrenamiento
+                       (`forward_multitarea`), para que la red aprenda rasgos biologicos del
+                       tumor. `forward` sigue devolviendo un unico logit de pCR, y para la app
+                       se puede cargar el modelo sin esa cabeza (load_state_dict(strict=False)).
     """
 
-    def __init__(self, dropout: float = 0.5, batchnorm: bool = False):
+    def __init__(self, dropout: float = 0.5, batchnorm: bool = False, n_auxiliares: int = 0):
         super().__init__()
+        self.n_auxiliares = n_auxiliares
         self.extractor = nn.Sequential(
             bloque(3, 16, batchnorm),      # 3 @ 256x256  ->  16 @ 128x128
             bloque(16, 32, batchnorm),     # 16 @ 128x128 ->  32 @  64x64
@@ -80,14 +88,24 @@ class RedBase(nn.Module):
             nn.Dropout(dropout),    # durante entrenar apaga al azar el 50 % de las 64
             nn.Linear(64, 1),       # un unico logit
         )
+        # cabeza auxiliar (solo entrenamiento): mismas 128 caracteristicas -> HR, HER2
+        self.cabeza_aux = nn.Linear(128, n_auxiliares) if n_auxiliares else None
+
+    def caracteristicas(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.extractor(x)        # (N, 128, 16, 16)
+        return x.mean(dim=(2, 3))    # media global (GAP): cada mapa -> un numero  -> (N, 128)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.extractor(x)        # (N, 128, 16, 16)
-        x = x.mean(dim=(2, 3))       # media global (GAP): cada mapa -> un numero  -> (N, 128)
-        x = self.cabeza(x)           # (N, 1)
+        x = self.cabeza(self.caracteristicas(x))   # (N, 1)
         # Se devuelve (N,) y no (N, 1): BCEWithLogitsLoss no avisa si le das logits (N, 1)
         # contra etiquetas (N,), hace un broadcasting a (N, N) y entrena mal sin error.
         return x.squeeze(1)
+
+    def forward_multitarea(self, x: torch.Tensor):
+        """Devuelve (logit de pCR (N,), logits auxiliares (N, n_auxiliares) o None)."""
+        f = self.caracteristicas(x)
+        logit = self.cabeza(f).squeeze(1)
+        return logit, (self.cabeza_aux(f) if self.cabeza_aux is not None else None)
 
 
 def contar_parametros(modelo: nn.Module) -> int:
