@@ -333,6 +333,69 @@ Verificado: la primera convolución recibe PRE, EARLY, LATE, EARLY−PRE y EARLY
 **Límite acordado:** salga lo que salga, después se pasa a lo obligatorio (pérdidas, umbral, calibración, modelo final, test, app,
 informe, diapositivas).
 
+**RESULTADO del experimento 4 (2026-10-14, 5 folds):**
+
+| Fold | 0 | 1 | 2 | 3 | 4 | Media |
+|---|---|---|---|---|---|---|
+| CNN sola, BatchNorm (oficial) | 0,549 | 0,556 | 0,549 | 0,530 | 0,583 | 0,554 |
+| CNN sola, BatchNorm + realce y lavado (oficial) | 0,551 | 0,580 | 0,569 | 0,507 | 0,603 | 0,562 |
+| CNN sola, ensemble 10 últimas, BatchNorm | 0,558 | 0,565 | 0,559 | 0,533 | 0,588 | 0,561 |
+| CNN sola, ensemble 10 últimas, + realce y lavado | 0,562 | 0,592 | 0,590 | 0,511 | 0,611 | 0,573 |
+| CNN + clínico, BatchNorm | 0,759 | 0,710 | 0,691 | 0,713 | 0,682 | 0,711 |
+| CNN + clínico, BatchNorm + realce y lavado | 0,756 | 0,719 | 0,687 | 0,712 | 0,683 | 0,712 |
+
+- CNN sola: **+0,008, IC95 −0,016 a +0,033: no concluyente** (mejora en 4 de 5 folds; el fold 3 baja de 0,530 a 0,507). Ensemble +0,013.
+  Es el primer cambio de la parte de imagen que sube algo, y el AUC de validación ya no se hunde con el entrenamiento (en los folds
+  1, 2 y 4 sigue subiendo hasta el final). La memorización vuelve (AUC de entrenamiento 0,99-1,0).
+- CNN + clínico: 0,712 frente a 0,711 (+0,001; por fold −0,003 / +0,010 / −0,004 / 0,000 / +0,001). Frente a solo clínico, +0,005
+  (IC95 −0,001 a +0,011, no concluyente). La regresión da a esta CNN un peso algo mayor (logit_cnn +0,097 frente a +0,071).
+- **No se adopta** por la regla (el intervalo incluye el 0). En el modelo combinado las dos CNN son equivalentes. Lectura para el
+  informe: dar el realce y el lavado ya calculados ayuda un poco a la CNN sola, pero no añade información nueva sobre los datos clínicos.
+- **Fin de la exploración** de la parte de imagen, según el límite acordado.
+
+## REORIENTACIÓN tras el correo del profesor "Pistas caso de uso" (2026-10-14)
+
+- **El modelo principal es la CNN solo con imagen** (PRE, EARLY, LATE). Las variables de patients.csv quedan **solo como
+  comparación**: el modelo clínico (0,707) y el combinado CNN + clínico (0,711) pasan a ser referencias para el informe, no el
+  modelo final. La app no necesita campos clínicos.
+- **Objetivo realista:** con cortes 2D y tres cohortes, un AUC por paciente en test de **0,60 a 0,70** es un buen trabajo
+  (Fridman et al. 2025, mismo test: 0,72). Nuestra CNN está en ~0,56-0,57 de media de las últimas épocas.
+- **Entrenamiento:** criterio de parada (early stopping) y época elegida documentados; sobreajuste controlado y demostrado con las
+  curvas de entrenamiento y validación juntas y la diferencia de AUC en la época elegida; descartar modelos sobreentrenados. Las redes
+  con BatchNorm tal como están (AUC de entrenamiento → 1, pérdida de validación disparada) son el ejemplo "MAL" del correo.
+- Pendientes que marca: pérdida normal frente a ponderada (qué le pasa a la sensibilidad), umbral con criterio clínico explícito,
+  test completo una vez (matriz, AUC con IC, precision/recall/F1 por clase, F1 equilibrada, comparación con "siempre no pCR"),
+  resultados por cohorte, calibración, casos fallados con imágenes, contraste con la bibliografía y leer el artículo de Fridman 2025.
+
+**Decisiones de la nueva hoja de ruta (2026-10-14, ver `HOJA_DE_RUTA.md`):**
+1. Early stopping sobre el **AUC por paciente de validación**, paciencia **10** épocas, máximo **60**; se anotan época elegida,
+   AUC de validación, AUC de entrenamiento y su diferencia.
+2. Modelo final = **los 5 modelos de los folds juntos** (promedio de probabilidades).
+3. Umbral: uso previsto = **desescalar**; el error grave es el falso positivo → priorizar **especificidad y precisión de pCR**
+   (como Fridman: especificidad 0,95, precisión 0,70, sensibilidad 0,27), comparado con máximo de F1 y F1 equilibrada.
+
+## Fase 1 hecha: early stopping (2026-10-14)
+
+- `parada.py`: la regla, en un solo sitio. Se vigila el AUC por paciente de validación suavizado con una **media móvil
+  centrada de 3 épocas**; la época elegida es la de su máximo; se para tras **10** épocas sin superarlo o a las **60**.
+  En la época elegida se anota la diferencia AUC de entrenamiento − validación; **más de 0,15 = sobreentrenado**.
+  Por qué la media móvil: simulada sobre los registros de BatchNorm, elegir el máximo de una sola época da 0,601 ± 0,025, y
+  con la media móvil 0,563 ± 0,033. La diferencia es un pico de suerte (p. ej., fold 1: la época 13 da 0,607, pero con sus
+  vecinas 0,538). El AUC de una época oscila ±0,04 por puro ruido.
+- `entrenar.py`: early stopping con `--paciencia` (0 = sin parada) y `--epocas` como máximo (60); guarda pesos y
+  probabilidades de la **época elegida** (`*_probs_val.csv`, `*.pt`); el resumen trae época elegida, AUC de validación (y su
+  media móvil), AUC de entrenamiento, diferencia y si está sobreentrenado. `--lr` distinto de 3e-4 añade `_lr<valor>` al nombre.
+- `comparar.py`: la métrica pasa a ser el **AUC de validación en la época elegida, media ± desviación de los 5 folds**, con
+  la diferencia y los folds sobreentrenados; aplica `parada.py` también a los registros antiguos.
+- **Referencia con el nuevo protocolo** (registros de 40 épocas; todos los folds paran antes):
+
+  | Configuración | AUC val en la época elegida | Diferencia media | Folds sobreentrenados |
+  |---|---|---|---|
+  | Base, sin BatchNorm (folds 0-3) | 0,528 ± 0,057 | −0,031 | 0 de 4 (casi no aprende: elige la época 1 en dos folds) |
+  | **BatchNorm** | **0,563 ± 0,033** | **+0,218** | **4 de 5** |
+
+  Conclusión: la red con BatchNorm aprende pero memoriza demasiado deprisa. La fase 2 parte de ella y busca frenar la velocidad.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado

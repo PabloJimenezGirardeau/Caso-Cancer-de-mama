@@ -7,10 +7,13 @@ Ajustes acordados (ver DECISIONES.md):
                    --aux añade la tarea auxiliar: predecir tambien HR y HER2 (patients.csv)
                    solo durante el entrenamiento; la red final sigue dando un unico logit
     perdida        --perdida normal | ponderada     (se entrenan las dos y se comparan)
-    optimizador    Adam, learning rate 0,0003
+    optimizador    Adam, learning rate 0,0003 (--lr)
     lote           128
-    epocas         40 fijas, SIN parada temprana (se ve la curva entera);
-                   se guarda el modelo de la epoca con mejor AUC por paciente en validacion
+    epocas         EARLY STOPPING (parada.py, decidido el 2026-10-14): se vigila el AUC por paciente
+                   de validacion suavizado con una media movil de 3 epocas; se para tras 10 epocas
+                   sin mejorar (--paciencia) o al llegar a 60 (--epocas). Se guarda el modelo de la
+                   EPOCA ELEGIDA y se anota la diferencia AUC entrenamiento - validacion en ella
+                   (si supera 0,15, el modelo se marca como sobreentrenado)
     datos          entrada tal cual (PRE, EARLY, LATE en [0, 1]);
                    --aumentado ninguno (por defecto) | geometrico (ver AumentadoAfin)
     validacion     un fold (--fold, por defecto 0); el test NO se toca
@@ -23,12 +26,12 @@ poder ver el sobreajuste, sobre un grupo fijo de pacientes de ENTRENAMIENTO
 Salida, en resultados/ (los nombres incluyen la perdida y el fold):
     *_epocas.csv        una fila por epoca (los datos en bruto)
     *_curvas.png        perdida y AUC por epoca, entrenamiento frente a validacion
-    *_roc.png           curva ROC por paciente, en la mejor epoca
-    *_confusion.png     matriz de confusion por paciente, en la mejor epoca
-    *_probs_val.csv     probabilidad de cada corte de validacion en la mejor epoca
+    *_roc.png           curva ROC por paciente, en la epoca elegida
+    *_confusion.png     matriz de confusion por paciente, en la epoca elegida
+    *_probs_val.csv     probabilidad de cada corte de validacion en la epoca elegida
     *_probs_val_final.csv  probabilidad de cada corte en la ULTIMA epoca (prob) y la media de
                         sus probabilidades en las ultimas 10 epocas (prob_media10)
-    *.pt                pesos de la mejor epoca
+    *.pt                pesos de la epoca elegida
     *_resumen.json      configuracion, resultado, dispositivo y tiempos
 
 Ejemplos:
@@ -49,6 +52,7 @@ import math
 import os
 import random
 import time
+from collections import deque
 from pathlib import Path
 
 # Para que las capas lineales en GPU sean deterministas; hay que fijarlo antes de usar CUDA.
@@ -62,6 +66,7 @@ from torch.utils.data import DataLoader
 
 import graficas
 import modelos as mo
+import parada as pa
 import utils_caso as uc
 
 RAIZ = Path(__file__).resolve().parent
@@ -267,7 +272,7 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--perdida", choices=["normal", "ponderada"], default="normal",
                    help="ponderada: BCEWithLogitsLoss(pos_weight = N0/N1 de las filas de entrenamiento)")
     p.add_argument("--fold", type=int, default=0, help="fold de validacion (0-4)")
-    p.add_argument("--epocas", type=int, default=40)
+    p.add_argument("--epocas", type=int, default=pa.EPOCAS_MAX, help="maximo de epocas")
     p.add_argument("--lote", type=int, default=128)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--umbral", type=float, default=0.5)
@@ -290,6 +295,8 @@ def construir_parser() -> argparse.ArgumentParser:
                    help="tarea auxiliar: predecir tambien HR y HER2 (de patients.csv) durante el entrenamiento")
     p.add_argument("--peso-aux", type=float, default=0.5,
                    help="peso de la perdida auxiliar frente a la de pCR (solo con --aux)")
+    p.add_argument("--paciencia", type=int, default=pa.PACIENCIA,
+                   help="early stopping: epocas sin mejorar la media movil del AUC de validacion (0 = sin parada)")
     p.add_argument("--sobrescribir", action="store_true",
                    help="permitir sobrescribir resultados existentes con el mismo nombre")
     return p
@@ -309,6 +316,7 @@ def main() -> None:
     red = "bn" if args.batchnorm else "base"
     prefijo = (f"{red}_{args.perdida}" + ("_aug" if args.aumentado == "geometrico" else "") +
                ("_realce" if args.realce else "") + ("_aux" if args.aux else "") +
+               (f"_lr{args.lr:g}" if args.lr != 3e-4 else "") +
                f"_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else ""))
     args.salida.mkdir(parents=True, exist_ok=True)
     ruta = {k: args.salida / f"{prefijo}{s}" for k, s in
@@ -375,11 +383,29 @@ def main() -> None:
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
-    # --- bucle de entrenamiento: epocas fijas, nos quedamos con la mejor segun el AUC de validacion ---
-    mejor_auc, mejor_epoca, mejor_probs = -1.0, 0, None
-    auc_historial = []                       # AUC de validacion de cada epoca (para la metrica oficial)
-    n_ult = min(10, args.epocas)
-    suma_probs_ult = np.zeros(len(validacion))   # suma de las probabilidades de las ultimas n_ult epocas
+    # --- bucle de entrenamiento con EARLY STOPPING (parada.py): se vigila el AUC de validacion suavizado
+    #     (media movil de 3 epocas); se para tras `paciencia` epocas sin mejorar o al llegar a --epocas ---
+    auc_historial, auc_train_historial = [], []      # AUC de validacion y de entrenamiento de cada epoca
+    recientes = deque(maxlen=pa.VENTANA // 2 + 1)    # (indice, pesos, probs) de las ultimas epocas: la elegida
+                                                     # puede ser la anterior (su media movil necesita la siguiente)
+    ult_probs = deque(maxlen=10)                     # probabilidades de las ultimas 10 epocas
+    elegida, elegida_probs, motivo = None, None, "maximo"
+    paciencia = args.paciencia if args.paciencia > 0 else 10**9   # 0 = sin parada: todas las epocas
+
+    def guardar(indice: int) -> None:
+        """Guarda los pesos y las probabilidades de validacion de la epoca `indice` (empieza en 0)."""
+        nonlocal elegida, elegida_probs
+        _, pesos, probs = next(r for r in recientes if r[0] == indice)
+        elegida, elegida_probs = indice, probs
+        torch.save({"red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "aux": args.aux,
+                    "perdida": args.perdida, "fold": args.fold, "epoca": indice + 1,
+                    "auc_val": auc_historial[indice], "lr": args.lr, "lote": args.lote,
+                    "state_dict": pesos}, ruta["pesos"])
+        with open(ruta["probs"], "w", encoding="utf-8") as g:
+            g.write("sample_id,patient_id,pCR,prob\n")
+            for fila, q in zip(validacion.itertuples(), probs):
+                g.write(f"{fila.sample_id},{fila.patient_id},{fila.pCR},{q:.6f}\n")
+
     tiempos, t_inicio = [], time.time()
     with open(ruta["csv"], "w", encoding="utf-8") as f:
         f.write("epoca,perdida_train,perdida_val,auc_train,auc_val,accuracy_val,sensibilidad_val,"
@@ -391,10 +417,12 @@ def main() -> None:
             perdida_val, res_val, probs_val, probs_aux = medir(modelo, dl_val, validacion, criterio, device, args.umbral)
             auc_aux = (auc_aux_por_paciente(validacion, probs_aux, etiquetas_aux)
                        if probs_aux is not None else [float("nan")] * len(AUXILIARES))
-            auc_historial.append(res_val["auc"])
-            if epoca > args.epocas - n_ult:
-                suma_probs_ult += probs_val
             _, res_vig, _, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
+            auc_historial.append(res_val["auc"])
+            auc_train_historial.append(res_vig["auc"])
+            ult_probs.append(probs_val)
+            recientes.append((epoca - 1, {k: v.detach().cpu().clone() for k, v in modelo.state_dict().items()},
+                              probs_val))
             dur = time.time() - t0
             tiempos.append(dur)
             f.write(f"{epoca},{perdida_train:.6f},{perdida_val:.6f},{res_vig['auc']:.6f},{res_val['auc']:.6f},"
@@ -402,48 +430,54 @@ def main() -> None:
                     f"{args.lr:.8f},{dur:.2f},"
                     f"{'' if perdida_aux is None else f'{perdida_aux:.6f}'},{auc_aux[0]:.6f},{auc_aux[1]:.6f}\n")
             f.flush()
+
+            indice, parar = pa.elegir_epoca(auc_historial, paciencia)
+            if indice is not None and indice != elegida:
+                guardar(indice)
+            marca = (f"  [elegida {elegida + 1}: media movil {pa.suavizar(auc_historial)[elegida]:.3f}]"
+                     if elegida is not None else "")
             print(f"epoca {epoca:3d}/{args.epocas}  perdida train {perdida_train:.4f} val {perdida_val:.4f}  "
                   f"AUC train {res_vig['auc']:.3f} val {res_val['auc']:.3f}  "
                   f"(val: acc {res_val['accuracy']:.3f} sens {res_val['sensibilidad']:.3f} "
                   f"espec {res_val['especificidad']:.3f})"
                   + (f"  aux val HR {auc_aux[0]:.3f} HER2 {auc_aux[1]:.3f}" if args.aux else "")
-                  + f"  {dur:.1f}s", flush=True)
+                  + f"  {dur:.1f}s{marca}", flush=True)
+            if parar:
+                motivo = "paciencia"
+                print(f"PARADA: {args.paciencia} epocas seguidas sin mejorar la media movil del AUC de validacion.")
+                break
+    if motivo == "maximo":     # sin parada por paciencia: al terminar ya cuenta tambien la ultima epoca
+        indice, _ = pa.elegir_epoca(auc_historial, paciencia, final=True)
+        if indice != elegida:
+            guardar(indice)
+    # --- epoca elegida: AUC de validacion y de entrenamiento, y su diferencia (control del sobreajuste) ---
+    epoca_elegida = elegida + 1
+    auc_val_elegida, auc_train_elegida = auc_historial[elegida], auc_train_historial[elegida]
+    auc_val_suav = float(pa.suavizar(auc_historial)[elegida])
+    diferencia = auc_train_elegida - auc_val_elegida
+    sobreentrenado = bool(diferencia > pa.DIFERENCIA_MAX)
 
-            if epoca == 1 or res_val["auc"] > mejor_auc:     # la 1.a se guarda siempre (por si el AUC fuera nan)
-                mejor_auc, mejor_epoca, mejor_probs = res_val["auc"], epoca, probs_val
-                torch.save({"red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "aux": args.aux,
-                            "perdida": args.perdida, "fold": args.fold, "epoca": epoca,
-                            "auc_val": res_val["auc"], "lr": args.lr, "lote": args.lote,
-                            "state_dict": modelo.state_dict()}, ruta["pesos"])
-                with open(ruta["probs"], "w", encoding="utf-8") as g:
-                    g.write("sample_id,patient_id,pCR,prob\n")
-                    for fila, p in zip(validacion.itertuples(), probs_val):
-                        g.write(f"{fila.sample_id},{fila.patient_id},{fila.pCR},{p:.6f}\n")
-    t_total = time.time() - t_inicio
-
-    # --- gráficas del diagnostico, en la mejor epoca ---
+    # --- graficas del diagnostico, en la epoca elegida ---
     titulo = (f"Red {'con BatchNorm' if args.batchnorm else 'base'} · pérdida {args.perdida}"
               + (" · aumentado" if args.aumentado == "geometrico" else "")
               + (" · realce y lavado" if args.realce else "")
+              + (f" · lr {args.lr:g}" if args.lr != 3e-4 else "")
               + (" · tarea auxiliar HR/HER2" if args.aux else "") + f" · fold {args.fold}")
-    graficas.dibujar_curvas_entrenamiento(ruta["csv"], ruta["curvas"], titulo, referencia, mejor_epoca, referencia_val)
-    # metrica OFICIAL (DECISIONES.md): media del AUC de validacion de las ultimas 10 epocas
-    auc_media_ult = sum(auc_historial[-n_ult:]) / n_ult
+    graficas.dibujar_curvas_entrenamiento(ruta["csv"], ruta["curvas"], titulo, referencia, epoca_elegida, referencia_val)
 
-    # probabilidades de la ULTIMA epoca y media de las ultimas n_ult epocas ("ensemble temporal":
-    # promediar predicciones de varias epocas reduce el ruido de una epoca concreta)
-    probs_media_ult = suma_probs_ult / n_ult
+    # probabilidades de la ULTIMA epoca y media de las ultimas (hasta 10) epocas, por si se quieren comparar
+    probs_media_ult = np.mean(np.stack(list(ult_probs)), axis=0)
     with open(ruta["probs_final"], "w", encoding="utf-8") as g:
         g.write("sample_id,patient_id,pCR,prob,prob_media10\n")
-        for fila, p, pm in zip(validacion.itertuples(), probs_val, probs_media_ult):
-            g.write(f"{fila.sample_id},{fila.patient_id},{fila.pCR},{p:.6f},{pm:.6f}\n")
-    auc_ensemble = uc.evaluar_por_paciente(probs_media_ult, validacion, umbral=args.umbral, metodo="mean")["auc"]
-    y_pac, p_pac = por_paciente(validacion, mejor_probs)
-    graficas.dibujar_roc(y_pac, p_pac, ruta["roc"], f"ROC por paciente · época {mejor_epoca}", args.umbral)
-    mejor = uc.evaluar_por_paciente(mejor_probs, validacion, umbral=args.umbral, metodo="mean")
-    mc = mejor["matriz_confusion"]
+        for fila, q, qm in zip(validacion.itertuples(), probs_val, probs_media_ult):
+            g.write(f"{fila.sample_id},{fila.patient_id},{fila.pCR},{q:.6f},{qm:.6f}\n")
+    y_pac, p_pac = por_paciente(validacion, elegida_probs)
+    graficas.dibujar_roc(y_pac, p_pac, ruta["roc"], f"ROC por paciente · época elegida {epoca_elegida}", args.umbral)
+    res_elegida = uc.evaluar_por_paciente(elegida_probs, validacion, umbral=args.umbral, metodo="mean")
+    mc = res_elegida["matriz_confusion"]
     graficas.dibujar_matriz_confusion(mc["VP"], mc["VN"], mc["FP"], mc["FN"], ruta["conf"],
-                                      f"Matriz de confusión por paciente · época {mejor_epoca} · umbral {args.umbral:g}")
+                                      f"Matriz de confusión por paciente · época {epoca_elegida} · umbral {args.umbral:g}")
+    t_total = time.time() - t_inicio
 
     resumen = {
         "red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce,
@@ -456,12 +490,14 @@ def main() -> None:
         "umbral": args.umbral, "agregacion": "mean", "muestra_rapida": args.muestra_rapida,
         "pacientes_train": int(entrenamiento.patient_id.nunique()), "pacientes_val": int(validacion.patient_id.nunique()),
         "perdida_de_referencia": referencia, "perdida_de_referencia_val": referencia_val,
-        "mejor_epoca": mejor_epoca, "auc_val": mejor_auc,
-        "auc_val_media_ultimas10": auc_media_ult, "auc_val_ultima": auc_historial[-1],
-        "auc_val_ensemble_ultimas10": auc_ensemble,
-        "matriz_confusion_val_ultima": res_val["matriz_confusion"],
-        "matriz_confusion_val": mc, "sensibilidad_val": mejor["sensibilidad"],
-        "especificidad_val": mejor["especificidad"], "accuracy_val": mejor["accuracy"],
+        "parada": {"criterio": "AUC de validacion, media movil centrada", "ventana": pa.VENTANA,
+                   "paciencia": args.paciencia, "epocas_max": args.epocas, "motivo": motivo},
+        "epocas_entrenadas": len(auc_historial), "epoca_elegida": epoca_elegida,
+        "auc_val": auc_val_elegida, "auc_val_suavizado": auc_val_suav, "auc_train": auc_train_elegida,
+        "diferencia_train_val": diferencia, "sobreentrenado": sobreentrenado,
+        "diferencia_max": pa.DIFERENCIA_MAX, "auc_val_ultima": auc_historial[-1],
+        "matriz_confusion_val": mc, "sensibilidad_val": res_elegida["sensibilidad"],
+        "especificidad_val": res_elegida["especificidad"], "accuracy_val": res_elegida["accuracy"],
         "tiempo_total_seg": round(t_total, 1), "tiempo_medio_por_epoca_seg": round(sum(tiempos) / len(tiempos), 2),
         "dispositivo": torch.cuda.get_device_name(0) if device.type == "cuda" else "cpu",
         "memoria_gpu_max_mb": round(torch.cuda.max_memory_allocated(device) / 2**20, 1) if device.type == "cuda" else None,
@@ -470,10 +506,12 @@ def main() -> None:
     with open(ruta["resumen"], "w", encoding="utf-8") as g:
         json.dump(resumen, g, indent=2, ensure_ascii=False)
 
-    print(f"\nMETRICA OFICIAL: media del AUC de validacion de las ultimas {n_ult} epocas = {auc_media_ult:.4f}")
-    print(f"AUC promediando las predicciones de las ultimas {n_ult} epocas (ensemble) = {auc_ensemble:.4f}")
-    print(f"Mejor epoca: {mejor_epoca}  AUC por paciente en validacion = {mejor_auc:.4f}  "
-          f"(optimista: se elige mirando la validacion)")
+    print(f"\nEPOCA ELEGIDA: {epoca_elegida} de {len(auc_historial)} entrenadas "
+          f"({'parada por paciencia' if motivo == 'paciencia' else 'se llego al maximo de epocas'})")
+    print(f"AUC por paciente en la epoca elegida: validacion {auc_val_elegida:.4f} "
+          f"(media movil {auc_val_suav:.4f}), entrenamiento {auc_train_elegida:.4f}")
+    print(f"Diferencia entrenamiento - validacion = {diferencia:.4f} -> "
+          + (f"SOBREENTRENADO (supera {pa.DIFERENCIA_MAX:g})" if sobreentrenado else f"OK (no supera {pa.DIFERENCIA_MAX:g})"))
     print(f"Matriz de confusion (umbral {args.umbral:g}): {mc}")
     if args.aux:
         print(f"Tarea auxiliar, AUC por paciente en validacion (ultima epoca): "

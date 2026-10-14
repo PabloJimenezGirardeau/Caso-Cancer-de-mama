@@ -132,7 +132,7 @@ def dibujar_curvas_entrenamiento(ruta_csv: Path, ruta_png: Path, titulo: str,
         ax.set_xlabel("época", fontsize=11)
         ax.grid(alpha=0.3)
         if epoca_mejor:
-            ax.axvline(epoca_mejor, color=ROJO, ls=":", lw=1.6, label=f"mejor época de validación ({epoca_mejor})")
+            ax.axvline(epoca_mejor, color=ROJO, ls=":", lw=1.6, label=f"época elegida ({epoca_mejor})")
         ax.legend(fontsize=9.5)
     ruta_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(ruta_png, dpi=110, bbox_inches="tight", facecolor="white")
