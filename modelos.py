@@ -71,8 +71,13 @@ class RedBase(nn.Module):
                        primera convolucion ve 5 canales (+288 parametros). Al calcularlos aqui, la app
                        los obtiene exactamente igual que el entrenamiento.
 
-    n_auxiliares > 0 -> anade una cabeza auxiliar (una capa lineal 128 -> n_auxiliares) que,
-                       a partir de las mismas 128 caracteristicas, predice otras etiquetas
+    filtros=16      -> filtros del primer bloque; cada bloque dobla: 16-32-64-128 (la red del profesor).
+                       filtros=8 es la RED ESTRECHA: 8-16-32-64, la mitad de filtros por bloque y
+                       ~1/4 de parametros (28.873 con BatchNorm): menos capacidad para memorizar.
+                       La media global da entonces 64 numeros (8 x filtros) en vez de 128.
+
+    n_auxiliares > 0 -> anade una cabeza auxiliar (una capa lineal 8*filtros -> n_auxiliares) que,
+                       a partir de las mismas caracteristicas, predice otras etiquetas
                        (el subtipo del tumor: HR y HER2). SOLO se usa durante el entrenamiento
                        (`forward_multitarea`), para que la red aprenda rasgos biologicos del
                        tumor. `forward` sigue devolviendo un unico logit de pCR, y para la app
@@ -80,24 +85,25 @@ class RedBase(nn.Module):
     """
 
     def __init__(self, dropout: float = 0.5, batchnorm: bool = False, n_auxiliares: int = 0,
-                 realce: bool = False):
+                 realce: bool = False, filtros: int = 16):
         super().__init__()
         self.n_auxiliares = n_auxiliares
         self.realce = realce
+        f = filtros                        # con f = 16 (por defecto), los tamaños de los comentarios
         self.extractor = nn.Sequential(
-            bloque(5 if realce else 3, 16, batchnorm),   # 3 (o 5) @ 256x256  ->  16 @ 128x128
-            bloque(16, 32, batchnorm),     # 16 @ 128x128 ->  32 @  64x64
-            bloque(32, 64, batchnorm),     # 32 @ 64x64   ->  64 @  32x32
-            bloque(64, 128, batchnorm),    # 64 @ 32x32   -> 128 @  16x16
+            bloque(5 if realce else 3, f, batchnorm),    # 3 (o 5) @ 256x256  ->  16 @ 128x128
+            bloque(f, 2 * f, batchnorm),       # 16 @ 128x128 ->  32 @  64x64
+            bloque(2 * f, 4 * f, batchnorm),   # 32 @ 64x64   ->  64 @  32x32
+            bloque(4 * f, 8 * f, batchnorm),   # 64 @ 32x32   -> 128 @  16x16
         )
         self.cabeza = nn.Sequential(
-            nn.Linear(128, 64),     # cada una de las 64 neuronas mira los 128 numeros
+            nn.Linear(8 * f, 64),   # cada una de las 64 neuronas mira los 128 numeros (8 x filtros)
             nn.ReLU(),              # decision nuestra: la diapositiva no la indica
             nn.Dropout(dropout),    # durante entrenar apaga al azar el 50 % de las 64
             nn.Linear(64, 1),       # un unico logit
         )
         # cabeza auxiliar (solo entrenamiento): mismas 128 caracteristicas -> HR, HER2
-        self.cabeza_aux = nn.Linear(128, n_auxiliares) if n_auxiliares else None
+        self.cabeza_aux = nn.Linear(8 * f, n_auxiliares) if n_auxiliares else None
 
     def caracteristicas(self, x: torch.Tensor) -> torch.Tensor:
         if self.realce:              # canales 0, 1, 2 = PRE, EARLY, LATE
@@ -166,4 +172,7 @@ if __name__ == "__main__":
     print("\nOK: con BatchNorm, 106.001 parametros (-240 sesgos de las convoluciones, +480 de BatchNorm).\n")
     total_realce = imprimir_resumen(RedBase(batchnorm=True, realce=True))
     assert total_realce == 106_289, f"con realce se esperaban 106.289 parametros y hay {total_realce:,}"
-    print("\nOK: con BatchNorm y realce, 106.289 parametros (+288: la primera convolucion ve 5 canales).")
+    print("\nOK: con BatchNorm y realce, 106.289 parametros (+288: la primera convolucion ve 5 canales).\n")
+    total_estrecha = imprimir_resumen(RedBase(batchnorm=True, filtros=8))
+    assert total_estrecha == 28_873, f"la red estrecha deberia tener 28.873 parametros y tiene {total_estrecha:,}"
+    print("\nOK: red estrecha (8-16-32-64) con BatchNorm, 28.873 parametros (~1/4 de la del profesor).")

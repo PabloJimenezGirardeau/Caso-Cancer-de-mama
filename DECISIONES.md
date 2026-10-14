@@ -396,6 +396,55 @@ informe, diapositivas).
 
   Conclusión: la red con BatchNorm aprende pero memoriza demasiado deprisa. La fase 2 parte de ella y busca frenar la velocidad.
 
+## Fase 2 · experimento 2.1: learning rate 0,0001 (2026-10-14)
+
+Cambio único sobre `bn_normal`: `--lr 1e-4` (antes 3e-4), con el early stopping nuevo. Ficheros `bn_normal_lr0.0001_*`.
+
+| Fold | 0 | 1 | 2 | 3 | 4 | Media |
+|---|---|---|---|---|---|---|
+| AUC val en la época elegida, lr 3e-4 | 0,529 | 0,538 | 0,602 | 0,552 | 0,595 | 0,563 ± 0,034 |
+| AUC val en la época elegida, lr 1e-4 | 0,553 | 0,565 | 0,593 | 0,568 | 0,557 | **0,567 ± 0,016** |
+| Diferencia train − val, lr 3e-4 | 0,21 | 0,23 | 0,29 | 0,29 | 0,06 | 0,218 (4 de 5 sobreentrenados) |
+| Diferencia train − val, lr 1e-4 | 0,03 | 0,19 | 0,16 | 0,20 | 0,14 | **0,143 (3 de 5)** |
+| Época elegida / entrenadas, lr 1e-4 | 3/14 | 16/27 | 18/29 | 24/35 | 11/22 | 127 épocas |
+
+- AUC: +0,004, IC95 −0,030 a +0,038, **no concluyente**; la desviación entre folds se reduce a la mitad.
+- Sobreajuste: la diferencia media baja de 0,22 a 0,14 y los sobreentrenados de 4 a 3 (y por menos margen).
+- Las curvas: el AUC de entrenamiento sube despacio (0,50 → 0,90) pero el de validación se queda plano (0,50-0,60) todo el
+  entrenamiento; la pérdida de validación sube desde la época ~10. Frenar reduce la memorización, pero no hace aparecer señal.
+- **Se adopta lr 1e-4** (mismo AUC, menos sobreajuste y menos variación: mejor en el criterio de sobreajuste del profesor).
+- Siguiente (2.2): lr 1e-4 + canales de realce y lavado (`--realce`), lo único que había subido la validación.
+
+## Fase 2 · experimento 2.2: lr 0,0001 + realce y lavado (2026-10-14)
+
+Cambio único sobre 2.1: `--realce`. Ficheros `bn_normal_realce_lr0.0001_*`.
+
+| Fold | 0 | 1 | 2 | 3 | 4 | Media |
+|---|---|---|---|---|---|---|
+| AUC val en la época elegida, 2.1 (lr 1e-4) | 0,553 | 0,565 | 0,593 | 0,568 | 0,557 | 0,567 ± 0,016 |
+| AUC val en la época elegida, 2.2 (+ realce) | 0,560 | 0,559 | 0,565 | 0,528 | 0,572 | 0,557 ± 0,017 |
+| Época elegida / entrenadas, 2.2 | 3/14 | 10/21 | **1**/12 | 29/40 | **1**/12 | 99 épocas |
+| Diferencia train − val, 2.2 | 0,02 | 0,09 | −0,07 | 0,31 | −0,06 | 1 de 5 sobreentrenado |
+
+- −0,011, IC95 −0,040 a +0,018: **no concluyente**, tendencia a peor. **No se adopta**; la mejor sigue siendo 2.1 (lr 1e-4).
+- **Observación clave:** en 2 folds la época elegida es la **1** (AUC de entrenamiento 0,49-0,51: la red aún no distingue nada) y
+  la validación ya da 0,56-0,57; después no mejora nunca. Se repite en casi todos los registros: el AUC de validación de la época
+  1 ronda 0,55 y entrenar solo lo mueve dentro del ruido. La poca señal (~0,56) aparece sin aprendizaje específico, probablemente
+  por rasgos globales simples; lo que la red aprende después no generaliza.
+- El "ok" de esos folds es engañoso: no están bien entrenados, es que **no han aprendido**. Se añadirá a `comparar.py` un estado
+  "sin aprendizaje" para distinguirlos.
+- Las matrices de confusión con umbral 0,5 dicen "no pCR" a casi todas (accuracy ≈ 71 % = siempre "no pCR"): las probabilidades
+  rondan 0,3, por debajo de 0,5. Es esperable y es la razón de elegir el umbral en la fase 4.
+- Siguiente propuesto (2.3): **red estrecha** (8-16-32-64 filtros) con lr 1e-4: menos capacidad para memorizar.
+
+## Fase 2 · experimento 2.3: red estrecha (decidido el 2026-10-14)
+
+Cambio único sobre 2.1 (BatchNorm, lr 1e-4): `--filtros 8`, es decir, bloques de **8-16-32-64** filtros en vez de 16-32-64-128.
+**28.873 parámetros** (verificado) frente a 106.001: menos capacidad para memorizar detalles de cada paciente. Es la dirección
+contraria a conv+conv. Ficheros `bn_normal_f8_lr0.0001_*`; se compara con `python comparar.py bn_normal_lr0.0001 bn_normal_f8_lr0.0001`.
+Además, `parada.py` y `comparar.py` marcan un fold como **SIN APRENDIZAJE** si en la época elegida el AUC de entrenamiento no llega
+a 0,60 (la red aún no distingue ni a sus pacientes de entrenamiento), para no confundirlo con un fold bien entrenado.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado

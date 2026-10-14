@@ -4,6 +4,7 @@ Ajustes acordados (ver DECISIONES.md):
     red            RedBase (modelos.py): la arquitectura de referencia del profesor;
                    --batchnorm la entrena con BatchNorm tras cada convolucion;
                    --realce añade dentro de la red los canales EARLY-PRE (realce) y EARLY-LATE (lavado);
+                   --filtros 8 es la red estrecha (8-16-32-64 en vez de 16-32-64-128);
                    --aux añade la tarea auxiliar: predecir tambien HR y HER2 (patients.csv)
                    solo durante el entrenamiento; la red final sigue dando un unico logit
     perdida        --perdida normal | ponderada     (se entrenan las dos y se comparan)
@@ -291,6 +292,8 @@ def construir_parser() -> argparse.ArgumentParser:
                    help="BatchNorm tras cada convolucion (Conv -> BN -> ReLU -> pool)")
     p.add_argument("--realce", action="store_true",
                    help="añadir dentro de la red los canales EARLY-PRE (realce) y EARLY-LATE (lavado)")
+    p.add_argument("--filtros", type=int, default=16,
+                   help="filtros del primer bloque (cada bloque dobla): 16 = red del profesor, 8 = red estrecha")
     p.add_argument("--aux", action="store_true",
                    help="tarea auxiliar: predecir tambien HR y HER2 (de patients.csv) durante el entrenamiento")
     p.add_argument("--peso-aux", type=float, default=0.5,
@@ -315,6 +318,7 @@ def main() -> None:
     #   base_normal_fold0, base_normal_aug_fold0, bn_normal_fold0, ...
     red = "bn" if args.batchnorm else "base"
     prefijo = (f"{red}_{args.perdida}" + ("_aug" if args.aumentado == "geometrico" else "") +
+               (f"_f{args.filtros}" if args.filtros != 16 else "") +
                ("_realce" if args.realce else "") + ("_aux" if args.aux else "") +
                (f"_lr{args.lr:g}" if args.lr != 3e-4 else "") +
                f"_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else ""))
@@ -363,8 +367,9 @@ def main() -> None:
 
     # --- modelo, perdida y optimizador ---
     modelo = mo.RedBase(batchnorm=args.batchnorm, n_auxiliares=len(AUXILIARES) if args.aux else 0,
-                        realce=args.realce).to(device)
+                        realce=args.realce, filtros=args.filtros).to(device)
     print(f"red: {'RedBase con BatchNorm' if args.batchnorm else 'RedBase (la de la diapositiva)'}"
+          f"{f' estrecha ({args.filtros}-{2 * args.filtros}-{4 * args.filtros}-{8 * args.filtros})' if args.filtros != 16 else ''}"
           f"{' + canales de realce y lavado' if args.realce else ''}, "
           f"{mo.contar_parametros(modelo):,} parametros")
     if args.perdida == "ponderada":
@@ -398,7 +403,7 @@ def main() -> None:
         _, pesos, probs = next(r for r in recientes if r[0] == indice)
         elegida, elegida_probs = indice, probs
         torch.save({"red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "aux": args.aux,
-                    "perdida": args.perdida, "fold": args.fold, "epoca": indice + 1,
+                    "filtros": args.filtros, "perdida": args.perdida, "fold": args.fold, "epoca": indice + 1,
                     "auc_val": auc_historial[indice], "lr": args.lr, "lote": args.lote,
                     "state_dict": pesos}, ruta["pesos"])
         with open(ruta["probs"], "w", encoding="utf-8") as g:
@@ -456,10 +461,12 @@ def main() -> None:
     auc_val_suav = float(pa.suavizar(auc_historial)[elegida])
     diferencia = auc_train_elegida - auc_val_elegida
     sobreentrenado = bool(diferencia > pa.DIFERENCIA_MAX)
+    sin_aprendizaje = bool(auc_train_elegida < pa.AUC_TRAIN_MIN)
 
     # --- graficas del diagnostico, en la epoca elegida ---
     titulo = (f"Red {'con BatchNorm' if args.batchnorm else 'base'} · pérdida {args.perdida}"
               + (" · aumentado" if args.aumentado == "geometrico" else "")
+              + (f" · filtros {args.filtros}" if args.filtros != 16 else "")
               + (" · realce y lavado" if args.realce else "")
               + (f" · lr {args.lr:g}" if args.lr != 3e-4 else "")
               + (" · tarea auxiliar HR/HER2" if args.aux else "") + f" · fold {args.fold}")
@@ -480,7 +487,7 @@ def main() -> None:
     t_total = time.time() - t_inicio
 
     resumen = {
-        "red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce,
+        "red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "filtros": args.filtros,
         "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
         "aumentado": args.aumentado, "aux": args.aux, "peso_aux": args.peso_aux if args.aux else None,
         "auc_val_hr_ultima": auc_aux[0] if args.aux else None,
@@ -494,7 +501,7 @@ def main() -> None:
                    "paciencia": args.paciencia, "epocas_max": args.epocas, "motivo": motivo},
         "epocas_entrenadas": len(auc_historial), "epoca_elegida": epoca_elegida,
         "auc_val": auc_val_elegida, "auc_val_suavizado": auc_val_suav, "auc_train": auc_train_elegida,
-        "diferencia_train_val": diferencia, "sobreentrenado": sobreentrenado,
+        "diferencia_train_val": diferencia, "sobreentrenado": sobreentrenado, "sin_aprendizaje": sin_aprendizaje,
         "diferencia_max": pa.DIFERENCIA_MAX, "auc_val_ultima": auc_historial[-1],
         "matriz_confusion_val": mc, "sensibilidad_val": res_elegida["sensibilidad"],
         "especificidad_val": res_elegida["especificidad"], "accuracy_val": res_elegida["accuracy"],
@@ -512,6 +519,9 @@ def main() -> None:
           f"(media movil {auc_val_suav:.4f}), entrenamiento {auc_train_elegida:.4f}")
     print(f"Diferencia entrenamiento - validacion = {diferencia:.4f} -> "
           + (f"SOBREENTRENADO (supera {pa.DIFERENCIA_MAX:g})" if sobreentrenado else f"OK (no supera {pa.DIFERENCIA_MAX:g})"))
+    if sin_aprendizaje:
+        print(f"AVISO: SIN APRENDIZAJE: en la epoca elegida el AUC de entrenamiento es {auc_train_elegida:.3f} "
+              f"(< {pa.AUC_TRAIN_MIN:g}): la red aun no distingue ni a las pacientes con las que entrena.")
     print(f"Matriz de confusion (umbral {args.umbral:g}): {mc}")
     if args.aux:
         print(f"Tarea auxiliar, AUC por paciente en validacion (ultima epoca): "

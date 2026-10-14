@@ -7,7 +7,11 @@ Regla (decidida el 2026-10-14):
     - la época elegida es la del máximo de esa media móvil (la primera, si hay empate);
     - se para cuando pasan 10 épocas seguidas sin superar ese máximo (paciencia), o al llegar a 60;
     - en la época elegida se anota la diferencia AUC de entrenamiento − AUC de validación; si supera 0,15
-      el modelo se marca como SOBREENTRENADO (el ejemplo "bien" del profesor tiene 0,10; el "mal", 0,38).
+      el modelo se marca como SOBREENTRENADO (el ejemplo "bien" del profesor tiene 0,10; el "mal", 0,38);
+    - si en la época elegida el AUC de ENTRENAMIENTO no llega a 0,60, el modelo se marca SIN APRENDIZAJE
+      (añadido el 2026-10-14): la red aún no distingue ni a las pacientes con las que entrena (pasa cuando
+      se elige la época 1-3). Su diferencia es pequeña, pero no porque esté bien entrenada, sino porque no
+      ha aprendido nada.
 
 La misma función sirve para entrenar (época a época, `final=False`) y para analizar después un registro
 `*_epocas.csv` ya terminado (`comparar.py`), así que las dos cosas aplican exactamente la misma regla.
@@ -21,6 +25,7 @@ EPOCAS_MAX = 60
 PACIENCIA = 10
 VENTANA = 3
 DIFERENCIA_MAX = 0.15
+AUC_TRAIN_MIN = 0.60
 
 
 def suavizar(valores, ventana: int = VENTANA) -> np.ndarray:

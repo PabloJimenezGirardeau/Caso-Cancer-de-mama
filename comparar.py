@@ -3,7 +3,8 @@
     metrica = AUC por paciente de validacion en la EPOCA ELEGIDA por el early stopping (parada.py:
               maximo de la media movil de 3 epocas, paciencia 10, maximo 60), media +- desviacion de los
               5 folds. Junto a ella, la diferencia AUC de entrenamiento - AUC de validacion en esa epoca:
-              si supera 0,15, el fold esta SOBREENTRENADO.
+              si supera 0,15, el fold esta SOBREENTRENADO; si el AUC de entrenamiento no llega a 0,60, el
+              fold esta SIN APRENDIZAJE (la red no distingue ni a sus pacientes de entrenamiento).
 
 Lee los `*_epocas.csv` que deja `entrenar.py` (en resultados/ o, si no estan, en referencia/) y aplica la
 regla de parada.py sobre ellos, asi que sirve tambien para los registros antiguos de 40 epocas fijas: dice
@@ -48,7 +49,8 @@ def metricas(auc_val: list[float], auc_train: list[float]) -> dict:
     dif = auc_train[i] - auc_val[i]
     return {"epoca": i + 1, "epocas": r["epocas"], "motivo": r["motivo"], "registradas": len(auc_val),
             "auc_val": auc_val[i], "suavizado": float(pa.suavizar(auc_val)[i]), "auc_train": auc_train[i],
-            "diferencia": dif, "sobreentrenado": dif > pa.DIFERENCIA_MAX}
+            "diferencia": dif, "sobreentrenado": dif > pa.DIFERENCIA_MAX,
+            "sin_aprendizaje": auc_train[i] < pa.AUC_TRAIN_MIN}
 
 
 def cargar(carpeta: Path, nombre: str) -> dict[int, dict]:
@@ -82,7 +84,8 @@ def tabla_una(nombre: str, datos: dict[int, dict]) -> None:
     print(f"{'fold':>5} {'epoca elegida':>14} {'entrenadas':>11} {'AUC val':>8} {'media movil':>12} "
           f"{'AUC train':>10} {'diferencia':>11}  estado")
     for k, m in datos.items():
-        estado = "SOBREENTRENADO" if m["sobreentrenado"] else "ok"
+        estado = ("SOBREENTRENADO" if m["sobreentrenado"] else
+                  "SIN APRENDIZAJE" if m["sin_aprendizaje"] else "ok")
         if m["motivo"] == "registro_terminado":
             estado += "  (no paro en sus epocas: registro antiguo mas corto que el maximo)"
         print(f"{k:>5} {m['epoca']:>14} {m['epocas']:>11} {m['auc_val']:>8.4f} {m['suavizado']:>12.4f} "
@@ -93,7 +96,9 @@ def tabla_una(nombre: str, datos: dict[int, dict]) -> None:
     print(f"  (media movil en esa epoca, menos optimista: {media_s:.4f} +- {desv_s:.4f})")
     dif, _, _, _ = resumen([m["diferencia"] for m in datos.values()])
     n_sobre = sum(m["sobreentrenado"] for m in datos.values())
-    print(f"  diferencia media entrenamiento - validacion: {dif:+.4f}   folds sobreentrenados: {n_sobre} de {len(datos)}"
+    n_sin = sum(m["sin_aprendizaje"] for m in datos.values())
+    print(f"  diferencia media entrenamiento - validacion: {dif:+.4f}   folds sobreentrenados: {n_sobre}, "
+          f"sin aprendizaje: {n_sin}, ok: {len(datos) - n_sobre - n_sin} (de {len(datos)})"
           f"   epocas entrenadas en total: {sum(m['epocas'] for m in datos.values())}")
     if len(datos) < 5:
         print(f"  AVISO: solo hay {len(datos)} de 5 folds: la comparacion no es completa.")
@@ -122,7 +127,9 @@ def comparar(a: str, datos_a: dict, b: str, datos_b: dict) -> None:
     print(f"  -> {veredicto}")
     n_a = sum(datos_a[k]["sobreentrenado"] for k in comunes)
     n_b = sum(datos_b[k]["sobreentrenado"] for k in comunes)
-    print(f"  folds sobreentrenados: {a} {n_a}, {b} {n_b} (de {len(comunes)})")
+    s_a = sum(datos_a[k]["sin_aprendizaje"] for k in comunes)
+    s_b = sum(datos_b[k]["sin_aprendizaje"] for k in comunes)
+    print(f"  folds sobreentrenados: {a} {n_a}, {b} {n_b};  sin aprendizaje: {a} {s_a}, {b} {s_b} (de {len(comunes)})")
     if len(comunes) < 5:
         print(f"  AVISO: solo {len(comunes)} folds en comun.")
 
@@ -135,7 +142,8 @@ def main() -> None:
     if len(args.configuracion) > 2:
         raise SystemExit("Se pueden dar como maximo dos configuraciones.")
     print(f"Early stopping: maximo de la media movil de {pa.VENTANA} epocas del AUC de validacion, "
-          f"paciencia {pa.PACIENCIA}, maximo {pa.EPOCAS_MAX}; sobreentrenado si la diferencia supera {pa.DIFERENCIA_MAX:g}")
+          f"paciencia {pa.PACIENCIA}, maximo {pa.EPOCAS_MAX}; sobreentrenado si la diferencia supera {pa.DIFERENCIA_MAX:g}; "
+          f"sin aprendizaje si el AUC de entrenamiento no llega a {pa.AUC_TRAIN_MIN:g}")
     datos = {nombre: cargar(args.carpeta, nombre) for nombre in args.configuracion}
     for nombre, d in datos.items():
         tabla_una(nombre, d)
