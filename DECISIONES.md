@@ -445,6 +445,43 @@ contraria a conv+conv. Ficheros `bn_normal_f8_lr0.0001_*`; se compara con `pytho
 Además, `parada.py` y `comparar.py` marcan un fold como **SIN APRENDIZAJE** si en la época elegida el AUC de entrenamiento no llega
 a 0,60 (la red aún no distingue ni a sus pacientes de entrenamiento), para no confundirlo con un fold bien entrenado.
 
+## Resultados de la noche del 14 al 15 de octubre (sobre 2.1: BatchNorm, lr 1e-4)
+
+| Configuración | AUC val en la época elegida | Diferencia con 2.1 (IC95) | Estados (de 5) |
+|---|---|---|---|
+| **2.1 referencia** | **0,567 ± 0,016** | — | 1 sin aprendizaje, 3 sobreentrenados, 1 ok |
+| 2.3 red estrecha (8-16-32-64) | 0,541 ± 0,025 | −0,026 (−0,066 a +0,014) | 3 sin aprendizaje, 1 sobreentrenado, 1 ok |
+| 2.4 aumentado geométrico | 0,549 ± 0,022 | −0,018 (−0,051 a +0,015) | 4 sin aprendizaje, 1 ok |
+| 3.1 pérdida ponderada | 0,554 ± 0,012 | −0,013 (−0,044 a +0,018) | 2 sin aprendizaje, 2 sobreentrenados, 1 ok |
+
+- Ninguno mejora a 2.1 (todos no concluyentes, todos en contra). **2.1 sigue siendo la mejor.**
+- **Frenos:** sin freno (lr 3e-4) la red memoriza; con freno fuerte (red estrecha o aumentado, con lr 1e-4) no aprende
+  ("sin aprendizaje" en 3-4 folds); el punto medio (2.1) es lo mejor. El techo (~0,57) no depende de cuánto se frena.
+- **Fase 3, pérdida normal frente a ponderada** (matrices de los 5 folds sumadas, umbral 0,5, época elegida):
+
+  | | Normal (2.1) | Ponderada (3.1) |
+  |---|---|---|
+  | AUC | 0,567 | 0,554 |
+  | VP / FN | 43 / 279 | 139 / 183 |
+  | VN / FP | 694 / 81 | 467 / 308 |
+  | Sensibilidad | 13 % | 43 % |
+  | Especificidad | 90 % | 60 % |
+
+  La ponderada **no ordena mejor** (mismo AUC): solo sube las probabilidades, y con el umbral 0,5 dice "pCR" muchas más veces
+  (3 veces más pCR detectadas, casi 4 veces más falsas alarmas). Como el umbral se elige después (fase 4), el mismo efecto se
+  consigue moviendo el umbral. **Se mantiene la pérdida normal.**
+- Siguiente (2.5 y 2.6, últimos de la fase 2): normalización de intensidad por corte (`--normalizar`) y conv+conv (`--doble`).
+
+## Fase 2 · experimento 2.5: normalización de intensidad por corte (decidido el 2026-10-15)
+
+**Por qué:** el techo de ~0,57 no depende del freno; una causa concreta no tocada es que las imágenes vienen de más de 22 centros y
+3 fabricantes **sin armonizar la intensidad** (artículo del dataset). **Cambio único sobre 2.1:** `--normalizar`: cada corte se
+reescala con su propia media y desviación, las mismas para las tres fases: x → (x − media) / desviación. Sin parámetros; dentro de
+la red, así que la app lo hace igual. Verificado: la salida es idéntica si el mismo corte llega con otro brillo y contraste, y el
+realce (EARLY − PRE) se conserva proporcionalmente. Ficheros `bn_normal_norm_lr0.0001_*`; se compara con
+`python comparar.py bn_normal_lr0.0001 bn_normal_norm_lr0.0001`.
+Después, uno por uno: **2.6 conv+conv** (`--doble`, 302.321 parámetros, ya programado y verificado en la red).
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado

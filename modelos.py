@@ -35,8 +35,13 @@ import torch
 from torch import nn
 
 
-def bloque(canales_entrada: int, canales_salida: int, batchnorm: bool = False) -> nn.Sequential:
+def bloque(canales_entrada: int, canales_salida: int, batchnorm: bool = False,
+           doble: bool = False) -> nn.Sequential:
     """Un bloque: convolucion 3x3 -> [BatchNorm] -> ReLU -> maxpool 2x2.
+
+    doble=True (conv+conv, la idea del profesor): DOS convoluciones 3x3 (cada una con su
+    BatchNorm y su ReLU) antes del maxpool. Ve patrones mas complejos a cada escala y amplia
+    el campo receptivo (76 pixeles al final, frente a 46).
 
     - Conv2d: `canales_salida` filtros de 3x3. Cada filtro mira los `canales_entrada`
       canales a la vez (3x3xcanales_entrada numeros + un sesgo). padding=1 anade un
@@ -50,10 +55,13 @@ def bloque(canales_entrada: int, canales_salida: int, batchnorm: bool = False) -
     - MaxPool2d(2): se queda con el maximo de cada cuadradito de 2x2 -> el mapa
       pasa a tener la mitad de alto y de ancho.
     """
-    capas = [nn.Conv2d(canales_entrada, canales_salida, kernel_size=3, padding=1, bias=not batchnorm)]
-    if batchnorm:
-        capas.append(nn.BatchNorm2d(canales_salida))
-    capas += [nn.ReLU(), nn.MaxPool2d(kernel_size=2)]
+    capas = []
+    for entrada in ([canales_entrada, canales_salida] if doble else [canales_entrada]):
+        capas.append(nn.Conv2d(entrada, canales_salida, kernel_size=3, padding=1, bias=not batchnorm))
+        if batchnorm:
+            capas.append(nn.BatchNorm2d(canales_salida))
+        capas.append(nn.ReLU())
+    capas.append(nn.MaxPool2d(kernel_size=2))
     return nn.Sequential(*capas)
 
 
@@ -76,6 +84,14 @@ class RedBase(nn.Module):
                        ~1/4 de parametros (28.873 con BatchNorm): menos capacidad para memorizar.
                        La media global da entonces 64 numeros (8 x filtros) en vez de 128.
 
+    doble=True      -> conv+conv: dos convoluciones por bloque (302.321 parametros con BatchNorm).
+
+    normalizar=True -> cada corte se reescala con SU PROPIA media y desviacion, las mismas para las
+                       tres fases (para no romper el realce): x -> (x - media) / desviacion. Quita las
+                       diferencias de brillo y contraste entre escaneres y hospitales (los datos no
+                       vienen armonizados). Sin parametros; al hacerse dentro de la red, la app lo
+                       aplica exactamente igual.
+
     n_auxiliares > 0 -> anade una cabeza auxiliar (una capa lineal 8*filtros -> n_auxiliares) que,
                        a partir de las mismas caracteristicas, predice otras etiquetas
                        (el subtipo del tumor: HR y HER2). SOLO se usa durante el entrenamiento
@@ -85,16 +101,17 @@ class RedBase(nn.Module):
     """
 
     def __init__(self, dropout: float = 0.5, batchnorm: bool = False, n_auxiliares: int = 0,
-                 realce: bool = False, filtros: int = 16):
+                 realce: bool = False, filtros: int = 16, doble: bool = False, normalizar: bool = False):
         super().__init__()
         self.n_auxiliares = n_auxiliares
         self.realce = realce
-        f = filtros                        # con f = 16 (por defecto), los tamaños de los comentarios
+        self.normalizar = normalizar
+        f, d = filtros, doble              # con f = 16 (por defecto), los tamaños de los comentarios
         self.extractor = nn.Sequential(
-            bloque(5 if realce else 3, f, batchnorm),    # 3 (o 5) @ 256x256  ->  16 @ 128x128
-            bloque(f, 2 * f, batchnorm),       # 16 @ 128x128 ->  32 @  64x64
-            bloque(2 * f, 4 * f, batchnorm),   # 32 @ 64x64   ->  64 @  32x32
-            bloque(4 * f, 8 * f, batchnorm),   # 64 @ 32x32   -> 128 @  16x16
+            bloque(5 if realce else 3, f, batchnorm, d),    # 3 (o 5) @ 256x256  ->  16 @ 128x128
+            bloque(f, 2 * f, batchnorm, d),       # 16 @ 128x128 ->  32 @  64x64
+            bloque(2 * f, 4 * f, batchnorm, d),   # 32 @ 64x64   ->  64 @  32x32
+            bloque(4 * f, 8 * f, batchnorm, d),   # 64 @ 32x32   -> 128 @  16x16
         )
         self.cabeza = nn.Sequential(
             nn.Linear(8 * f, 64),   # cada una de las 64 neuronas mira los 128 numeros (8 x filtros)
@@ -106,6 +123,10 @@ class RedBase(nn.Module):
         self.cabeza_aux = nn.Linear(8 * f, n_auxiliares) if n_auxiliares else None
 
     def caracteristicas(self, x: torch.Tensor) -> torch.Tensor:
+        if self.normalizar:          # media y desviacion de CADA corte (las tres fases juntas)
+            media = x.mean(dim=(1, 2, 3), keepdim=True)
+            desv = x.std(dim=(1, 2, 3), keepdim=True).clamp_min(1e-6)
+            x = (x - media) / desv
         if self.realce:              # canales 0, 1, 2 = PRE, EARLY, LATE
             x = torch.cat([x, x[:, 1:2] - x[:, 0:1], x[:, 1:2] - x[:, 2:3]], dim=1)   # (N, 5, 256, 256)
         x = self.extractor(x)        # (N, 128, 16, 16)
@@ -175,4 +196,10 @@ if __name__ == "__main__":
     print("\nOK: con BatchNorm y realce, 106.289 parametros (+288: la primera convolucion ve 5 canales).\n")
     total_estrecha = imprimir_resumen(RedBase(batchnorm=True, filtros=8))
     assert total_estrecha == 28_873, f"la red estrecha deberia tener 28.873 parametros y tiene {total_estrecha:,}"
-    print("\nOK: red estrecha (8-16-32-64) con BatchNorm, 28.873 parametros (~1/4 de la del profesor).")
+    print("\nOK: red estrecha (8-16-32-64) con BatchNorm, 28.873 parametros (~1/4 de la del profesor).\n")
+    total_doble = imprimir_resumen(RedBase(batchnorm=True, doble=True))
+    assert total_doble == 302_321, f"conv+conv deberia tener 302.321 parametros y tiene {total_doble:,}"
+    print("\nOK: conv+conv con BatchNorm, 302.321 parametros (~3 veces la del profesor).")
+    total_norm = contar_parametros(RedBase(batchnorm=True, normalizar=True))
+    assert total_norm == 106_001, f"la normalizacion no deberia anadir parametros ({total_norm:,})"
+    print("OK: con normalizacion por corte, 106.001 parametros (no anade ninguno).")
