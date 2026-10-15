@@ -482,6 +482,21 @@ realce (EARLY − PRE) se conserva proporcionalmente. Ficheros `bn_normal_norm_l
 `python comparar.py bn_normal_lr0.0001 bn_normal_norm_lr0.0001`.
 Después, uno por uno: **2.6 conv+conv** (`--doble`, 302.321 parámetros, ya programado y verificado en la red).
 
+**RESULTADO 2.5 (2026-10-15):** 0,544 ± 0,032 frente a 0,567 (−0,024, IC95 −0,065 a +0,018, no concluyente; baja en 4 de 5 folds).
+Estados: 3 sin aprendizaje, 2 sobreentrenados, 0 ok. **No se adopta.** Pista importante: con la normalización, el AUC de validación
+de la **época 1** baja a 0,46-0,54 (antes ~0,55). El "0,55 gratis" que la red tenía antes de aprender parece venir en buena parte del
+**brillo absoluto** de la imagen (nivel general de realce o diferencias entre escáneres), no de la forma o textura del tumor.
+Las matrices de confusión con umbral 0,5 siguen diciendo "no pCR" a casi todas las pacientes (FP = 0 y FN = todas las pCR): con
+probabilidades alrededor de 0,3, nadie supera 0,5. Confirma que el umbral debe elegirse en la fase 4.
+
+## Noche del 15 al 16 de octubre: conv+conv (2.6) y semillas de la configuración finalista (2.1)
+
+- **2.6 conv+conv** (`--doble`, 302.321 parámetros): último experimento de arquitectura de la fase 2 (expectativa baja: la red ya
+  memoriza con 106.001 parámetros; sirve para justificar la arquitectura con menos capacidad, la del profesor y más capacidad).
+- **2.1 con las semillas 1 y 2** (`--semilla 1`, `--semilla 2`; ficheros `bn_normal_lr0.0001_s1_*` y `_s2_*`): mide cuánto cambia
+  el resultado solo por el azar del entrenamiento (orden de lotes, pesos iniciales), para saber qué diferencias son reales; y sus
+  modelos podrán sumarse al conjunto final. `entrenar.py` añade `_s<semilla>` al nombre si la semilla no es 42.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado

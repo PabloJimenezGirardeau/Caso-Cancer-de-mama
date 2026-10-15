@@ -328,6 +328,7 @@ def main() -> None:
                ("_doble" if args.doble else "") + ("_norm" if args.normalizar else "") +
                ("_realce" if args.realce else "") + ("_aux" if args.aux else "") +
                (f"_lr{args.lr:g}" if args.lr != 3e-4 else "") +
+               (f"_s{args.semilla}" if args.semilla != 42 else "") +
                f"_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else ""))
     args.salida.mkdir(parents=True, exist_ok=True)
     ruta = {k: args.salida / f"{prefijo}{s}" for k, s in
