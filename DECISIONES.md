@@ -547,6 +547,15 @@ hay un grupo de pacientes en el que el modelo esté seguro de la pCR.
 de promediar (`umbral.py`, por defecto; `--sin-calibrar` para la versión anterior). Los (a, b) se guardan en `umbral_final.json` para
 el test y la app. No crea información: la zona de especificidad alta seguirá siendo pobre.
 
+**Resultado de la calibración por modelo (2026-10-19):** la curva de calibración pasa a seguir la diagonal y el Brier baja a 0,2069
+(referencia 0,2074), pero el AUC con todas las pacientes baja a 0,557, la desviación por fold sube a 0,028 (fold 1: 0,554 → 0,529) y la
+sensibilidad con el umbral de especificidad 0,95 sigue siendo ~7 % (precisión 39 %). Problema: los modelos "sin aprendizaje" dan casi
+la misma probabilidad a todas y la calibración les pone pendientes enormes (media ~6·10⁷), así que su ruido pesa tanto como el de los
+modelos que sí aprendieron. **Se cambia a una calibración ÚNICA al final:** se promedian las probabilidades de las semillas sin tocar y
+se ajusta un solo Platt (a, b) sobre ese promedio, por corte, con todos los cortes de validación. Conserva el AUC del promedio, arregla la
+escala y el test y la app solo aplican dos números.
+
+
 
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
