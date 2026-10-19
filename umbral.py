@@ -9,6 +9,12 @@ Usa las probabilidades que cada modelo dio a su fold de validacion en la epoca e
    sus cortes (la agregacion que pide el profesor). Se compara el AUC por fold de cada semilla con el
    del promedio. El modelo final promediara 5 folds x 3 semillas, asi que el promedio de semillas se
    parece mas a lo que vera el test que una sola semilla.
+   CALIBRACION (por defecto; --sin-calibrar para no hacerla): cada uno de los 15 modelos habla en su
+   propia escala (los "sin aprendizaje" dan casi todo ~0,29; los sobreentrenados, valores extremos), y
+   un umbral unico no tiene sentido. Para cada modelo se ajusta, con SU fold de validacion, un escalado
+   de Platt: p_calibrada = sigmoide(a * logit(p) + b), a nivel de corte. No cambia el orden de las
+   pacientes dentro de cada modelo (el AUC de cada semilla en su fold no cambia), pero pone a todos en
+   la misma escala antes de promediar. Los (a, b) de cada modelo se guardan para el test y la app.
 2. Curvas con las 1.097 pacientes: ROC, precision-recall (AP), sensibilidad / especificidad /
    precision segun el umbral, calibracion (con el Brier frente al de decir siempre la proporcion de pCR).
 3. Umbral. Criterio clinico (HOJA_DE_RUTA.md): el uso previsto es ayudar a decidir si se puede
@@ -66,6 +72,32 @@ def cargar_config(carpeta: Path, nombre: str) -> pd.DataFrame:
         else:
             raise SystemExit(f"Falta {nombre}_fold{k}_probs_val.csv (ni en {carpeta} ni en {REFERENCIA})")
     return pd.concat(partes, ignore_index=True)
+
+
+def logit(p) -> np.ndarray:
+    p = np.clip(np.asarray(p, dtype=float), 1e-6, 1 - 1e-6)
+    return np.log(p / (1 - p))
+
+
+def sigmoide(z) -> np.ndarray:
+    return 1 / (1 + np.exp(-np.asarray(z, dtype=float)))
+
+
+def platt(p, y, iteraciones: int = 100) -> tuple[float, float]:
+    """Escalado de Platt: (a, b) que hacen sigmoide(a * logit(p) + b) lo mas parecido posible a las
+    etiquetas (regresion logistica de una variable, por Newton). Monotono si a > 0."""
+    x, y = logit(p), np.asarray(y, dtype=float)
+    X = np.column_stack([x, np.ones_like(x)])
+    w = np.array([1.0, 0.0])
+    for _ in range(iteraciones):
+        q = sigmoide(X @ w)
+        g = X.T @ (q - y)
+        H = (X * (q * (1 - q))[:, None]).T @ X + 1e-6 * np.eye(2)
+        paso = np.linalg.solve(H, g)
+        w -= paso
+        if np.abs(paso).max() < 1e-10:
+            break
+    return float(w[0]), float(w[1])
 
 
 def por_paciente(cortes: pd.DataFrame, columna: str) -> pd.DataFrame:
@@ -218,6 +250,7 @@ def main() -> None:
     p.add_argument("--especificidad", type=float, default=0.95, help="especificidad minima del criterio de desescalar")
     p.add_argument("--carpeta", type=Path, default=RAIZ / "resultados")
     p.add_argument("--nombre", default="final", help="nombre de los ficheros de salida")
+    p.add_argument("--sin-calibrar", action="store_true", help="no calibrar cada modelo antes de promediar")
     args = p.parse_args()
 
     # 1. promedio de semillas, corte a corte
@@ -231,32 +264,62 @@ def main() -> None:
     columnas = [f"p{i}" for i in range(len(args.configs))]
     base["promedio"] = base[columnas].mean(axis=1)
 
+    # calibracion de cada modelo (configuracion x fold) con su propio fold de validacion
+    calibrar = not args.sin_calibrar
+    parametros = {}
+    if calibrar:
+        for i, c in enumerate(args.configs):
+            parametros[c] = {}
+            for k in range(5):
+                f = (base.fold == k).values
+                a_, b_ = platt(base.loc[f, f"p{i}"].values, base.loc[f, "pCR"].values)
+                parametros[c][str(k)] = {"a": a_, "b": b_}
+                base.loc[f, f"c{i}"] = sigmoide(a_ * logit(base.loc[f, f"p{i}"].values) + b_)
+        base["calibrado"] = base[[f"c{i}" for i in range(len(args.configs))]].mean(axis=1)
+    final = "calibrado" if calibrar else "promedio"
+
     print(f"{base.patient_id.nunique()} pacientes de validacion (5 folds), {len(base)} cortes; "
           f"configuraciones: {', '.join(args.configs)}\n")
     print("AUC por paciente en cada fold (media de los cortes de cada paciente):")
     nombres = [f"semilla {m.group(1)}" if (m := re.search(r"_s(\d+)$", c)) else "semilla 42" for c in args.configs]
-    print(f"{'fold':>5}" + "".join(f"{n:>14}" for n in nombres) + f"{'PROMEDIO':>14}")
+    extra = ["promedio"] + (["calibrado"] if calibrar else [])
+    print(f"{'fold':>5}" + "".join(f"{n:>14}" for n in nombres) + f"{'PROMEDIO':>14}"
+          + (f"{'CALIBRADO':>14}" if calibrar else ""))
     filas = []
     for k in range(5):
         d = base[base.fold == k]
-        fila = [auc(*por_paciente(d, c)[["pCR", "prob"]].values.T) for c in columnas + ["promedio"]]
+        fila = [auc(*por_paciente(d, c)[["pCR", "prob"]].values.T) for c in columnas + extra]
         filas.append(fila)
         print(f"{k:>5}" + "".join(f"{v:>14.4f}" for v in fila))
     filas = np.array(filas)
     print(f"{'media':>5}" + "".join(f"{v:>14.4f}" for v in filas.mean(axis=0)))
     print(f"{'desv':>5}" + "".join(f"{v:>14.4f}" for v in filas.std(axis=0, ddof=1)))
-    ganancia = filas[:, -1] - filas[:, :-1].mean(axis=1)
+    ganancia = filas[:, len(columnas)] - filas[:, :len(columnas)].mean(axis=1)
     print(f"\nEl promedio de semillas frente a la media de las semillas sueltas: {ganancia.mean():+.4f} "
           f"(por fold: {'  '.join(f'{g:+.3f}' for g in ganancia)})")
 
-    # 2. curvas con todas las pacientes (probabilidades del promedio)
-    pac = por_paciente(base, "promedio")
+    if calibrar:
+        crudo = por_paciente(base, "promedio")
+        yc, sc = crudo.pCR.values, crudo.prob.values
+        u_crudo = elegir_umbrales(barrido(yc, sc), args.especificidad)
+        u_crudo = list(u_crudo.values())[0]["umbral"]
+        sens_folds = [metricas(yc[crudo.fold.values == k], sc[crudo.fold.values == k], u_crudo)["sensibilidad"]
+                      for k in range(5)]
+        print(f"\nSIN CALIBRAR, todas las pacientes juntas: AUC {auc(yc, sc):.4f}, Brier {np.mean((sc - yc) ** 2):.4f}; "
+              f"umbral para especificidad >= {args.especificidad:g}: {u_crudo:.3f}, sensibilidad por fold "
+              f"{' '.join(f'{x:.2f}' for x in sens_folds)}")
+        a_med = np.mean([v["a"] for c in parametros.values() for v in c.values()])
+        print(f"Calibracion de Platt por modelo: pendiente media a = {a_med:.3f} (a < 1: el modelo exageraba sus "
+              f"probabilidades; a > 1: las daba demasiado juntas)")
+
+    # 2. curvas con todas las pacientes
+    pac = por_paciente(base, final)
     y, s = pac.pCR.values, pac.prob.values
     a = auc(y, s); lo, hi = intervalo_auc(y, s)
     _, _, ap = precision_recall(y, s)
     prev = y.mean()
     brier = float(np.mean((s - y) ** 2)); brier_ref = float(prev * (1 - prev))
-    print(f"\nTodas las pacientes juntas (cada una predicha por el modelo de su fold): AUC {a:.4f} (IC95 {lo:.3f} a {hi:.3f}), "
+    print(f"\n{'CALIBRADO' if calibrar else 'SIN CALIBRAR'}, todas las pacientes juntas (cada una predicha por el modelo de su fold): AUC {a:.4f} (IC95 {lo:.3f} a {hi:.3f}), "
           f"AP {ap:.4f} (azar = {prev:.3f}), Brier {brier:.4f} (siempre la proporcion de pCR: {brier_ref:.4f})")
     print(f"Probabilidades por paciente: minimo {s.min():.3f}, mediana {np.median(s):.3f}, maximo {s.max():.3f}; "
           f"pacientes por encima de 0,5: {(s >= 0.5).sum()}")
@@ -289,7 +352,8 @@ def main() -> None:
 
     args.carpeta.mkdir(parents=True, exist_ok=True)
     dibujar(y, s, tabla, elegido, cal, brier, brier_ref, ap, args.carpeta / f"umbral_{args.nombre}.png",
-            f"Fase 4 · validación de los 5 folds · promedio de {len(args.configs)} semilla(s)")
+            f"Fase 4 · validación de los 5 folds · promedio de {len(args.configs)} semilla(s)"
+            + (" · calibrado (Platt por modelo)" if calibrar else ""))
     pac.to_csv(args.carpeta / f"umbral_{args.nombre}_pacientes.csv", float_format="%.6f")
     with open(args.carpeta / f"umbral_{args.nombre}.json", "w", encoding="utf-8") as f:
         json.dump({"configuraciones": args.configs, "agregacion": "media de los cortes de cada paciente",
@@ -297,7 +361,11 @@ def main() -> None:
                    "umbral": elegido["umbral"], "metricas_validacion": elegido,
                    "auc_validacion": a, "auc_ic95": [lo, hi], "ap": ap, "brier": brier, "brier_referencia": brier_ref,
                    "auc_por_fold": {n: list(filas[:, i]) for i, n in enumerate(nombres + ["promedio"])},
-                   "otros_criterios": {n: {k: float(v) for k, v in m.items()} for n, m in elegidos.items()}},
+                   "otros_criterios": {n: {k: float(v) for k, v in m.items()} for n, m in elegidos.items()},
+                   "calibracion": ({"metodo": "Platt por modelo (configuracion x fold), a nivel de corte, ajustado con su "
+                                    "fold de validacion: p = sigmoide(a * logit(p_modelo) + b); despues se promedian "
+                                    "las semillas y los cortes de cada paciente", "parametros": parametros}
+                                   if calibrar else None)},
                   f, indent=2, ensure_ascii=False)
     print(f"\nResultados en {args.carpeta}  (umbral_{args.nombre}.png / _pacientes.csv / .json)")
 

@@ -536,6 +536,18 @@ Con las predicciones de validación de la configuración elegida (2.1, 3 semilla
    estabilidad del umbral fold a fold. Guarda `umbral_final.json` (umbral para el test y la app), el CSV por paciente y la figura.
 Aviso: el umbral se elige con estas mismas predicciones (algo optimista); el test lo aplicará tal cual.
 
+**Primer resultado (sin calibrar, 2026-10-19):** promedio de las 3 semillas 0,571 ± 0,014 por fold, frente a 0,560 de las semillas
+sueltas (**+0,011, mejora en los 5 folds**). Pero con todas las pacientes juntas el AUC baja a 0,565 (IC95 0,527-0,599), las
+probabilidades van de 0,01 a 0,98, el Brier (0,2087) es peor que el de referencia (0,2074) y el umbral para especificidad ≥ 0,95
+(0,470) no detecta ninguna pCR en los folds 0 y 1: cada modelo habla en su propia escala (los "sin aprendizaje" dan ~0,29 a todas;
+los sobreentrenados, valores extremos). Con ese umbral: sensibilidad 7 %, especificidad 95 %, precisión 37 % (prevalencia 29 %).
+La curva de calibración es mucho más plana que la diagonal y la ROC está pegada a la diagonal en la zona de especificidad alta: no
+hay un grupo de pacientes en el que el modelo esté seguro de la pCR.
+**Solución:** calibración de Platt **por modelo** (configuración × fold), a nivel de corte, con su propio fold de validación, antes
+de promediar (`umbral.py`, por defecto; `--sin-calibrar` para la versión anterior). Los (a, b) se guardan en `umbral_final.json` para
+el test y la app. No crea información: la zona de especificidad alta seguirá siendo pobre.
+
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
