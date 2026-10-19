@@ -497,6 +497,45 @@ probabilidades alrededor de 0,3, nadie supera 0,5. Confirma que el umbral debe e
   el resultado solo por el azar del entrenamiento (orden de lotes, pesos iniciales), para saber qué diferencias son reales; y sus
   modelos podrán sumarse al conjunto final. `entrenar.py` añade `_s<semilla>` al nombre si la semilla no es 42.
 
+**RESULTADOS (2026-10-19):**
+
+| Configuración | AUC val en la época elegida | Frente a 2.1 (IC95) | Estados (de 5) |
+|---|---|---|---|
+| 2.1 semilla 42 | 0,567 ± 0,016 | — | 1 sin aprendizaje, 3 sobreentrenados, 1 ok |
+| 2.1 semilla 1 | 0,547 ± 0,020 | −0,020 (−0,060 a +0,020) | 2 sin aprendizaje, 1 sobreentrenado, 2 ok |
+| 2.1 semilla 2 | 0,566 ± 0,017 | −0,001 (−0,022 a +0,020) | 3 sin aprendizaje, 1 sobreentrenado, 1 ok |
+| 2.6 conv+conv | 0,551 ± 0,019 | **−0,016 (−0,031 a −0,001): empeora** | 1 sin aprendizaje, 4 sobreentrenados |
+
+- **Ruido de semilla:** la misma configuración en los mismos folds cambia hasta **0,06 en un fold** (fold 2: 0,593 / 0,530 / 0,581) y
+  hasta **0,02 en la media** (0,547-0,567). Media de las 3 semillas: **0,560**. Todas las diferencias entre configuraciones de la fase 2
+  (−0,026 a +0,008) caben en ese ruido: **las configuraciones razonables son equivalentes (~0,56 ± 0,02)**.
+- **conv+conv se descarta:** memoriza muy deprisa (AUC de entrenamiento 1,000 hacia la época 15; pérdida de validación hasta 3,5)
+  y 4 de 5 folds sobreentrenados. Su "empeora" es contra una sola semilla de 2.1, así que hay que tomarlo con cautela.
+
+## FASE 2 CERRADA (2026-10-19)
+
+Probado: menos capacidad (red estrecha), la red del profesor y más capacidad (conv+conv); frenos suaves y fuertes (lr, aumentado);
+otra información de entrada (realce y lavado, normalización por corte); otra pérdida (ponderada). Todo queda en ~0,55-0,57, dentro
+del ruido de semilla. Las redes grandes memorizan y las frenadas no aprenden. **El límite no está en la arquitectura ni en el
+entrenamiento, sino en la información que una CNN 2D desde cero saca de estas imágenes pretratamiento.**
+**Modelo elegido: 2.1** (RedBase con BatchNorm, 106.001 parámetros, Adam lr 1e-4, lote 128, pérdida normal, early stopping), con
+**3 semillas × 5 folds**. Idea para la fase 4: promediar las 3 semillas de cada fold reduce el ruido de semilla y se parece más al
+promedio que hará el modelo final (5 folds × 3 semillas).
+
+
+## Fase 4: agregación y umbral (`umbral.py`, 2026-10-19)
+
+Con las predicciones de validación de la configuración elegida (2.1, 3 semillas × 5 folds; `*_probs_val.csv`, época elegida):
+1. por corte, media de las 3 semillas; por paciente, media de sus cortes (la agregación que pide el profesor). Se compara el AUC por
+   fold de cada semilla con el del promedio (el modelo final promediará 5 folds × 3 semillas, así que el umbral se elige sobre el promedio);
+2. con las 1.097 pacientes: ROC, precision-recall (AP), sensibilidad/especificidad/precisión según el umbral, calibración por deciles y
+   Brier (frente al de decir siempre la proporción de pCR);
+3. umbral = el más bajo con **especificidad ≥ 0,95** (desescalar; el error grave es el falso positivo), comparado con máximo F1 de pCR,
+   máximo F1 equilibrada, Youden y 0,5;
+4. matriz, sensibilidad, especificidad, precisión, VPN, F1 de cada clase, F1 equilibrada y accuracy frente a "siempre no pCR", y la
+   estabilidad del umbral fold a fold. Guarda `umbral_final.json` (umbral para el test y la app), el CSV por paciente y la figura.
+Aviso: el umbral se elige con estas mismas predicciones (algo optimista); el test lo aplicará tal cual.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
