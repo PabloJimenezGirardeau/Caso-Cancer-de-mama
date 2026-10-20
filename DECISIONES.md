@@ -604,6 +604,23 @@ de todos los cortes (0,295), para que vote la mitad.
 - Con un solo corte (la app y la defensa), las cuatro agregaciones coinciden: la media de un corte es ese corte.
 - `umbral.barrido` incluye ahora el umbral "nadie es pCR" (por encima del máximo); el umbral elegido no cambia (0,3477).
 
+## Umbral para UN solo corte (app y defensa) (2026-10-20)
+
+El umbral 0,348 se eligió con la media de ~10 cortes por paciente; en la app llega un corte. Medido en la validación (modelo final
+calibrado, 10.945 cortes):
+
+| | Paciente (media de cortes) | Un corte suelto |
+|---|---|---|
+| AUC | 0,564 | 0,561 |
+| Con 0,348: sensibilidad / especificidad / precisión | 0,07 / **0,95** / 0,37 | 0,09 / **0,94** / 0,39 |
+| Umbral para especificidad ≥ 0,95 | 0,348 | 0,351 |
+
+- Las probabilidades de un corte suelto están casi igual de repartidas que las de la media de ~10 (desviación 0,037 frente a 0,036):
+  **el modelo da casi la misma probabilidad a todos los cortes de una paciente**. Encaja con la pista de la normalización (el modelo se
+  fija en rasgos generales de la imagen de esa paciente más que en detalles del tumor que cambian de un corte a otro) y responde a la
+  pregunta de la GUIA sobre las diez observaciones correlacionadas: aportan casi la misma información que una.
+- **Decisión: un solo umbral (0,348) para el test y para la app.** Con un corte la especificidad pasa del 95 % al 94 %.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
