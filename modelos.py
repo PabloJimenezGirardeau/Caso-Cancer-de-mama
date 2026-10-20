@@ -86,6 +86,11 @@ class RedBase(nn.Module):
 
     doble=True      -> conv+conv: dos convoluciones por bloque (302.321 parametros con BatchNorm).
 
+    recorte=128     -> la red solo mira el CENTRO del corte: un cuadrado de 128x128 en el medio de la
+                       imagen de 256x256 (las imagenes ya son recortes centrados en el tumor, asi que el
+                       centro es sobre todo tumor). Se hace dentro de la red: la app lo aplica igual. No
+                       cambia los parametros; el mapa final es de 8x8 en vez de 16x16.
+
     normalizar=True -> cada corte se reescala con SU PROPIA media y desviacion, las mismas para las
                        tres fases (para no romper el realce): x -> (x - media) / desviacion. Quita las
                        diferencias de brillo y contraste entre escaneres y hospitales (los datos no
@@ -101,11 +106,13 @@ class RedBase(nn.Module):
     """
 
     def __init__(self, dropout: float = 0.5, batchnorm: bool = False, n_auxiliares: int = 0,
-                 realce: bool = False, filtros: int = 16, doble: bool = False, normalizar: bool = False):
+                 realce: bool = False, filtros: int = 16, doble: bool = False, normalizar: bool = False,
+                 recorte: int = 0):
         super().__init__()
         self.n_auxiliares = n_auxiliares
         self.realce = realce
         self.normalizar = normalizar
+        self.recorte = recorte
         f, d = filtros, doble              # con f = 16 (por defecto), los tamaños de los comentarios
         self.extractor = nn.Sequential(
             bloque(5 if realce else 3, f, batchnorm, d),    # 3 (o 5) @ 256x256  ->  16 @ 128x128
@@ -123,6 +130,10 @@ class RedBase(nn.Module):
         self.cabeza_aux = nn.Linear(8 * f, n_auxiliares) if n_auxiliares else None
 
     def caracteristicas(self, x: torch.Tensor) -> torch.Tensor:
+        if self.recorte:             # cuadrado central de recorte x recorte
+            ini_f = (x.shape[2] - self.recorte) // 2
+            ini_c = (x.shape[3] - self.recorte) // 2
+            x = x[:, :, ini_f:ini_f + self.recorte, ini_c:ini_c + self.recorte]
         if self.normalizar:          # media y desviacion de CADA corte (las tres fases juntas)
             media = x.mean(dim=(1, 2, 3), keepdim=True)
             desv = x.std(dim=(1, 2, 3), keepdim=True).clamp_min(1e-6)

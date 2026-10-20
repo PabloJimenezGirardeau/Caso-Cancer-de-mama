@@ -7,6 +7,7 @@ Ajustes acordados (ver DECISIONES.md):
                    --filtros 8 es la red estrecha (8-16-32-64 en vez de 16-32-64-128);
                    --doble es conv+conv (dos convoluciones por bloque);
                    --normalizar reescala cada corte con su media y desviacion (dentro de la red);
+                   --recorte 128 hace que la red solo mire el cuadrado central de 128x128 (dentro de la red);
                    --aux añade la tarea auxiliar: predecir tambien HR y HER2 (patients.csv)
                    solo durante el entrenamiento; la red final sigue dando un unico logit
     perdida        --perdida normal | ponderada     (se entrenan las dos y se comparan)
@@ -300,6 +301,8 @@ def construir_parser() -> argparse.ArgumentParser:
                    help="conv+conv: dos convoluciones 3x3 por bloque (idea del profesor)")
     p.add_argument("--normalizar", action="store_true",
                    help="normalizar cada corte con su propia media y desviacion (las mismas para las 3 fases)")
+    p.add_argument("--recorte", type=int, default=0,
+                   help="si > 0, la red solo mira el cuadrado central de ese lado (p. ej. 128)")
     p.add_argument("--aux", action="store_true",
                    help="tarea auxiliar: predecir tambien HR y HER2 (de patients.csv) durante el entrenamiento")
     p.add_argument("--peso-aux", type=float, default=0.5,
@@ -326,6 +329,7 @@ def main() -> None:
     prefijo = (f"{red}_{args.perdida}" + ("_aug" if args.aumentado == "geometrico" else "") +
                (f"_f{args.filtros}" if args.filtros != 16 else "") +
                ("_doble" if args.doble else "") + ("_norm" if args.normalizar else "") +
+               (f"_c{args.recorte}" if args.recorte else "") +
                ("_realce" if args.realce else "") + ("_aux" if args.aux else "") +
                (f"_lr{args.lr:g}" if args.lr != 3e-4 else "") +
                (f"_s{args.semilla}" if args.semilla != 42 else "") +
@@ -376,10 +380,11 @@ def main() -> None:
     # --- modelo, perdida y optimizador ---
     modelo = mo.RedBase(batchnorm=args.batchnorm, n_auxiliares=len(AUXILIARES) if args.aux else 0,
                         realce=args.realce, filtros=args.filtros, doble=args.doble,
-                        normalizar=args.normalizar).to(device)
+                        normalizar=args.normalizar, recorte=args.recorte).to(device)
     print(f"red: {'RedBase con BatchNorm' if args.batchnorm else 'RedBase (la de la diapositiva)'}"
           f"{f' estrecha ({args.filtros}-{2 * args.filtros}-{4 * args.filtros}-{8 * args.filtros})' if args.filtros != 16 else ''}"
           f"{' conv+conv' if args.doble else ''}{' + normalizacion por corte' if args.normalizar else ''}"
+          f"{f' + recorte central {args.recorte}x{args.recorte}' if args.recorte else ''}"
           f"{' + canales de realce y lavado' if args.realce else ''}, "
           f"{mo.contar_parametros(modelo):,} parametros")
     if args.perdida == "ponderada":
@@ -414,6 +419,7 @@ def main() -> None:
         elegida, elegida_probs = indice, probs
         torch.save({"red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "aux": args.aux,
                     "filtros": args.filtros, "doble": args.doble, "normalizar": args.normalizar,
+                    "recorte": args.recorte,
                     "perdida": args.perdida, "fold": args.fold, "epoca": indice + 1,
                     "auc_val": auc_historial[indice], "lr": args.lr, "lote": args.lote,
                     "state_dict": pesos}, ruta["pesos"])
@@ -479,6 +485,7 @@ def main() -> None:
               + (" · aumentado" if args.aumentado == "geometrico" else "")
               + (f" · filtros {args.filtros}" if args.filtros != 16 else "")
               + (" · conv+conv" if args.doble else "") + (" · normalización por corte" if args.normalizar else "")
+              + (f" · recorte central {args.recorte}" if args.recorte else "")
               + (" · realce y lavado" if args.realce else "")
               + (f" · lr {args.lr:g}" if args.lr != 3e-4 else "")
               + (" · tarea auxiliar HR/HER2" if args.aux else "") + f" · fold {args.fold}")
@@ -500,7 +507,7 @@ def main() -> None:
 
     resumen = {
         "red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "filtros": args.filtros,
-        "doble": args.doble, "normalizar": args.normalizar,
+        "doble": args.doble, "normalizar": args.normalizar, "recorte": args.recorte,
         "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
         "aumentado": args.aumentado, "aux": args.aux, "peso_aux": args.peso_aux if args.aux else None,
         "auc_val_hr_ultima": auc_aux[0] if args.aux else None,

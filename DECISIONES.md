@@ -621,6 +621,19 @@ calibrado, 10.945 cortes):
   pregunta de la GUIA sobre las diez observaciones correlacionadas: aportan casi la misma información que una.
 - **Decisión: un solo umbral (0,348) para el test y para la app.** Con un corte la especificidad pasa del 95 % al 94 %.
 
+## Experimento complementario: recorte central 128×128 (decidido el 2026-10-20, ANTES del test)
+
+**Origen:** idea de la arquitectura de un compañero (no se copia su código ni su red; solo se prueba la idea con nuestra red).
+**Qué:** la configuración final (2.1) con `--recorte 128`: la red solo mira el cuadrado central de 128×128 del corte de 256×256
+(las imágenes ya son recortes centrados en el tumor, así que el centro es sobre todo tumor). Dentro de la red (la app lo aplicaría
+igual); mismos 106.001 parámetros; mapa final de 8×8. Verificado: la salida no cambia si se modifica lo que hay fuera del centro.
+**Hipótesis:** obligar a la red a mirar el tumor podría quitarle el atajo del brillo general de la imagen; en contra, pierde el tejido
+que rodea al tumor (peritumoral), que la bibliografía considera útil (Braman et al.).
+**Diseño:** 3 semillas (42, 1 y 2), las mismas que la 2.1, en los 5 folds. Ficheros `bn_normal_c128_lr0.0001_*` (`_s1_`, `_s2_`).
+**REGLA FIJADA ANTES DE VER RESULTADOS:** por fold, media de las 3 semillas del AUC de validación en la época elegida, para el recorte y
+para la 2.1; diferencia emparejada por fold. **Solo se cambia el modelo final si la diferencia media supera +0,02 y su IC95 excluye el 0.**
+Si no, se cuenta en el informe como experimento complementario y el modelo final sigue siendo la 2.1 (el test se hace al día siguiente).
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
