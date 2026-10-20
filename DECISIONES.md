@@ -555,7 +555,34 @@ modelos que sí aprendieron. **Se cambia a una calibración ÚNICA al final:** s
 se ajusta un solo Platt (a, b) sobre ese promedio, por corte, con todos los cortes de validación. Conserva el AUC del promedio, arregla la
 escala y el test y la app solo aplican dos números.
 
+**RESULTADO FINAL DE LA FASE 4 (calibración única, 2026-10-19). FASE 4 CERRADA.**
+- AUC con todas las pacientes juntas **0,564 (IC95 0,527-0,599)**, igual que sin calibrar; media por fold 0,571 ± 0,014; AP 0,345
+  (azar 0,294); **Brier 0,2058** (referencia 0,2074; sin calibrar 0,2087). Platt: a = 0,319, b = −0,591 (el promedio exageraba sus
+  probabilidades ~3 veces). Curva de calibración pegada a la diagonal. Probabilidades por paciente de 0,12 a 0,67.
+- **Umbral elegido 0,348** (especificidad ≥ 0,95): sensibilidad 7 % (22/322), especificidad 95 %, precisión 37 %, VPN 71 %, F1 pCR 0,12,
+  F1 no pCR 0,81, F1 equilibrada 0,46, accuracy 0,69. "Siempre no pCR": accuracy 0,71, F1 equilibrada 0,41. Alternativa F1 equilibrada
+  (0,307): sensibilidad 40 %, especificidad 71 %, precisión 36 %.
+- Estabilidad: con 0,348, los folds 0 y 1 no detectan ninguna pCR (sensibilidad por fold 0,00 / 0,00 / 0,17 / 0,12 / 0,05).
+- Lectura para el informe: con AUC ~0,56 el modelo apenas supera a "siempre no pCR" y no serviría para desescalar; la ROC está pegada a la
+  diagonal en la zona de especificidad alta. Riesgo: en el test el modelo final promedia 15 modelos (5 folds × 3 semillas) y en validación
+  cada paciente tenía 3; el umbral podría no trasladarse exactamente.
+- Pipeline fijado: 15 modelos → media de sus probabilidades por corte → Platt (a, b) → media de los cortes de la paciente → umbral 0,348
+  (parámetros en `resultados/umbral_final.json` del PC).
 
+
+
+
+## Fase 5: modelo final y módulo de predicción común (`predecir.py`, 2026-10-20)
+
+- Los 15 modelos (2.1: 3 semillas × 5 folds), sus probabilidades de validación, sus resúmenes y `umbral_final.json` están en
+  `modelo/` del repositorio (subidos desde el PC, commit 3adc1a6). Los registros por época de todos los experimentos, en `referencia/`.
+- `predecir.py`: **la misma función para el test y para la app.** Lee cada fase como en el entrenamiento (PNG → escala de grises →
+  /255), rechaza lo que no sea un PNG de 256×256 (sin redimensionar), ficheros vacíos, corruptos o de más de 5 MB; avisa si EARLY no
+  es más brillante que PRE en el tejido (posible orden incorrecto). Predice con los 15 modelos en modo evaluación y sin gradientes,
+  promedia, calibra (a, b) y compara con el umbral. Devuelve probabilidad, clase, umbral, número de modelos, dispositivo, tiempo y un
+  **checksum** de los modelos y el json.
+- **Verificado:** con 10 pacientes por modelo, reproduce las probabilidades de validación guardadas por el entrenamiento con una
+  diferencia máxima de **2·10⁻⁶** en los 15 modelos (CPU del portátil frente a GPU del PC). Da lo mismo leyendo de disco que de bytes.
 
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
