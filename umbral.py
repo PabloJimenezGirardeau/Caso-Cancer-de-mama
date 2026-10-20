@@ -141,8 +141,10 @@ def metricas(y, s, umbral: float) -> dict:
 
 
 def barrido(y, s) -> pd.DataFrame:
-    """Metricas para cada umbral posible (cada probabilidad distinta)."""
-    return pd.DataFrame([metricas(y, s, u) for u in np.unique(s)])
+    """Metricas para cada umbral posible (cada probabilidad distinta, y uno por encima del maximo:
+    no decir "pCR" a nadie, que siempre cumple cualquier especificidad)."""
+    s = np.asarray(s, dtype=float)
+    return pd.DataFrame([metricas(y, s, u) for u in np.r_[np.unique(s), s.max() + 1e-9]])
 
 
 def elegir_umbrales(tabla: pd.DataFrame, especificidad: float) -> dict:

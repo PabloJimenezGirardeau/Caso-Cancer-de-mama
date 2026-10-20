@@ -584,6 +584,26 @@ escala y el test y la app solo aplican dos números.
 - **Verificado:** con 10 pacientes por modelo, reproduce las probabilidades de validación guardadas por el entrenamiento con una
   diferencia máxima de **2·10⁻⁶** en los 15 modelos (CPU del portátil frente a GPU del PC). Da lo mismo leyendo de disco que de bytes.
 
+## Agregación justificada con la validación (`comparar_agregacion.py`, 2026-10-20)
+
+Modelo final (3 semillas × 5 folds, calibrado), 1.097 pacientes de validación; voto = fracción de cortes con probabilidad ≥ la mediana
+de todos los cortes (0,295), para que vote la mitad.
+
+| Agregación | AUC por fold | AUC juntas (IC95) | AP | Con especificidad ≥ 0,95: sens / precisión | Sensibilidad por fold |
+|---|---|---|---|---|---|
+| **media** | **0,571 ± 0,014** | 0,564 (0,527-0,599) | 0,345 | 0,07 / 0,37 | 0,00 0,00 0,17 0,12 0,05 |
+| mediana | 0,571 ± 0,014 | 0,562 (0,524-0,597) | 0,345 | 0,07 / 0,37 | 0,00 0,00 0,17 0,12 0,05 |
+| máximo | 0,573 ± 0,020 | 0,568 (0,530-0,607) | 0,352 | 0,09 / 0,42 | 0,00 0,00 0,10 0,28 0,02 |
+| voto | 0,559 ± 0,032 | 0,555 (0,520-0,590) | 0,325 | 0,00 / — (solo 12 valores distintos) | todo 0 |
+
+- Frente a la media (emparejado por fold): mediana −0,0002, máximo +0,002, voto −0,012; **todos no concluyentes**.
+- **Se mantiene la media:** es la que pide el profesor, rinde igual que las demás (las diferencias caben en el ruido), es más estable
+  que el máximo (desviación 0,014 frente a 0,020; el máximo tiene una sensibilidad por fold de 0,02 a 0,28) y la calibración se ajustó
+  para ella. El máximo, como avisa la GUIA, depende de un solo corte. El voto no sirve para fijar un umbral: con ~10 cortes solo da
+  fracciones (12 valores distintos) y no hay ningún punto con especificidad ≥ 0,95 salvo no decir "pCR" a nadie.
+- Con un solo corte (la app y la defensa), las cuatro agregaciones coinciden: la media de un corte es ese corte.
+- `umbral.barrido` incluye ahora el umbral "nadie es pCR" (por encima del máximo); el umbral elegido no cambia (0,3477).
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
