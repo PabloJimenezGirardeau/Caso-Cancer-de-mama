@@ -81,38 +81,55 @@ def media_semillas(runs: list[dict], clave: str) -> tuple[list[float], list[floa
 
 
 def figura_perdida(ruta: Path) -> None:
-    """Solo la perdida del modelo final, grande y con la escala ajustada a las medias de las semillas (los picos de
-    una semilla suelta pueden salirse por arriba). Linea discontinua de cada color: la perdida sin mirar la imagen,
-    con la proporcion de pCR de ese entrenamiento (azul) y de esa validacion (naranja)."""
+    """Solo la perdida del modelo final, un panel grande por fold (rejilla 2x3; el sexto panel es la leyenda).
+    Cada panel tiene SU escala, ajustada a las medias de las semillas y a sus lineas de referencia, para que se vea
+    la forma de las curvas (los picos de una semilla suelta pueden salirse por arriba); epocas en numeros enteros.
+    Discontinuas: la perdida sin mirar la imagen con la proporcion de pCR de ese entrenamiento (azul) y de esa
+    validacion (naranja). En cada panel se anota el minimo de la validacion (media) frente a su referencia."""
+    from matplotlib.lines import Line2D
+    from matplotlib.ticker import MaxNLocator
     plt = graficas._plt()
     prefijo = FAMILIAS["recorte"][0]
     refs = referencias_por_fold()
-    todos = {k: [leer(f"{prefijo}{s}_fold{k}") for s in SEMILLAS.values()] for k in range(5)}
-    medias = [v for k in range(5) for c in ("perdida_train", "perdida_val") for v in media_semillas(todos[k], c)[1]]
-    lo, hi = min(medias) - 0.02, max(medias) + 0.03
-    fig, ax = plt.subplots(1, 5, figsize=(25, 6.2), constrained_layout=True, sharey=True)
-    fig.suptitle("Pérdida (entropía cruzada binaria) del modelo final, recorte central 128 · 5 folds × 3 semillas\n"
-                 "líneas finas: cada semilla (algún pico se sale por arriba) · gruesas: media de las 3 · "
-                 "punto: época elegida · discontinuas: pérdida sin mirar la imagen", fontsize=14, fontweight="bold")
-    for k in range(5):
-        a, runs = ax[k], todos[k]
+    fig, axes = plt.subplots(2, 3, figsize=(20, 11.5), constrained_layout=True)
+    fig.suptitle("Pérdida del modelo final (recorte central 128): 5 folds × 3 semillas",
+                 fontsize=16, fontweight="bold")
+    for k, a in zip(range(5), axes.ravel()):
+        runs = [leer(f"{prefijo}{s}_fold{k}") for s in SEMILLAS.values()]
+        ep_tr, m_tr = media_semillas(runs, "perdida_train")
+        ep_va, m_va = media_semillas(runs, "perdida_val")
         for d in runs:
-            a.plot(d["epoca"], d["perdida_train"], color=graficas.AZUL, lw=0.9, alpha=0.3)
-            a.plot(d["epoca"], d["perdida_val"], color=graficas.NARANJA, lw=0.9, alpha=0.3)
+            a.plot(d["epoca"], d["perdida_train"], color=graficas.AZUL, lw=1, alpha=0.3)
+            a.plot(d["epoca"], d["perdida_val"], color=graficas.NARANJA, lw=1, alpha=0.3)
             i = d["elegida"]
-            a.scatter([d["epoca"][i]], [d["perdida_val"][i]], color=graficas.ROJO, edgecolor="black", s=55, zorder=5)
-        a.plot(*media_semillas(runs, "perdida_train"), color=graficas.AZUL, lw=3, label="entrenamiento (media)")
-        a.plot(*media_semillas(runs, "perdida_val"), color=graficas.NARANJA, lw=3, label="validación (media)")
-        a.axhline(refs[k][0], color=graficas.AZUL, ls="--", lw=1.3, alpha=0.8,
-                  label=f"sin mirar la imagen, entrenamiento ({refs[k][0]:.3f})")
-        a.axhline(refs[k][1], color=graficas.NARANJA, ls="--", lw=1.3, alpha=0.9,
-                  label=f"sin mirar la imagen, validación ({refs[k][1]:.3f})")
-        a.set_ylim(lo, hi)
-        a.set_title(f"fold {k}", fontsize=13)
-        a.set_xlabel("época", fontsize=11)
+            a.scatter([d["epoca"][i]], [d["perdida_val"][i]], color=graficas.ROJO, edgecolor="black", s=70, zorder=5)
+        a.plot(ep_tr, m_tr, color=graficas.AZUL, lw=3.2)
+        a.plot(ep_va, m_va, color=graficas.NARANJA, lw=3.2)
+        a.axhline(refs[k][0], color=graficas.AZUL, ls="--", lw=1.5, alpha=0.8)
+        a.axhline(refs[k][1], color=graficas.NARANJA, ls="--", lw=1.5)
+        valores = m_tr + m_va + list(refs[k])
+        margen = 0.08 * (max(valores) - min(valores))
+        a.set_ylim(min(valores) - margen, max(valores) + margen)
+        a.set_xlim(0.5, max(len(d["epoca"]) for d in runs) + 0.5)
+        a.xaxis.set_major_locator(MaxNLocator(integer=True))
+        j = min(range(len(m_va)), key=m_va.__getitem__)
+        a.set_title(f"fold {k} · mínimo de la validación {m_va[j]:.3f} (época {ep_va[j]:.0f}) "
+                    f"frente a {refs[k][1]:.3f} sin imagen", fontsize=12.5)
+        a.set_xlabel("época", fontsize=12)
+        a.set_ylabel("pérdida (entropía cruzada binaria)", fontsize=11)
+        a.tick_params(labelsize=11)
         a.grid(alpha=0.3)
-        a.legend(fontsize=8.5, loc="lower left")
-    ax[0].set_ylabel("pérdida", fontsize=12)
+    leyenda = axes.ravel()[5]
+    leyenda.axis("off")
+    elementos = [Line2D([], [], color=graficas.AZUL, lw=3.2, label="entrenamiento, media de las 3 semillas"),
+                 Line2D([], [], color=graficas.NARANJA, lw=3.2, label="validación, media de las 3 semillas"),
+                 Line2D([], [], color=graficas.GRIS, lw=1, alpha=0.6, label="cada semilla (algún pico se sale por arriba)"),
+                 Line2D([], [], color=graficas.AZUL, ls="--", lw=1.5, label="sin mirar la imagen (entrenamiento)"),
+                 Line2D([], [], color=graficas.NARANJA, ls="--", lw=1.5, label="sin mirar la imagen (validación)"),
+                 Line2D([], [], marker="o", ls="", markerfacecolor=graficas.ROJO, markeredgecolor="black",
+                        markersize=10, label="época elegida por el early stopping")]
+    leyenda.legend(handles=elementos, loc="center", fontsize=13, frameon=True,
+                   title="Cómo leer cada panel\n(cada fold con su propia escala)", title_fontsize=13)
     fig.savefig(ruta, dpi=110, bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
