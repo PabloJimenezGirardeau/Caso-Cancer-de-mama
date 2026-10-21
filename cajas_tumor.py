@@ -51,6 +51,8 @@ def origen_recorte(centro: int, n: int, salida: int = LADO) -> int:
 
 def caja_en_png(q) -> tuple[float, float, float, float] | None:
     """(fila0, fila1, col0, col1) de la caja del tumor en el PNG; None si la imagen original es menor que 256."""
+    if any(np.isnan(float(v)) for v in (q.n_xy, q.sraw, q.eraw, q.scol, q.ecol)):
+        return None
     n = int(q.n_xy)
     if n < LADO:
         return None

@@ -8,6 +8,8 @@ Ajustes acordados (ver DECISIONES.md):
                    --doble es conv+conv (dos convoluciones por bloque);
                    --normalizar reescala cada corte con su media y desviacion (dentro de la red);
                    --recorte 128 hace que la red solo mire el cuadrado central de 128x128 (dentro de la red);
+                   --atencion: atencion guiada; la red pondera las zonas del mapa final y, al entrenar, esa
+                   atencion se ajusta a la caja del tumor (patients.csv, cajas_tumor.py); la caja NO es entrada;
                    --aux añade la tarea auxiliar: predecir tambien HR y HER2 (patients.csv)
                    solo durante el entrenamiento; la red final sigue dando un unico logit
     perdida        --perdida normal | ponderada     (se entrenan las dos y se comparan)
@@ -198,6 +200,61 @@ class ConAuxiliares(torch.utils.data.Dataset):
         return x, y, self.aux[i], self.mascara[i]
 
 
+# --------------------------------------------------------------------------- #
+# Atencion guiada: la caja del tumor como objetivo extra de entrenamiento (--atencion)
+# --------------------------------------------------------------------------- #
+
+CELDAS = 16          # el mapa final de la red (sin recorte) es de 16x16: cada celda cubre 16x16 pixeles
+
+
+def objetivos_caja(filas, raiz_meta: Path) -> tuple[torch.Tensor, torch.Tensor]:
+    """Para cada corte de `filas`: (objetivo (N, 16, 16), valida (N,)).
+
+    objetivo[i, f, c] = fraccion de la celda (f, c) del mapa que cubre la caja del tumor de su paciente, con la
+    caja de patients.csv llevada al PNG (cajas_tumor.caja_en_png: ventana del MinCrop y giro de 90 grados).
+    valida = 0 si la paciente no tiene caja utilizable (imagen original menor de 256): ese corte no cuenta en la
+    perdida de atencion. Las cajas solo se usan para ENTRENAR; la red no las recibe como entrada."""
+    from cajas_tumor import caja_en_png
+    pacientes = uc.cargar_patients(raiz_meta).set_index("pid")
+    bordes = np.arange(CELDAS + 1) * (256 // CELDAS)                 # 0, 16, ..., 256
+    por_paciente = {}
+    for pid in filas.patient_id.unique():
+        caja = caja_en_png(pacientes.loc[pid])
+        if caja is None:
+            por_paciente[pid] = (np.zeros((CELDAS, CELDAS), np.float32), 0.0)
+            continue
+        a, b, c, e = caja                                            # filas a..b y columnas c..e, inclusive
+        sol_f = np.clip(np.minimum(bordes[1:], b + 1) - np.maximum(bordes[:-1], a), 0, None) / (256 // CELDAS)
+        sol_c = np.clip(np.minimum(bordes[1:], e + 1) - np.maximum(bordes[:-1], c), 0, None) / (256 // CELDAS)
+        por_paciente[pid] = (np.outer(sol_f, sol_c).astype(np.float32), 1.0)
+    pids = filas.reset_index(drop=True).patient_id.values
+    objetivo = torch.from_numpy(np.stack([por_paciente[p][0] for p in pids]))
+    valida = torch.tensor([por_paciente[p][1] for p in pids], dtype=torch.float32)
+    return objetivo, valida
+
+
+class ConCaja(torch.utils.data.Dataset):
+    """Envuelve un BreastDCEDataset y añade, a cada corte, el objetivo de atencion (la caja del tumor en la
+    rejilla de 16x16) y si es valido. Solo para ENTRENAR."""
+
+    def __init__(self, base, objetivo: torch.Tensor, valida: torch.Tensor):
+        self.base, self.objetivo, self.valida = base, objetivo, valida
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, i):
+        x, y = self.base[i]
+        return x, y, self.objetivo[i], self.valida[i]
+
+
+def perdida_atencion(puntos: torch.Tensor, objetivo: torch.Tensor, valida: torch.Tensor) -> torch.Tensor:
+    """Entropia cruzada binaria entre las puntuaciones de atencion (logits por celda) y la caja del tumor,
+    media de las celdas, solo en los cortes con caja valida."""
+    por_corte = F.binary_cross_entropy_with_logits(puntos, objetivo, reduction="none").mean(dim=(1, 2))
+    return (por_corte * valida).sum() / valida.sum().clamp(min=1.0)
+
+
 def auc_aux_por_paciente(filas, probs_aux, etiquetas_aux: dict) -> list[float]:
     """AUC por paciente de cada etiqueta auxiliar (media de las probabilidades de sus cortes)."""
     from sklearn.metrics import roc_auc_score
@@ -227,13 +284,21 @@ def entrenar_una_epoca(modelo, dl, criterio, optimizador, device, peso_aux: floa
 
     Con tarea auxiliar, la perdida que se minimiza es:
         perdida_pCR + peso_aux * perdida_auxiliar   (media de HR y HER2, sin los datos que faltan)
+    Con atencion guiada (el modelo tiene `atencion`), la auxiliar es la de atencion frente a la caja del tumor.
     La perdida de pCR que se devuelve es solo la de pCR, comparable con la de la base."""
     modelo.train()
     suma, suma_aux, n = 0.0, 0.0, 0
     for lote in dl:
         x, y = lote[0].to(device, non_blocking=True), lote[1].to(device, non_blocking=True)
         optimizador.zero_grad()              # PyTorch acumula gradientes si no se limpian
-        if len(lote) == 4:                   # con etiquetas auxiliares
+        if modelo.atencion:                  # con la caja del tumor como objetivo de la atencion
+            objetivo, valida = lote[2].to(device, non_blocking=True), lote[3].to(device, non_blocking=True)
+            logit, puntos = modelo.forward_atencion(x)
+            perdida_pcr = criterio(logit, y)
+            perdida_aux = perdida_atencion(puntos, objetivo, valida)
+            perdida = perdida_pcr + peso_aux * perdida_aux
+            suma_aux += perdida_aux.item() * x.size(0)
+        elif len(lote) == 4:                 # con etiquetas auxiliares
             aux, mascara = lote[2].to(device, non_blocking=True), lote[3].to(device, non_blocking=True)
             logit, logit_aux = modelo.forward_multitarea(x)
             perdida_pcr = criterio(logit, y)
@@ -247,7 +312,21 @@ def entrenar_una_epoca(modelo, dl, criterio, optimizador, device, peso_aux: floa
         optimizador.step()
         suma += perdida_pcr.item() * x.size(0)
         n += x.size(0)
-    return suma / n, (suma_aux / n if modelo.n_auxiliares else None)
+    return suma / n, (suma_aux / n if (modelo.n_auxiliares or modelo.atencion) else None)
+
+
+@torch.no_grad()
+def atencion_dentro(modelo, dl, objetivo: torch.Tensor, valida: torch.Tensor, device) -> float:
+    """Media, en los cortes con caja, de la fraccion de la atencion (pesos softmax, suman 1) que cae en celdas
+    tocadas por la caja del tumor. Con atencion uniforme saldria la fraccion de celdas de la caja (~0,1)."""
+    modelo.eval()
+    fracciones = []
+    for x, _ in dl:
+        _, puntos = modelo.forward_atencion(x.to(device, non_blocking=True))
+        fracciones.append(torch.softmax(puntos.flatten(1), dim=1).cpu())
+    pesos = torch.cat(fracciones)                                         # (N, 256)
+    dentro = (pesos * (objetivo.flatten(1) > 0)).sum(dim=1)
+    return float((dentro * valida).sum() / valida.sum().clamp(min=1.0))
 
 
 @torch.no_grad()
@@ -307,6 +386,11 @@ def construir_parser() -> argparse.ArgumentParser:
                    help="tarea auxiliar: predecir tambien HR y HER2 (de patients.csv) durante el entrenamiento")
     p.add_argument("--peso-aux", type=float, default=0.5,
                    help="peso de la perdida auxiliar frente a la de pCR (solo con --aux)")
+    p.add_argument("--atencion", action="store_true",
+                   help="atencion guiada: media ponderada del mapa final, entrenada para mirar la caja del tumor "
+                        "(cajas de patients.csv solo como objetivo de entrenamiento; imagen entera, sin recorte)")
+    p.add_argument("--peso-atencion", type=float, default=1.0,
+                   help="peso de la perdida de atencion frente a la de pCR (solo con --atencion)")
     p.add_argument("--paciencia", type=int, default=pa.PACIENCIA,
                    help="early stopping: epocas sin mejorar la media movil del AUC de validacion (0 = sin parada)")
     p.add_argument("--sobrescribir", action="store_true",
@@ -316,6 +400,8 @@ def construir_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = construir_parser().parse_args()
+    if args.atencion and (args.recorte or args.aux):
+        raise SystemExit("--atencion trabaja con la imagen entera (mapa de 16x16) y no se combina con --recorte ni --aux")
 
     try:
         import sklearn  # noqa: F401   (utils_caso lo usa para el AUC)
@@ -331,6 +417,7 @@ def main() -> None:
                ("_doble" if args.doble else "") + ("_norm" if args.normalizar else "") +
                (f"_c{args.recorte}" if args.recorte else "") +
                ("_realce" if args.realce else "") + ("_aux" if args.aux else "") +
+               ("_aten" + (f"{args.peso_atencion:g}" if args.peso_atencion != 1.0 else "") if args.atencion else "") +
                (f"_lr{args.lr:g}" if args.lr != 3e-4 else "") +
                (f"_s{args.semilla}" if args.semilla != 42 else "") +
                f"_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else ""))
@@ -371,6 +458,14 @@ def main() -> None:
         ds_train = ConAuxiliares(ds_train, entrenamiento, etiquetas_aux)
         print(f"tarea auxiliar: {' y '.join(AUXILIARES)} (peso {args.peso_aux:g}); con los dos datos en "
               f"{int(ds_train.mascara.min(dim=1).values.sum())} de {len(ds_train)} cortes de entrenamiento")
+    cajas_val = None
+    if args.atencion:   # cajas del tumor: solo como OBJETIVO de la atencion al entrenar, nunca como entrada
+        objetivo, valida = objetivos_caja(entrenamiento, raiz_meta)
+        ds_train = ConCaja(ds_train, objetivo, valida)
+        cajas_val = objetivos_caja(validacion, raiz_meta)     # solo para MEDIR si la atencion cae en el tumor
+        print(f"atencion guiada (peso {args.peso_atencion:g}): caja del tumor en {int(valida.sum())} de "
+              f"{len(valida)} cortes de entrenamiento; la caja ocupa de media el "
+              f"{float((objetivo[valida > 0] > 0).float().mean()):.0%} de las celdas del mapa")
     dl_train = DataLoader(ds_train, batch_size=args.lote, shuffle=True,
                           generator=torch.Generator().manual_seed(args.semilla), **opciones)
     # shuffle=False en validacion y vigilados: obligatorio para que las probabilidades casen con las filas
@@ -380,12 +475,13 @@ def main() -> None:
     # --- modelo, perdida y optimizador ---
     modelo = mo.RedBase(batchnorm=args.batchnorm, n_auxiliares=len(AUXILIARES) if args.aux else 0,
                         realce=args.realce, filtros=args.filtros, doble=args.doble,
-                        normalizar=args.normalizar, recorte=args.recorte).to(device)
+                        normalizar=args.normalizar, recorte=args.recorte, atencion=args.atencion).to(device)
     print(f"red: {'RedBase con BatchNorm' if args.batchnorm else 'RedBase (la de la diapositiva)'}"
           f"{f' estrecha ({args.filtros}-{2 * args.filtros}-{4 * args.filtros}-{8 * args.filtros})' if args.filtros != 16 else ''}"
           f"{' conv+conv' if args.doble else ''}{' + normalizacion por corte' if args.normalizar else ''}"
           f"{f' + recorte central {args.recorte}x{args.recorte}' if args.recorte else ''}"
-          f"{' + canales de realce y lavado' if args.realce else ''}, "
+          f"{' + canales de realce y lavado' if args.realce else ''}"
+          f"{' + atencion guiada por la caja del tumor' if args.atencion else ''}, "
           f"{mo.contar_parametros(modelo):,} parametros")
     if args.perdida == "ponderada":
         peso = uc.pos_weight(entrenamiento)          # N0/N1 de ESTAS filas de entrenamiento, calculado del CSV
@@ -419,7 +515,7 @@ def main() -> None:
         elegida, elegida_probs = indice, probs
         torch.save({"red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "aux": args.aux,
                     "filtros": args.filtros, "doble": args.doble, "normalizar": args.normalizar,
-                    "recorte": args.recorte,
+                    "recorte": args.recorte, "atencion": args.atencion,
                     "perdida": args.perdida, "fold": args.fold, "epoca": indice + 1,
                     "auc_val": auc_historial[indice], "lr": args.lr, "lote": args.lote,
                     "state_dict": pesos}, ruta["pesos"])
@@ -431,15 +527,18 @@ def main() -> None:
     tiempos, t_inicio = [], time.time()
     with open(ruta["csv"], "w", encoding="utf-8") as f:
         f.write("epoca,perdida_train,perdida_val,auc_train,auc_val,accuracy_val,sensibilidad_val,"
-                "especificidad_val,lr,tiempo_seg,perdida_aux_train,auc_val_hr,auc_val_her2\n")
+                "especificidad_val,lr,tiempo_seg,perdida_aux_train,auc_val_hr,auc_val_her2,atencion_dentro_val\n")
+        atencion_historial = []
         for epoca in range(1, args.epocas + 1):
             t0 = time.time()
             perdida_train, perdida_aux = entrenar_una_epoca(modelo, dl_train, criterio, optimizador, device,
-                                                            args.peso_aux)
+                                                            args.peso_atencion if args.atencion else args.peso_aux)
             perdida_val, res_val, probs_val, probs_aux = medir(modelo, dl_val, validacion, criterio, device, args.umbral)
             auc_aux = (auc_aux_por_paciente(validacion, probs_aux, etiquetas_aux)
                        if probs_aux is not None else [float("nan")] * len(AUXILIARES))
             _, res_vig, _, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
+            aten_val = atencion_dentro(modelo, dl_val, *cajas_val, device) if args.atencion else float("nan")
+            atencion_historial.append(aten_val)
             auc_historial.append(res_val["auc"])
             auc_train_historial.append(res_vig["auc"])
             ult_probs.append(probs_val)
@@ -450,7 +549,8 @@ def main() -> None:
             f.write(f"{epoca},{perdida_train:.6f},{perdida_val:.6f},{res_vig['auc']:.6f},{res_val['auc']:.6f},"
                     f"{res_val['accuracy']:.6f},{res_val['sensibilidad']:.6f},{res_val['especificidad']:.6f},"
                     f"{args.lr:.8f},{dur:.2f},"
-                    f"{'' if perdida_aux is None else f'{perdida_aux:.6f}'},{auc_aux[0]:.6f},{auc_aux[1]:.6f}\n")
+                    f"{'' if perdida_aux is None else f'{perdida_aux:.6f}'},{auc_aux[0]:.6f},{auc_aux[1]:.6f},"
+                    f"{aten_val:.6f}\n")
             f.flush()
 
             indice, parar = pa.elegir_epoca(auc_historial, paciencia)
@@ -463,6 +563,7 @@ def main() -> None:
                   f"(val: acc {res_val['accuracy']:.3f} sens {res_val['sensibilidad']:.3f} "
                   f"espec {res_val['especificidad']:.3f})"
                   + (f"  aux val HR {auc_aux[0]:.3f} HER2 {auc_aux[1]:.3f}" if args.aux else "")
+                  + (f"  atencion en el tumor (val) {aten_val:.0%}" if args.atencion else "")
                   + f"  {dur:.1f}s{marca}", flush=True)
             if parar:
                 motivo = "paciencia"
@@ -486,6 +587,7 @@ def main() -> None:
               + (f" · filtros {args.filtros}" if args.filtros != 16 else "")
               + (" · conv+conv" if args.doble else "") + (" · normalización por corte" if args.normalizar else "")
               + (f" · recorte central {args.recorte}" if args.recorte else "")
+              + (" · atención guiada" if args.atencion else "")
               + (" · realce y lavado" if args.realce else "")
               + (f" · lr {args.lr:g}" if args.lr != 3e-4 else "")
               + (" · tarea auxiliar HR/HER2" if args.aux else "") + f" · fold {args.fold}")
@@ -508,6 +610,8 @@ def main() -> None:
     resumen = {
         "red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "filtros": args.filtros,
         "doble": args.doble, "normalizar": args.normalizar, "recorte": args.recorte,
+        "atencion": args.atencion, "peso_atencion": args.peso_atencion if args.atencion else None,
+        "atencion_dentro_val_elegida": atencion_historial[elegida] if args.atencion else None,
         "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
         "aumentado": args.aumentado, "aux": args.aux, "peso_aux": args.peso_aux if args.aux else None,
         "auc_val_hr_ultima": auc_aux[0] if args.aux else None,
@@ -542,6 +646,9 @@ def main() -> None:
     if sin_aprendizaje:
         print(f"AVISO: SIN APRENDIZAJE: en la epoca elegida el AUC de entrenamiento es {auc_train_elegida:.3f} "
               f"(< {pa.AUC_TRAIN_MIN:g}): la red aun no distingue ni a las pacientes con las que entrena.")
+    if args.atencion:
+        print(f"Atencion en el tumor (validacion, epoca elegida): {atencion_historial[elegida]:.1%} de la atencion "
+              f"cae en las celdas de la caja")
     print(f"Matriz de confusion (umbral {args.umbral:g}): {mc}")
     if args.aux:
         print(f"Tarea auxiliar, AUC por paciente en validacion (ultima epoca): "

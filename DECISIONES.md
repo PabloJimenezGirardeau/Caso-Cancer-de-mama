@@ -770,6 +770,22 @@ Con esa transformación (pacientes de entrenamiento con `n_xy` ≥ 256, 1.095):
 - Esto **justifica el recorte central** (casi siempre encuadra el tumor) y señala su límite (≈10 % de pacientes con el tumor a medias o
   fuera). Un "zoom dirigido" centrado en la caja necesitaría la caja también en la app y en la defensa.
 
+## Experimento: atención guiada por la caja del tumor (decidido el 2026-10-21, ANTES del test y de ver resultados)
+
+**Motivo:** en la defensa solo llega el PNG, sin caja. Idea del usuario: enseñar a la red a fijarse en el tumor usando las cajas
+**solo al entrenar** (información privilegiada). Base en la bibliografía: atención supervisada con cajas o máscaras (GAIN, Li et al.
+CVPR 2018), "Right for the Right Reasons" (Ross et al. IJCAI 2017: generaliza mejor cuando cambian las condiciones), Locus (2026).
+**Qué (`--atencion`, `modelos.py` / `entrenar.py`):** la 2.1 con la imagen entera (sin recorte); en vez de la media global, una
+convolución 1×1 puntúa cada celda del mapa final de 16×16 y la red hace una media ponderada (softmax): +129 parámetros (106.130).
+Pérdida = pCR + 1,0 × BCE entre las puntuaciones y la fracción de cada celda cubierta por la caja del tumor (`cajas_tumor.py`;
+cortes sin caja no cuentan). La caja nunca es entrada: en la app y en la defensa la red decide sola dónde mirar. Se registra en cada
+época qué parte de la atención cae en la caja (validación). Early stopping igual que siempre (AUC de pCR en validación).
+**Diseño:** 3 semillas (42, 1, 2) × 5 folds, `--batchnorm --lr 1e-4 --atencion`; ficheros `bn_normal_aten_lr0.0001_*`.
+**REGLA FIJADA ANTES DE VER RESULTADOS:** por fold, media de las 3 semillas del AUC de validación en la época elegida, frente al
+modelo final actual (recorte 128); diferencia emparejada por fold. **Se cambia el modelo final solo si la diferencia media supera
++0,02 y su IC95 excluye el 0.** Si no, se cuenta como experimento complementario (con los mapas de atención) y el modelo sigue
+siendo el recorte 128. Además se informa de la atención en el tumor (validación) en la época elegida.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado

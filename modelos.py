@@ -97,6 +97,15 @@ class RedBase(nn.Module):
                        vienen armonizados). Sin parametros; al hacerse dentro de la red, la app lo
                        aplica exactamente igual.
 
+    atencion=True   -> ATENCION GUIADA: en vez de la media global (todos los puntos del mapa final pesan igual), una
+                       convolucion 1x1 (128 -> 1, +129 parametros) da una puntuacion a cada punto del mapa de
+                       16x16 y la red hace una media PONDERADA (softmax de las puntuaciones): mira sobre todo donde
+                       puntua alto. Durante el ENTRENAMIENTO esas puntuaciones se ajustan ademas a la caja del tumor
+                       (pérdida auxiliar con las cajas de patients.csv, ver cajas_tumor.py), para que aprenda a
+                       mirar el tumor; en la app y en la defensa no hace falta la caja: la red la estima sola.
+                       Se usa con la imagen entera (sin recorte), asi puede encontrar tambien los tumores que no
+                       estan en el centro.
+
     n_auxiliares > 0 -> anade una cabeza auxiliar (una capa lineal 8*filtros -> n_auxiliares) que,
                        a partir de las mismas caracteristicas, predice otras etiquetas
                        (el subtipo del tumor: HR y HER2). SOLO se usa durante el entrenamiento
@@ -107,9 +116,10 @@ class RedBase(nn.Module):
 
     def __init__(self, dropout: float = 0.5, batchnorm: bool = False, n_auxiliares: int = 0,
                  realce: bool = False, filtros: int = 16, doble: bool = False, normalizar: bool = False,
-                 recorte: int = 0):
+                 recorte: int = 0, atencion: bool = False):
         super().__init__()
         self.n_auxiliares = n_auxiliares
+        self.atencion = atencion
         self.realce = realce
         self.normalizar = normalizar
         self.recorte = recorte
@@ -128,8 +138,11 @@ class RedBase(nn.Module):
         )
         # cabeza auxiliar (solo entrenamiento): mismas 128 caracteristicas -> HR, HER2
         self.cabeza_aux = nn.Linear(8 * f, n_auxiliares) if n_auxiliares else None
+        # atencion guiada: una puntuacion por punto del mapa final (128 @ 16x16 -> 1 @ 16x16)
+        self.puntuacion = nn.Conv2d(8 * f, 1, kernel_size=1) if atencion else None
 
-    def caracteristicas(self, x: torch.Tensor) -> torch.Tensor:
+    def mapa(self, x: torch.Tensor) -> torch.Tensor:
+        """Mapa de caracteristicas del ultimo bloque, (N, 128, 16, 16) (8x8 con recorte 128)."""
         if self.recorte:             # cuadrado central de recorte x recorte
             ini_f = (x.shape[2] - self.recorte) // 2
             ini_c = (x.shape[3] - self.recorte) // 2
@@ -140,8 +153,19 @@ class RedBase(nn.Module):
             x = (x - media) / desv
         if self.realce:              # canales 0, 1, 2 = PRE, EARLY, LATE
             x = torch.cat([x, x[:, 1:2] - x[:, 0:1], x[:, 1:2] - x[:, 2:3]], dim=1)   # (N, 5, 256, 256)
-        x = self.extractor(x)        # (N, 128, 16, 16)
-        return x.mean(dim=(2, 3))    # media global (GAP): cada mapa -> un numero  -> (N, 128)
+        return self.extractor(x)     # (N, 128, 16, 16)
+
+    def atencion_y_caracteristicas(self, x: torch.Tensor):
+        """(puntuaciones de atencion (N, 16, 16) o None, caracteristicas (N, 128))."""
+        m = self.mapa(x)
+        if self.puntuacion is None:
+            return None, m.mean(dim=(2, 3))          # media global (GAP): cada mapa -> un numero
+        puntos = self.puntuacion(m).squeeze(1)        # (N, 16, 16)
+        pesos = torch.softmax(puntos.flatten(1), dim=1).view_as(puntos)   # suman 1 en cada corte
+        return puntos, (m * pesos.unsqueeze(1)).sum(dim=(2, 3))           # media PONDERADA -> (N, 128)
+
+    def caracteristicas(self, x: torch.Tensor) -> torch.Tensor:
+        return self.atencion_y_caracteristicas(x)[1]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.cabeza(self.caracteristicas(x))   # (N, 1)
@@ -154,6 +178,12 @@ class RedBase(nn.Module):
         f = self.caracteristicas(x)
         logit = self.cabeza(f).squeeze(1)
         return logit, (self.cabeza_aux(f) if self.cabeza_aux is not None else None)
+
+    def forward_atencion(self, x: torch.Tensor):
+        """Devuelve (logit de pCR (N,), puntuaciones de atencion (N, 16, 16)). Para entrenar la atencion
+        guiada y para dibujar donde mira la red."""
+        puntos, f = self.atencion_y_caracteristicas(x)
+        return self.cabeza(f).squeeze(1), puntos
 
 
 def contar_parametros(modelo: nn.Module) -> int:
@@ -214,3 +244,10 @@ if __name__ == "__main__":
     total_norm = contar_parametros(RedBase(batchnorm=True, normalizar=True))
     assert total_norm == 106_001, f"la normalizacion no deberia anadir parametros ({total_norm:,})"
     print("OK: con normalizacion por corte, 106.001 parametros (no anade ninguno).")
+    red_aten = RedBase(batchnorm=True, atencion=True)
+    total_aten = contar_parametros(red_aten)
+    assert total_aten == 106_130, f"la atencion guiada deberia tener 106.130 parametros y tiene {total_aten:,}"
+    with torch.no_grad():
+        logit, puntos = red_aten.eval().forward_atencion(torch.rand(2, 3, 256, 256))
+    assert logit.shape == (2,) and puntos.shape == (2, 16, 16)
+    print("OK: atencion guiada, 106.130 parametros (+129 de la convolucion 1x1); mapa de atencion de 16x16.")

@@ -142,7 +142,8 @@ class ModeloFinal:
                 ck = torch.load(ruta, map_location="cpu", weights_only=False)
                 red = mo.RedBase(batchnorm=ck.get("batchnorm", False), realce=ck.get("realce", False),
                                  filtros=ck.get("filtros", 16), doble=ck.get("doble", False),
-                                 normalizar=ck.get("normalizar", False), recorte=ck.get("recorte", 0))
+                                 normalizar=ck.get("normalizar", False), recorte=ck.get("recorte", 0),
+                                 atencion=ck.get("atencion", False))
                 red.load_state_dict(ck["state_dict"])
                 red.to(self.dispositivo).eval()
                 self.redes.append(red)
