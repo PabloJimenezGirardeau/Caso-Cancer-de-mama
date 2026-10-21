@@ -1,0 +1,26 @@
+VALIDACIÓN (ensayo, 5 folds fuera de fold) · 1097 pacientes · 10945 cortes · 322 pCR (29.4%)
+AVISO: ensayo con la validacion; la calibracion y el umbral se eligieron con estos mismos datos, asi que las cifras son algo optimistas. El juez es el test.
+
+recorte 128 (principal)    AUC 0.576 (IC95 0.539-0.613)   AP 0.347 (azar 0.294)   Brier 0.2046 (referencia 0.2074)
+2.1 (comparación)          AUC 0.564 (IC95 0.527-0.599)   AP 0.345 (azar 0.294)   Brier 0.2058 (referencia 0.2074)
+clínico (comparación)      AUC 0.704 (IC95 0.671-0.738)   AP 0.492 (azar 0.294)   Brier 0.1846 (referencia 0.2074)
+
+recorte 128 (principal) con su umbral 0.371:
+   matriz: VP 22  FN 300  VN 737  FP 38
+   sensibilidad 7% (5%-10%)   especificidad 95% (93%-96%)   precision 37% (26%-49%)   VPN 71% (68%-74%)
+   F1 pCR 0.12   F1 no pCR 0.81   F1 equilibrada 0.46   accuracy 69% (66%-72%)
+   un solo corte (como en la app): AUC 0.573, sensibilidad 8%, especificidad 95%
+2.1 (comparación) con su umbral 0.348:
+   matriz: VP 22  FN 300  VN 737  FP 38
+   sensibilidad 7% (5%-10%)   especificidad 95% (93%-96%)   precision 37% (26%-49%)   VPN 71% (68%-74%)
+   F1 pCR 0.12   F1 no pCR 0.81   F1 equilibrada 0.46   accuracy 69% (66%-72%)
+   un solo corte (como en la app): AUC 0.561, sensibilidad 9%, especificidad 94%
+siempre 'no pCR': accuracy 71%, F1 equilibrada 0.41
+
+diferencia de AUC recorte - 2.1: +0.011 (IC95 -0.027 a +0.051) -> el intervalo incluye el 0
+diferencia de AUC recorte - clinico: -0.128 (IC95 -0.175 a -0.079) -> el intervalo excluye el 0
+
+AUC por cohorte:    recorte 128            2.1        clínico
+  duke  ( 209 pac.,  44 pCR)        0.552          0.546          0.739
+  spy1  ( 104 pac.,  26 pCR)        0.599          0.507          0.784
+  spy2  ( 784 pac., 252 pCR)        0.557          0.559          0.689

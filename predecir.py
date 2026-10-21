@@ -106,6 +106,10 @@ def avisos(corte: np.ndarray) -> list[str]:
                      "pacientes): ¿están las fases en el orden correcto?")
     if any(float(c.std()) < 1e-3 for c in corte):
         lista.append("Alguna fase es una imagen prácticamente uniforme.")
+    for c, nombre in zip(corte, ("PRE", "EARLY", "LATE")):
+        if float(c.mean()) > 0.8:     # en el entrenamiento la media de una fase no pasa de 0,66, salvo ISPY1_1193 (LATE 0,955)
+            lista.append(f"La fase {nombre} es casi toda blanca (brillo medio {float(c.mean()):.2f}): puede ser una "
+                         "imagen defectuosa y la predicción no es fiable.")
     return lista
 
 

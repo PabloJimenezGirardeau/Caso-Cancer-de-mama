@@ -697,6 +697,21 @@ es (maldición del ganador). El juez independiente es el test.
   para el test y la app.**
 - `predecir.py --verificar 20` en el PC: diferencia máxima 5,6·10⁻⁷ en los 15 modelos → OK (checksum 7a45826b7d822592).
 
+## Fase 6: `evaluar_test.py` y ensayo con la validación (2026-10-21)
+
+- `python evaluar_test.py` = **ensayo con la validación** (predicciones fuera de fold de `modelo/` y `modelo_21/`, modelo clínico
+  ajustado en los otros 4 folds). Salida en `figuras/validacion/`: ROC, matrices, precisión-recall, umbral, calibración, cohortes,
+  casos, `metricas.json`, `resumen.txt`, `pacientes.csv`. `python evaluar_test.py --test` = el test, **una sola vez** (se niega si
+  ya existe `figuras/test/metricas.json`); cada corte pasa por `predecir.ModeloFinal`, como en la app.
+- Ensayo (optimista, umbral y calibración elegidos con estos datos): recorte 0,576 (0,539-0,613), 2.1 0,564, clínico 0,704; recorte −
+  2.1 = +0,011 (IC95 bootstrap −0,027 a +0,051, incluye el 0); recorte − clínico = −0,128 (excluye el 0). Con el umbral: VP 22, FN 300,
+  VN 737, FP 38 (sens 7 % [5-10], espec 95 % [93-96], precisión 37 % [26-49], Wilson). Por cohorte (recorte / 2.1 / clínico): duke
+  0,552 / 0,546 / 0,739; spy1 0,599 / 0,507 / 0,784; spy2 0,557 / 0,559 / 0,689.
+- **Imagen defectuosa:** ISPY1_1193 (spy1, no pCR) tiene la fase LATE casi blanca (brillo medio 0,955; en el resto de pacientes la
+  media de una fase no pasa de 0,66). Es la paciente con mayor probabilidad de pCR de toda la validación (0,479; con la 2.1, 0,67): un
+  falso positivo causado por la imagen. No se quita del entrenamiento (ya está entrenado y sería decidir mirando resultados); se cuenta
+  en el informe y `predecir.avisos` avisa ahora si una fase tiene brillo medio > 0,8 (no cambia la predicción).
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
