@@ -675,6 +675,28 @@ es (maldición del ganador). El juez independiente es el test.
 - **Test (una sola vez, cuando lo ordene el usuario):** se evalúan los dos, con el recorte declarado AHORA como modelo principal (el de
   la app pase lo que pase) y la 2.1 como comparación. No se elige el principal mirando el test.
 
+### Modelo final con recorte: calibración y umbral (`umbral.py`, 2026-10-21; commit 8b2300f desde el PC)
+
+| | 2.1 (`modelo_21/`) | Recorte 128 (`modelo/`) |
+|---|---|---|
+| AUC por fold con las 3 semillas juntas (media ± desv.) | 0,571 ± 0,014 | **0,584 ± 0,013** |
+| Ganancia de juntar semillas frente a la media de las sueltas | +0,011 | +0,006 |
+| AUC con todas las pacientes, calibrado (IC95) | 0,564 (0,527-0,599) | **0,576 (0,539-0,613)** |
+| AP (azar 0,294) | 0,345 | 0,347 |
+| Brier (referencia 0,2074) | 0,2058 | **0,2046** |
+| Platt (a, b) | 0,319, −0,591 | 0,593, −0,338 |
+| Umbral (especificidad ≥ 0,95) | 0,348 | **0,371** |
+| Sensibilidad / especificidad / precisión | 0,07 / 0,95 / 0,37 | 0,07 / 0,95 / 0,37 (22 de 322 pCR) |
+| Sensibilidad por fold con ese umbral | 0,00 en los folds 0 y 1 | 0,02 / 0,06 / 0,02 / 0,04 / 0,21 |
+
+- Al juntar las semillas la ventaja del recorte baja de +0,018 a ~+0,012: juntar semillas ayudaba más a la 2.1.
+- Platt corrige menos (a = 0,59 frente a 0,32): el recorte exagera menos sus probabilidades, coherente con que sobreajuste menos.
+  Probabilidades por paciente entre 0,107 y 0,479 (ninguna llega a 0,5).
+- **Un solo corte** (app y defensa), medido en la validación: sensibilidad 0,08, especificidad 0,950, precisión 0,41; el umbral ideal
+  para un corte sale también 0,371. Desviación de las probabilidades: 0,050 por paciente y 0,051 por corte. **Un solo umbral, 0,371,
+  para el test y la app.**
+- `predecir.py --verificar 20` en el PC: diferencia máxima 5,6·10⁻⁷ en los 15 modelos → OK (checksum 7a45826b7d822592).
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
