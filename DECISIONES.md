@@ -770,6 +770,23 @@ Con esa transformación (pacientes de entrenamiento con `n_xy` ≥ 256, 1.095):
 - Esto **justifica el recorte central** (casi siempre encuadra el tumor) y señala su límite (≈10 % de pacientes con el tumor a medias o
   fuera). Un "zoom dirigido" centrado en la caja necesitaría la caja también en la app y en la defensa.
 
+## Sensibilidad del early stopping a la paciencia (2026-10-21, solo análisis; no cambia nada)
+
+Aplicando `parada.recorrer` con otras paciencias a los registros guardados (15 modelos de cada familia; AUC de validación en la
+época elegida, media):
+
+| | Paciencia 3 | Paciencia 5 | **Paciencia 10 (la usada)** | 10 + época mínima 3 | 10 + época mínima 5 |
+|---|---|---|---|---|---|
+| Recorte 128 | 0,580 (época 4,3; 7/15 sin aprendizaje) | 0,580 (4,3; 7/15) | 0,578 (5,6; 5/15) | 0,578 | 0,573 |
+| 2.1 | 0,545 (5,5; 9/15) | 0,550 (8,8; 10/15) | **0,560** (13,8; 6/15) | 0,560 | 0,558 |
+
+- Con la 2.1, una paciencia corta habría parado antes de picos reales posteriores (−0,010 a −0,015). Con el recorte casi da igual
+  (los picos llegan pronto). Paciencia 10 es la opción segura; su coste es solo tiempo (se guarda la mejor época, no la última).
+- Prohibir las primeras épocas (época mínima) no mejora: los modelos que eligen la época 1-3 no son un fallo de la parada, sino que la
+  señal generalizable aparece pronto y luego la red memoriza.
+- Aviso: elegir la época con la misma validación hace optimista su AUC (se elige el máximo de una curva ruidosa); por eso se da
+  también la media móvil y el juez es el test.
+
 ## Experimento: atención guiada por la caja del tumor (decidido el 2026-10-21, ANTES del test y de ver resultados)
 
 **Motivo:** en la defensa solo llega el PNG, sin caja. Idea del usuario: enseñar a la red a fijarse en el tumor usando las cajas
