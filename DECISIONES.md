@@ -752,6 +752,24 @@ comparación) y la 2.1 con su umbral equilibrado.
   entrenamiento) y después sube: la señal que aprende la red es débil. La 2.1, si se deja entrenar, llega a pérdida de validación 2,25
   y AUC de entrenamiento 0,98 (la figura "MAL" del profesor); el early stopping la corta antes.
 
+## Dónde está el tumor en los PNG: las cajas de `patients.csv` (2026-10-21; `cajas_tumor.py`, `figuras/datos/cajas_tumor.png`)
+
+Primer intento (escalando las cajas por 256/`n_xy`): no coincidían con el tumor, y se concluyó por error que las imágenes no estaban
+centradas. **Era un problema de coordenadas.** Según el código oficial (github.com/naomifridman/BreastDCEDL,
+`DUKE/crop_spy2_spy1.ipynb`, `crop_around_voi_cords`), `sraw…eraw`, `scol…ecol` son la caja del tumor en el volumen original, y el
+PNG es una ventana de 256×256 centrada en el centro de esa caja (desplazada para no salirse; si `n_xy` = 256 es la imagen entera), sin
+redimensionar. Además, **el PNG está girado 90°** respecto al array (fila r, columna c → fila 255 − c, columna r): de las 8
+orientaciones posibles es la única que pone la caja sobre la zona de realce en las tres cohortes, y se ve a ojo en la figura.
+
+Con esa transformación (pacientes de entrenamiento con `n_xy` ≥ 256, 1.095):
+- Centro medio del tumor: fila 128, columna 126 (el centro de la imagen es 127,5): **las imágenes sí están centradas en el tumor**.
+- Centro del tumor dentro del cuadrado central 128×128: **93 %** (duke 98 %, spy1 98 %, spy2 91 %). Parte de la caja dentro: mediana
+  88 %; menos de la mitad dentro: 10 %. Cajas mayores de 128 px en algún lado: 20 % (tumores grandes que el recorte corta).
+- Los peores casos son de spy2 con imagen original de 256 (la ventana es la imagen entera y el tumor queda en un borde): ahí el
+  cuadrado central puede mirar el corazón o la otra mama y no el tumor.
+- Esto **justifica el recorte central** (casi siempre encuadra el tumor) y señala su límite (≈10 % de pacientes con el tumor a medias o
+  fuera). Un "zoom dirigido" centrado en la caja necesitaría la caja también en la app y en la defensa.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
