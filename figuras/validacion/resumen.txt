@@ -9,13 +9,15 @@ recorte 128 (principal) con su umbral 0.371:
    matriz: VP 22  FN 300  VN 737  FP 38
    sensibilidad 7% (5%-10%)   especificidad 95% (93%-96%)   precision 37% (26%-49%)   VPN 71% (68%-74%)
    F1 pCR 0.12   F1 no pCR 0.81   F1 equilibrada 0.46   accuracy 69% (66%-72%)
+   media de las dos clases (macro): precision 0.54   recall 0.51   F1 0.46
    un solo corte (como en la app): AUC 0.573, sensibilidad 8%, especificidad 95%
 2.1 (comparación) con su umbral 0.348:
    matriz: VP 22  FN 300  VN 737  FP 38
    sensibilidad 7% (5%-10%)   especificidad 95% (93%-96%)   precision 37% (26%-49%)   VPN 71% (68%-74%)
    F1 pCR 0.12   F1 no pCR 0.81   F1 equilibrada 0.46   accuracy 69% (66%-72%)
+   media de las dos clases (macro): precision 0.54   recall 0.51   F1 0.46
    un solo corte (como en la app): AUC 0.561, sensibilidad 9%, especificidad 94%
-siempre 'no pCR': accuracy 71%, F1 equilibrada 0.41
+siempre 'no pCR': accuracy 71%; media de las dos clases: precision 0.35, recall 0.50, F1 0.41
 
 diferencia de AUC recorte - 2.1: +0.011 (IC95 -0.027 a +0.051) -> el intervalo incluye el 0
 diferencia de AUC recorte - clinico: -0.128 (IC95 -0.175 a -0.079) -> el intervalo excluye el 0

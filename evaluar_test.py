@@ -139,8 +139,17 @@ def resumen_curvas(y, s) -> dict:
             "brier": float(np.mean((np.asarray(s) - y) ** 2))}
 
 
+def con_medias(m: dict) -> dict:
+    """Añade la media de las dos clases (la fila "macro avg" de sklearn), que es la que pide el profesor:
+    precision media = (precision de pCR + VPN) / 2; recall medio = (sensibilidad + especificidad) / 2 (= accuracy
+    equilibrada); la F1 media es la F1 equilibrada."""
+    m["precision_media"] = (m["precision"] + m["vpn"]) / 2
+    m["recall_medio"] = (m["sensibilidad"] + m["especificidad"]) / 2
+    return m
+
+
 def evaluar_cnn(y, s, u: float) -> dict:
-    m = um.metricas(y, s, u)
+    m = con_medias(um.metricas(y, s, u))
     m["ic95"] = {"sensibilidad": wilson(m["VP"], m["VP"] + m["FN"]),
                  "especificidad": wilson(m["VN"], m["VN"] + m["FP"]),
                  "precision": wilson(m["VP"], m["VP"] + m["FP"]),
@@ -222,7 +231,9 @@ def fig_matrices(res, siempre_no, umbrales, titulo, ruta):
         ax.set_xticks([0, 1], ["dijo no pCR", "dijo pCR"]); ax.set_yticks([0, 1], ["era no pCR", "era pCR"])
         prec = f"{m['precision']:.0%}" if m["VP"] + m["FP"] else "—"
         ax.set_title(f"{nombre}\n{sub} · sens {m['sensibilidad']:.0%} · espec {m['especificidad']:.0%} · "
-                     f"precisión {prec} · accuracy {m['accuracy']:.0%}", fontsize=10.5)
+                     f"precisión {prec} · accuracy {m['accuracy']:.0%}\nmedia de las dos clases: precisión "
+                     f"{m['precision_media']:.2f} · recall {m['recall_medio']:.2f} · F1 {m['f1_equilibrada']:.2f}",
+                     fontsize=10.5)
     guardar(fig, ruta)
 
 
@@ -400,7 +411,7 @@ def main() -> None:
     # ---- metricas ----
     res = {n: evaluar_cnn(y, pac[n].to_numpy(), umbrales[n]) for n in ("recorte", "v21")}
     res["clinico"] = resumen_curvas(y, pac.clinico.to_numpy())
-    siempre_no = um.metricas(y, np.zeros(len(y)), 0.5)
+    siempre_no = con_medias(um.metricas(y, np.zeros(len(y)), 0.5))
     un_corte = {n: {"auc": um.auc(cortes.pCR, cortes[n]), **um.metricas(cortes.pCR, cortes[n], umbrales[n])}
                 for n in ("recorte", "v21")}
     diferencias = {"recorte - 2.1": diferencia_auc(y, pac.recorte, pac.v21),
@@ -434,9 +445,12 @@ def main() -> None:
                    f"precision {f('precision') if r['VP'] + r['FP'] else '— (no dice pCR a nadie)'}   VPN {f('vpn')}",
                    f"   F1 pCR {r['f1_pcr']:.2f}   F1 no pCR {r['f1_no_pcr']:.2f}   F1 equilibrada {r['f1_equilibrada']:.2f}   "
                    f"accuracy {f('accuracy')}",
+                   f"   media de las dos clases (macro): precision {r['precision_media']:.2f}   recall {r['recall_medio']:.2f}   "
+                   f"F1 {r['f1_equilibrada']:.2f}",
                    f"   un solo corte (como en la app): AUC {un_corte[n]['auc']:.3f}, sensibilidad "
                    f"{un_corte[n]['sensibilidad']:.0%}, especificidad {un_corte[n]['especificidad']:.0%}"]
-    lineas += [f"siempre 'no pCR': accuracy {siempre_no['accuracy']:.0%}, F1 equilibrada {siempre_no['f1_equilibrada']:.2f}", ""]
+    lineas += [f"siempre 'no pCR': accuracy {siempre_no['accuracy']:.0%}; media de las dos clases: precision "
+               f"{siempre_no['precision_media']:.2f}, recall {siempre_no['recall_medio']:.2f}, F1 {siempre_no['f1_equilibrada']:.2f}", ""]
     for k, d in diferencias.items():
         lineas.append(f"diferencia de AUC {k}: {d['diferencia']:+.3f} (IC95 {d['ic95'][0]:+.3f} a {d['ic95'][1]:+.3f}) -> "
                       + ("el intervalo excluye el 0" if d["ic95"][0] > 0 or d["ic95"][1] < 0 else "el intervalo incluye el 0"))

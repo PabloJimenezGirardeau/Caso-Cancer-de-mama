@@ -1,6 +1,6 @@
 {
   "conjunto": "validacion",
-  "fecha": "2026-10-21T17:29:34",
+  "fecha": "2026-10-21T17:50:48",
   "pacientes": 1097,
   "cortes": 10945,
   "pcr": 322,
@@ -44,6 +44,8 @@
       "f1_no_pcr": 0.8134657836644591,
       "f1_equilibrada": 0.46432451486887877,
       "accuracy": 0.6918869644484958,
+      "precision_media": 0.5386853101896496,
+      "recall_medio": 0.5096453616509717,
       "ic95": {
         "sensibilidad": [
           0.04554910844511044,
@@ -88,6 +90,8 @@
       "f1_no_pcr": 0.8134657836644591,
       "f1_equilibrada": 0.46432451486887877,
       "accuracy": 0.6918869644484958,
+      "precision_media": 0.5386853101896496,
+      "recall_medio": 0.5096453616509717,
       "ic95": {
         "sensibilidad": [
           0.04554910844511044,
@@ -134,7 +138,9 @@
     "f1_pcr": 0.0,
     "f1_no_pcr": 0.8279914529914529,
     "f1_equilibrada": 0.41399572649572647,
-    "accuracy": 0.7064721969006381
+    "accuracy": 0.7064721969006381,
+    "precision_media": 0.35323609845031906,
+    "recall_medio": 0.5
   },
   "un_corte": {
     "recorte": {
@@ -281,5 +287,5 @@
       }
     }
   },
-  "segundos": 4.9
+  "segundos": 10.4
 }
