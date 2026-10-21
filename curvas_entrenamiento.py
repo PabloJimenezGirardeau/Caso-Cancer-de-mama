@@ -54,6 +54,69 @@ def perdida_sin_imagen() -> float:
     raise FileNotFoundError("No encuentro metadata/samples.csv")
 
 
+def referencias_por_fold() -> dict[int, tuple[float, float]]:
+    """Para cada fold k: (perdida sin mirar la imagen en su ENTRENAMIENTO, en su VALIDACION). Es la entropia de la
+    proporcion de pCR de esos cortes (calculada desde samples.csv): cada fold de validacion tiene su proporcion."""
+    for base in (RAIZ, RAIZ / "breastdcedl"):
+        ruta = base / "metadata" / "samples.csv"
+        if ruta.exists():
+            with open(ruta, encoding="utf-8") as f:
+                filas = [(int(r["fold"]), int(r["pCR"])) for r in csv.DictReader(f) if int(r["fold"]) >= 0]
+            break
+    else:
+        raise FileNotFoundError("No encuentro metadata/samples.csv")
+    entropia = lambda p: -(p * math.log(p) + (1 - p) * math.log(1 - p))
+    salida = {}
+    for k in range(5):
+        tr = [y for f, y in filas if f != k]
+        va = [y for f, y in filas if f == k]
+        salida[k] = (entropia(sum(tr) / len(tr)), entropia(sum(va) / len(va)))
+    return salida
+
+
+def media_semillas(runs: list[dict], clave: str) -> tuple[list[float], list[float]]:
+    """Epocas y media de las 3 semillas, en las epocas que entrenaron las tres."""
+    n = min(len(d["epoca"]) for d in runs)
+    return runs[0]["epoca"][:n], [sum(d[clave][e] for d in runs) / len(runs) for e in range(n)]
+
+
+def figura_perdida(ruta: Path) -> None:
+    """Solo la perdida del modelo final, grande y con la escala ajustada a las medias de las semillas (los picos de
+    una semilla suelta pueden salirse por arriba). Linea discontinua de cada color: la perdida sin mirar la imagen,
+    con la proporcion de pCR de ese entrenamiento (azul) y de esa validacion (naranja)."""
+    plt = graficas._plt()
+    prefijo = FAMILIAS["recorte"][0]
+    refs = referencias_por_fold()
+    todos = {k: [leer(f"{prefijo}{s}_fold{k}") for s in SEMILLAS.values()] for k in range(5)}
+    medias = [v for k in range(5) for c in ("perdida_train", "perdida_val") for v in media_semillas(todos[k], c)[1]]
+    lo, hi = min(medias) - 0.02, max(medias) + 0.03
+    fig, ax = plt.subplots(1, 5, figsize=(25, 6.2), constrained_layout=True, sharey=True)
+    fig.suptitle("Pérdida (entropía cruzada binaria) del modelo final, recorte central 128 · 5 folds × 3 semillas\n"
+                 "líneas finas: cada semilla (algún pico se sale por arriba) · gruesas: media de las 3 · "
+                 "punto: época elegida · discontinuas: pérdida sin mirar la imagen", fontsize=14, fontweight="bold")
+    for k in range(5):
+        a, runs = ax[k], todos[k]
+        for d in runs:
+            a.plot(d["epoca"], d["perdida_train"], color=graficas.AZUL, lw=0.9, alpha=0.3)
+            a.plot(d["epoca"], d["perdida_val"], color=graficas.NARANJA, lw=0.9, alpha=0.3)
+            i = d["elegida"]
+            a.scatter([d["epoca"][i]], [d["perdida_val"][i]], color=graficas.ROJO, edgecolor="black", s=55, zorder=5)
+        a.plot(*media_semillas(runs, "perdida_train"), color=graficas.AZUL, lw=3, label="entrenamiento (media)")
+        a.plot(*media_semillas(runs, "perdida_val"), color=graficas.NARANJA, lw=3, label="validación (media)")
+        a.axhline(refs[k][0], color=graficas.AZUL, ls="--", lw=1.3, alpha=0.8,
+                  label=f"sin mirar la imagen, entrenamiento ({refs[k][0]:.3f})")
+        a.axhline(refs[k][1], color=graficas.NARANJA, ls="--", lw=1.3, alpha=0.9,
+                  label=f"sin mirar la imagen, validación ({refs[k][1]:.3f})")
+        a.set_ylim(lo, hi)
+        a.set_title(f"fold {k}", fontsize=13)
+        a.set_xlabel("época", fontsize=11)
+        a.grid(alpha=0.3)
+        a.legend(fontsize=8.5, loc="lower left")
+    ax[0].set_ylabel("pérdida", fontsize=12)
+    fig.savefig(ruta, dpi=110, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 def figura_folds(prefijo: str, nombre: str, ref: float, ruta: Path) -> None:
     plt = graficas._plt()
     fig, ax = plt.subplots(2, 5, figsize=(24, 9), constrained_layout=True, sharey="row")
@@ -88,6 +151,10 @@ def figura_modelo_final(ref: float, ruta: Path) -> None:
     semilla; linea gruesa: media de las 3 semillas en las epocas que entrenaron las tres; puntos: epoca elegida."""
     plt = graficas._plt()
     prefijo = FAMILIAS["recorte"][0]
+    refs = referencias_por_fold()
+    todos = {k: [leer(f"{prefijo}{s}_fold{k}") for s in SEMILLAS.values()] for k in range(5)}
+    medias = [v for k in range(5) for c in ("perdida_train", "perdida_val") for v in media_semillas(todos[k], c)[1]]
+    lo, hi = min(medias) - 0.02, max(medias) + 0.03      # escala de la perdida ajustada a las medias
     fig, ax = plt.subplots(2, 5, figsize=(24, 9.5), constrained_layout=True, sharey="row")
     fig.suptitle("Curvas de entrenamiento del modelo final (recorte central 128): 5 folds × 3 semillas\n"
                  "azul: entrenamiento · naranja: validación · línea gruesa: media de las 3 semillas · "
@@ -110,12 +177,14 @@ def figura_modelo_final(ref: float, ruta: Path) -> None:
             a.plot(epocas, [sum(d[va][e] for d in runs) / 3 for e in range(n)], color=graficas.NARANJA, lw=2.8,
                    label="validación (media)")
             a.grid(alpha=0.3)
-        ax[0, k].axhline(ref, color=graficas.GRIS, ls=":", lw=1.5, label=f"sin mirar la imagen ({ref:.3f})")
+        ax[0, k].axhline(refs[k][1], color=graficas.NARANJA, ls="--", lw=1.4,
+                         label="sin mirar la imagen (proporción de pCR de cada fold de validación)")
         ax[1, k].axhline(0.5, color=graficas.GRIS, ls=":", lw=1.5, label="azar (0,5)")
         ax[0, k].set_title(f"fold {k}\nAUC entrenamiento − validación\nen la época elegida: "
                            f"{sum(separaciones) / 3:+.3f}", fontsize=12)
         ax[1, k].set_xlabel("época", fontsize=11)
-        ax[1, k].set_ylim(0.35, 1.0)
+        ax[0, k].set_ylim(lo, hi)
+        ax[1, k].set_ylim(0.4, 0.95)
     ax[0, 0].set_ylabel("pérdida (entropía cruzada binaria)", fontsize=12)
     ax[1, 0].set_ylabel("AUC por paciente", fontsize=12)
     h0, l0 = ax[0, 0].get_legend_handles_labels()
@@ -166,6 +235,7 @@ def main() -> None:
         figura_folds(prefijo, nombre, ref, SALIDA / f"{clave}_folds.png")
     figura_comparativa(ref, SALIDA / "comparativa.png")
     figura_modelo_final(ref, SALIDA / "modelo_final.png")
+    figura_perdida(SALIDA / "perdida_modelo_final.png")
     print(f"Figuras en {SALIDA}")
 
 
