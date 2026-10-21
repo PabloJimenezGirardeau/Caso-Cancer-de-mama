@@ -18,11 +18,12 @@ Usa las probabilidades que cada modelo dio a su fold de validacion en la epoca e
    misma probabilidad a todas, recibian pendientes enormes y su ruido pesaba tanto como los demas.)
 2. Curvas con las 1.097 pacientes: ROC, precision-recall (AP), sensibilidad / especificidad /
    precision segun el umbral, calibracion (con el Brier frente al de decir siempre la proporcion de pCR).
-3. Umbral. Criterio clinico (HOJA_DE_RUTA.md): el uso previsto es ayudar a decidir si se puede
-   DESESCALAR, y el error grave es el falso positivo (decir "pCR" a quien conserva tumor). Se elige el
-   umbral mas bajo con especificidad >= 0,95 (la mayor sensibilidad posible con esa especificidad).
-   Se compara con otros criterios: maximo F1 de pCR, maximo F1 equilibrada (media de las dos clases),
-   Youden (sensibilidad + especificidad - 1) y el 0,5 por defecto.
+3. Umbral (--criterio). Por defecto, EQUILIBRADO: el umbral con la maxima F1 equilibrada (media de la F1
+   de las dos clases); en el modelo final coincide con el de Youden. Primero se eligio DESESCALAR (el
+   umbral mas bajo con especificidad >= 0,95: el error grave seria decir "pCR" a quien conserva tumor),
+   pero con este modelo la precision de pCR no pasa de ~0,40 con ningun umbral, asi que no sirve para
+   desescalar; ese umbral detectaba solo el 7 % de las pCR y era inestable entre folds (DECISIONES.md,
+   2026-10-21). Se comparan todos: desescalar, maximo F1 de pCR, maximo F1 equilibrada, Youden y 0,5.
 4. Con cada umbral: matriz de confusion, sensibilidad, especificidad, precision (VPP), VPN, F1 de cada
    clase, F1 equilibrada y accuracy, frente a decir siempre "no pCR". Y como cambia el umbral elegido
    fold a fold (su estabilidad).
@@ -55,6 +56,7 @@ import graficas
 RAIZ = Path(__file__).resolve().parent
 REFERENCIA = RAIZ / "referencia"
 POR_DEFECTO = ["bn_normal_c128_lr0.0001", "bn_normal_c128_lr0.0001_s1", "bn_normal_c128_lr0.0001_s2"]   # modelo final
+CRITERIOS = {"equilibrado": "maximo F1 equilibrada", "desescalar": "desescalar"}   # --criterio: inicio de la clave
 
 
 # --------------------------------------------------------------------------- #
@@ -251,6 +253,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--configs", nargs="+", default=POR_DEFECTO, help="configuraciones a promediar (semillas)")
     p.add_argument("--especificidad", type=float, default=0.95, help="especificidad minima del criterio de desescalar")
+    p.add_argument("--criterio", choices=list(CRITERIOS), default="equilibrado", help="criterio del umbral elegido")
     p.add_argument("--carpeta", type=Path, default=RAIZ / "resultados")
     p.add_argument("--nombre", default="final", help="nombre de los ficheros de salida")
     p.add_argument("--sin-calibrar", action="store_true", help="no calibrar el promedio final")
@@ -334,8 +337,9 @@ def main() -> None:
               f"{m['precision']:>10.2f} {m['vpn']:>5.2f} {m['f1_pcr']:>8.2f} {m['f1_no_pcr']:>10.2f} "
               f"{m['f1_equilibrada']:>10.2f} {m['accuracy']:>9.2f}  {int(m['VP']):>4} {int(m['FN']):>3} "
               f"{int(m['VN']):>4} {int(m['FP']):>3}")
-    elegido = metricas(y, s, list(elegidos.values())[0]["umbral"])
-    print(f"\nUMBRAL ELEGIDO (desescalar): {elegido['umbral']:.4f}  ->  de cada 100 pacientes a las que el modelo "
+    clave = next(n for n in elegidos if n.startswith(CRITERIOS[args.criterio]))
+    elegido = metricas(y, s, elegidos[clave]["umbral"])
+    print(f"\nUMBRAL ELEGIDO ({args.criterio}: {clave}): {elegido['umbral']:.4f}  ->  de cada 100 pacientes a las que el modelo "
           f"dice 'pCR', aciertan {100 * elegido['precision']:.0f}; detecta {elegido['VP']} de {elegido['VP'] + elegido['FN']} pCR")
 
     print("\nEstabilidad del umbral elegido en cada fold:")
@@ -355,8 +359,10 @@ def main() -> None:
     pac.to_csv(args.carpeta / f"umbral_{args.nombre}_pacientes.csv", float_format="%.6f")
     with open(args.carpeta / f"umbral_{args.nombre}.json", "w", encoding="utf-8") as f:
         json.dump({"configuraciones": args.configs, "agregacion": "media de los cortes de cada paciente",
-                   "criterio": f"umbral mas bajo con especificidad >= {args.especificidad}",
+                   "criterio": f"{args.criterio}: {clave}",
                    "umbral": elegido["umbral"], "metricas_validacion": elegido,
+                   **{f"umbral_{c}": float(elegidos[next(n for n in elegidos if n.startswith(pref))]["umbral"])
+                      for c, pref in CRITERIOS.items()},
                    "auc_validacion": a, "auc_ic95": [lo, hi], "ap": ap, "brier": brier, "brier_referencia": brier_ref,
                    "auc_por_fold": {n: list(filas[:, i]) for i, n in enumerate(nombres + ["promedio"])},
                    "otros_criterios": {n: {k: float(v) for k, v in m.items()} for n, m in elegidos.items()},

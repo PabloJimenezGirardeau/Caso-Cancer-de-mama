@@ -9,7 +9,7 @@ Pipeline fijado en la fase 4 (DECISIONES.md, `modelo/umbral_final.json`):
     3. se promedian las 15 probabilidades;
     4. calibracion de Platt: p = sigmoide(a * logit(p_media) + b), con los (a, b) del json;
     5. paciente con varios cortes: media de sus cortes calibrados (la agregacion que pide el profesor);
-    6. clase: "pCR" si p >= umbral (el del json; criterio de desescalar, especificidad >= 0,95 en validacion).
+    6. clase: "pCR" si p >= umbral (el del json; criterio equilibrado: maxima F1 equilibrada en validacion).
 
 La 2.1 (sin recorte) queda en `modelo_21/` como comparacion: ModeloFinal("modelo_21").
 

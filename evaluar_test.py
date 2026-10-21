@@ -17,12 +17,14 @@ Modelos:
                                        se ajusta con los otros 4 folds, en el test con todo el entrenamiento
 
 Cada CNN se aplica tal cual: media de sus 15 modelos en cada corte, calibracion de Platt (a, b) y media de los
-cortes de la paciente; "pCR" si la probabilidad >= su umbral (umbral_final.json). El clinico no tiene umbral
-fijado: solo entra en las curvas y en el AUC.
+cortes de la paciente; pCR = 1 si la probabilidad >= su umbral (umbral_final.json: criterio EQUILIBRADO, maxima
+F1 equilibrada en validacion). El umbral de DESESCALAR (especificidad >= 0,95) del recorte se muestra como
+comparacion. El clinico no tiene umbral fijado: solo entra en las curvas y en el AUC.
 
 Salida:
+    0_matriz_principal.png  la matriz de confusion del modelo principal, grande y con sus metricas
     1_roc.png               curvas ROC de los tres modelos, con AUC e IC95, y el punto del umbral
-    2_matriz_confusion.png  matrices de confusion del recorte, de la 2.1 y de "siempre no pCR"
+    2_matriz_confusion.png  matrices: recorte (equilibrado y desescalar), 2.1 y "siempre pCR = 0"
     3_precision_recall.png  curvas precision-recall (clase pCR) con su AP
     4_umbral.png            sensibilidad, especificidad y precision segun el umbral (recorte)
     5_calibracion.png       calibracion por grupos e histograma de probabilidades por clase
@@ -209,28 +211,58 @@ def fig_roc(pac, res, umbrales, titulo, ruta):
     guardar(fig, ruta)
 
 
+TIPOS = [["verdaderos negativos", "falsos positivos"], ["falsos negativos", "verdaderos positivos"]]
+
+
+def dibujar_matriz(ax, m, grande: bool = False) -> None:
+    """Matriz 2x2 con filas = clase real (pCR = 0, pCR = 1) y columnas = prediccion; numero y % de la fila."""
+    celdas = np.array([[m["VN"], m["FP"]], [m["FN"], m["VP"]]])
+    filas = celdas.sum(axis=1, keepdims=True)
+    ax.imshow(celdas / np.maximum(filas, 1), cmap="Blues", vmin=0, vmax=1.15)
+    for i in range(2):
+        for j in range(2):
+            frac = celdas[i, j] / max(filas[i, 0], 1)
+            color = "white" if frac > 0.6 else "#14213d"
+            ax.text(j, i - 0.1, f"{celdas[i, j]}", ha="center", va="center", fontsize=40 if grande else 24,
+                    fontweight="bold", color=color)
+            ax.text(j, i + 0.22, f"{frac:.0%} de las pCR = {i}\n{TIPOS[i][j]}", ha="center", va="center",
+                    fontsize=12 if grande else 9, color=color)
+    tam = 13 if grande else 10.5
+    ax.set_xticks([0, 1], ["predicción\npCR = 0", "predicción\npCR = 1"], fontsize=tam)
+    ax.set_yticks([0, 1], [f"real\npCR = 0\n({filas[0, 0]})", f"real\npCR = 1\n({filas[1, 0]})"], fontsize=tam)
+
+
+def fig_matriz_principal(m, u, titulo, ruta):
+    """La matriz del modelo principal sola, grande, con sus metricas debajo (para el informe y la defensa)."""
+    plt = _plt()
+    fig, ax = plt.subplots(figsize=(8.6, 9.4), constrained_layout=True)
+    dibujar_matriz(ax, m, grande=True)
+    ax.set_title(f"Matriz de confusión · {NOMBRES['recorte']}\n{titulo}\numbral {u:.3f} (máxima F1 equilibrada en "
+                 "validación) · una predicción por paciente", fontsize=13, fontweight="bold")
+    prec = f"{m['precision']:.2f}" if m["VP"] + m["FP"] else "—"
+    texto = (f"clase pCR = 1:  precisión {prec}   recall (sensibilidad) {m['sensibilidad']:.2f}   F1 {m['f1_pcr']:.2f}\n"
+             f"clase pCR = 0:  precisión (VPN) {m['vpn']:.2f}   recall (especificidad) {m['especificidad']:.2f}   "
+             f"F1 {m['f1_no_pcr']:.2f}\n"
+             f"media de las dos clases:  precisión {m['precision_media']:.2f}   recall {m['recall_medio']:.2f}   "
+             f"F1 {m['f1_equilibrada']:.2f}\naccuracy {m['accuracy']:.2f}")
+    ax.text(0.5, -0.2, texto, transform=ax.transAxes, ha="center", va="top", fontsize=11.5, family="monospace",
+            bbox=dict(boxstyle="round,pad=0.6", facecolor="#f1f3f5", edgecolor=graficas.GRIS))
+    guardar(fig, ruta)
+
+
 def fig_matrices(res, siempre_no, umbrales, titulo, ruta):
     plt = _plt()
-    paneles = [(NOMBRES["recorte"], res["recorte"], f"umbral {umbrales['recorte']:.3f}"),
-               (NOMBRES["v21"], res["v21"], f"umbral {umbrales['v21']:.3f}"),
-               ("siempre 'no pCR' (referencia)", siempre_no, "no dice pCR a nadie")]
-    fig, axes = plt.subplots(1, 3, figsize=(17, 5.8), constrained_layout=True)
+    paneles = [(NOMBRES["recorte"], res["recorte"], f"umbral equilibrado {umbrales['recorte']:.3f}"),
+               ("recorte 128 · umbral de desescalar (comparación)", res["recorte_desescalar"],
+                f"umbral {res['recorte_desescalar']['umbral']:.3f} (especificidad ≥ 95 % en validación)"),
+               (NOMBRES["v21"], res["v21"], f"umbral equilibrado {umbrales['v21']:.3f}"),
+               ("siempre pCR = 0 (referencia)", siempre_no, "no predice pCR = 1 a nadie")]
+    fig, axes = plt.subplots(2, 2, figsize=(14, 13), constrained_layout=True)
     fig.suptitle(f"Matrices de confusión por paciente · {titulo}", fontsize=14, fontweight="bold")
-    for ax, (nombre, m, sub) in zip(axes, paneles):
-        celdas = np.array([[m["VN"], m["FP"]], [m["FN"], m["VP"]]])
-        filas = celdas.sum(axis=1, keepdims=True)
-        ax.imshow(celdas / np.maximum(filas, 1), cmap="Blues", vmin=0, vmax=1.15)
-        tipos = [["verdaderos negativos", "falsos positivos"], ["falsos negativos", "verdaderos positivos"]]
-        for i in range(2):
-            for j in range(2):
-                frac = celdas[i, j] / max(filas[i, 0], 1)
-                color = "white" if frac > 0.6 else "#14213d"
-                ax.text(j, i - 0.1, f"{celdas[i, j]}", ha="center", va="center", fontsize=24, fontweight="bold", color=color)
-                ax.text(j, i + 0.2, f"{frac:.0%} de la fila\n{tipos[i][j]}", ha="center", va="center", fontsize=9,
-                        color=color)
-        ax.set_xticks([0, 1], ["dijo no pCR", "dijo pCR"]); ax.set_yticks([0, 1], ["era no pCR", "era pCR"])
+    for ax, (nombre, m, sub) in zip(axes.ravel(), paneles):
+        dibujar_matriz(ax, m)
         prec = f"{m['precision']:.0%}" if m["VP"] + m["FP"] else "—"
-        ax.set_title(f"{nombre}\n{sub} · sens {m['sensibilidad']:.0%} · espec {m['especificidad']:.0%} · "
+        ax.set_title(f"{nombre}\n{sub}\nsens {m['sensibilidad']:.0%} · espec {m['especificidad']:.0%} · "
                      f"precisión {prec} · accuracy {m['accuracy']:.0%}\nmedia de las dos clases: precisión "
                      f"{m['precision_media']:.2f} · recall {m['recall_medio']:.2f} · F1 {m['f1_equilibrada']:.2f}",
                      fontsize=10.5)
@@ -255,7 +287,7 @@ def fig_pr(pac, res, titulo, ruta):
     guardar(fig, ruta)
 
 
-def fig_umbral(pac, u, titulo, ruta):
+def fig_umbral(pac, u, u_desescalar, titulo, ruta):
     plt = _plt()
     tabla = um.barrido(pac.pCR.to_numpy(), pac.recorte.to_numpy())
     tabla = tabla[tabla.umbral <= pac.recorte.max() + 0.01]
@@ -264,7 +296,9 @@ def fig_umbral(pac, u, titulo, ruta):
     ax.plot(tabla.umbral, tabla.especificidad, color=graficas.AZUL, lw=2.2, label="especificidad (no pCR bien descartadas)")
     ax.plot(tabla.umbral, tabla.precision, color=graficas.VERDE, lw=2.2, label="precisión (aciertos cuando dice pCR)")
     ax.axhline(0.95, color=graficas.AZUL, ls=":", lw=1, alpha=0.7)
-    ax.axvline(u, color=graficas.ROJO, ls="--", lw=1.8, label=f"umbral elegido {u:.3f} (especificidad ≥ 95 % en validación)")
+    ax.axvline(u, color=graficas.ROJO, ls="--", lw=1.8, label=f"umbral elegido {u:.3f} (máxima F1 equilibrada en validación)")
+    ax.axvline(u_desescalar, color=graficas.GRIS, ls="--", lw=1.4,
+               label=f"umbral de desescalar {u_desescalar:.3f} (especificidad ≥ 95 % en validación)")
     ax.set(ylim=(0, 1.02), xlabel="umbral sobre la probabilidad de la paciente", ylabel="proporción")
     ax.set_title(f"Qué pasa al mover el umbral · {NOMBRES['recorte']}\n{titulo}", fontsize=12.5, fontweight="bold")
     ax.grid(alpha=0.3); ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=2, fontsize=9)
@@ -324,10 +358,10 @@ def elegir_casos(pac, u) -> list[tuple[str, str]]:
     mas seguro de cada clase."""
     pos, neg = pac[pac.pCR == 1], pac[pac.pCR == 0]
     casos = []
-    for nombre, grupo, mas_alto in (("VERDADERO POSITIVO (era pCR, dijo pCR)", pos[pos.recorte >= u], True),
-                                    ("FALSO POSITIVO (era no pCR, dijo pCR)", neg[neg.recorte >= u], True),
-                                    ("FALSO NEGATIVO (era pCR, dijo no pCR)", pos[pos.recorte < u], False),
-                                    ("VERDADERO NEGATIVO (era no pCR, dijo no pCR)", neg[neg.recorte < u], False)):
+    for nombre, grupo, mas_alto in (("VERDADERO POSITIVO\n(real pCR = 1, predicción 1)", pos[pos.recorte >= u], True),
+                                    ("FALSO POSITIVO\n(real pCR = 0, predicción 1)", neg[neg.recorte >= u], True),
+                                    ("FALSO NEGATIVO\n(real pCR = 1, predicción 0)", pos[pos.recorte < u], False),
+                                    ("VERDADERO NEGATIVO\n(real pCR = 0, predicción 0)", neg[neg.recorte < u], False)):
         if len(grupo):
             casos.append((nombre, grupo.recorte.idxmax() if mas_alto else grupo.recorte.idxmin()))
     return casos
@@ -410,6 +444,8 @@ def main() -> None:
 
     # ---- metricas ----
     res = {n: evaluar_cnn(y, pac[n].to_numpy(), umbrales[n]) for n in ("recorte", "v21")}
+    u_desescalar = float(configs["recorte"]["umbral_desescalar"])
+    res["recorte_desescalar"] = evaluar_cnn(y, pac.recorte.to_numpy(), u_desescalar)
     res["clinico"] = resumen_curvas(y, pac.clinico.to_numpy())
     siempre_no = con_medias(um.metricas(y, np.zeros(len(y)), 0.5))
     un_corte = {n: {"auc": um.auc(cortes.pCR, cortes[n]), **um.metricas(cortes.pCR, cortes[n], umbrales[n])}
@@ -433,22 +469,26 @@ def main() -> None:
         r = res[n]
         lineas.append(f"{NOMBRES[n]:<26} AUC {r['auc']:.3f} (IC95 {r['auc_ic95'][0]:.3f}-{r['auc_ic95'][1]:.3f})   "
                       f"AP {r['ap']:.3f} (azar {y.mean():.3f})   Brier {r['brier']:.4f} (referencia {y.mean() * (1 - y.mean()):.4f})")
-        if args.test and n in configs and configs[n].get("auc") is not None:
-            lineas.append(f"{'':<26} en validacion era AUC {configs[n]['auc']:.3f}")
+        if args.test and n in configs:
+            lineas.append(f"{'':<26} en validacion era AUC {configs[n]['auc_validacion']:.3f}")
     lineas.append("")
-    for n in ("recorte", "v21"):
+    for n, u, criterio in (("recorte", umbrales["recorte"], "equilibrado"),
+                           ("recorte_desescalar", u_desescalar, "desescalar, comparacion"),
+                           ("v21", umbrales["v21"], "equilibrado")):
         r = res[n]; ic = r["ic95"]
         f = lambda clave: f"{r[clave]:.0%} ({ic[clave][0]:.0%}-{ic[clave][1]:.0%})"
-        lineas += [f"{NOMBRES[n]} con su umbral {umbrales[n]:.3f}:",
+        nombre = NOMBRES[n] if n in NOMBRES else "recorte 128"
+        lineas += [f"{nombre} con el umbral {u:.3f} ({criterio}):",
                    f"   matriz: VP {r['VP']}  FN {r['FN']}  VN {r['VN']}  FP {r['FP']}",
                    f"   sensibilidad {f('sensibilidad')}   especificidad {f('especificidad')}   "
                    f"precision {f('precision') if r['VP'] + r['FP'] else '— (no dice pCR a nadie)'}   VPN {f('vpn')}",
                    f"   F1 pCR {r['f1_pcr']:.2f}   F1 no pCR {r['f1_no_pcr']:.2f}   F1 equilibrada {r['f1_equilibrada']:.2f}   "
                    f"accuracy {f('accuracy')}",
                    f"   media de las dos clases (macro): precision {r['precision_media']:.2f}   recall {r['recall_medio']:.2f}   "
-                   f"F1 {r['f1_equilibrada']:.2f}",
-                   f"   un solo corte (como en la app): AUC {un_corte[n]['auc']:.3f}, sensibilidad "
-                   f"{un_corte[n]['sensibilidad']:.0%}, especificidad {un_corte[n]['especificidad']:.0%}"]
+                   f"F1 {r['f1_equilibrada']:.2f}"]
+        if n in un_corte:
+            lineas.append(f"   un solo corte (como en la app): AUC {un_corte[n]['auc']:.3f}, sensibilidad "
+                          f"{un_corte[n]['sensibilidad']:.0%}, especificidad {un_corte[n]['especificidad']:.0%}")
     lineas += [f"siempre 'no pCR': accuracy {siempre_no['accuracy']:.0%}; media de las dos clases: precision "
                f"{siempre_no['precision_media']:.2f}, recall {siempre_no['recall_medio']:.2f}, F1 {siempre_no['f1_equilibrada']:.2f}", ""]
     for k, d in diferencias.items():
@@ -462,10 +502,11 @@ def main() -> None:
 
     # ---- figuras ----
     print("\nDibujando figuras...")
+    fig_matriz_principal(res["recorte"], umbrales["recorte"], titulo, salida / "0_matriz_principal.png")
     fig_roc(pac, res, umbrales, titulo, salida / "1_roc.png")
     fig_matrices(res, siempre_no, umbrales, titulo, salida / "2_matriz_confusion.png")
     fig_pr(pac, res, titulo, salida / "3_precision_recall.png")
-    fig_umbral(pac, umbrales["recorte"], titulo, salida / "4_umbral.png")
+    fig_umbral(pac, umbrales["recorte"], u_desescalar, titulo, salida / "4_umbral.png")
     fig_calibracion(pac, umbrales["recorte"], titulo, salida / "5_calibracion.png")
     fig_cohortes(cohortes, titulo, salida / "6_cohortes.png")
     fig_casos(pac, cortes, base_img, umbrales["recorte"], titulo, salida / "7_casos.png")
@@ -477,7 +518,7 @@ def main() -> None:
     with open(salida / "metricas.json", "w", encoding="utf-8") as f:
         json.dump({"conjunto": conjunto, "fecha": datetime.now().isoformat(timespec="seconds"),
                    "pacientes": len(pac), "cortes": len(cortes), "pcr": int(y.sum()), "principal": "recorte",
-                   "umbrales": umbrales, "configuraciones": {n: cfg["configuraciones"] for n, cfg in configs.items()},
+                   "umbrales": umbrales, "umbral_desescalar_recorte": u_desescalar, "configuraciones": {n: cfg["configuraciones"] for n, cfg in configs.items()},
                    "checksums": checksums, "modelos": res, "siempre_no_pcr": siempre_no, "un_corte": un_corte,
                    "diferencias_auc": diferencias, "cohortes": cohortes,
                    "segundos": round(time.time() - t0, 1)}, f, indent=2, ensure_ascii=False, default=float)

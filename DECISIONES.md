@@ -712,6 +712,33 @@ es (maldición del ganador). El juez independiente es el test.
   falso positivo causado por la imagen. No se quita del entrenamiento (ya está entrenado y sería decidir mirando resultados); se cuenta
   en el informe y `predecir.avisos` avisa ahora si una fase tiene brillo medio > 0,8 (no cambia la predicción).
 
+## DECISIÓN (2026-10-21, ANTES del test): el umbral principal pasa a ser el EQUILIBRADO
+
+Decisión del usuario tras comparar los dos criterios en validación (recorte 128):
+
+| | Desescalar (0,371) | **Equilibrado (0,327)** |
+|---|---|---|
+| Criterio | umbral más bajo con especificidad ≥ 0,95 | **máxima F1 equilibrada (coincide con Youden)** |
+| VP / FN / VN / FP | 22 / 300 / 737 / 38 | 111 / 211 / 606 / 169 |
+| Sensibilidad / especificidad | 0,07 / 0,95 | 0,34 / 0,78 |
+| Precisión de pCR (IC95 Wilson) | 0,37 (0,26-0,49) | 0,40 (0,34-0,45) |
+| Precisión / recall / F1 medios de las dos clases | 0,54 / 0,51 / 0,46 | **0,57 / 0,56 / 0,57** |
+| Precisión de pCR fold a fold | de 0,17 a 0,50 | de 0,35 a 0,51 |
+| Accuracy (siempre pCR = 0: 0,71) | 0,69 | 0,65 |
+| Un solo corte: sensibilidad / especificidad | 0,08 / 0,95 | 0,33 / 0,77 |
+
+**Motivos:** (1) el criterio de desescalar solo tiene sentido si el modelo acierta mucho cuando dice pCR, y con este modelo la
+precisión de pCR no pasa de ~0,40 con ningún umbral: no sirve para desescalar (Fridman sí podía, con precisión 0,70); (2) el
+equilibrado detecta cinco veces más pCR con la misma precisión; (3) es mucho más estable entre folds (el de desescalar depende de la
+cola de la distribución y en un test de 176 pacientes podría no detectar ninguna pCR); (4) dos criterios distintos (F1 equilibrada y
+Youden) dan el mismo umbral; (5) el profesor espera precisión y recall medios de 0,50-0,55: con el equilibrado se cumplen con margen
+(con el de desescalar el recall medio es 0,51, casi el 0,50 de cualquier modelo trivial). Se pierde algo de accuracy (0,65), la
+métrica menos útil con clases desequilibradas.
+**Cómo queda:** `umbral.py --criterio equilibrado` (por defecto ahora) regenera `modelo/umbral_final.json` (umbral 0,3273; guarda
+también `umbral_desescalar` 0,3709) y `modelo_21/umbral_final.json` (equilibrado 0,3074); la calibración no cambia (a = 0,593,
+b = −0,338). La app usa 0,327. En el test se muestran las dos matrices del recorte (equilibrado como principal, desescalar como
+comparación) y la 2.1 con su umbral equilibrado.
+
 ## Curvas de entrenamiento de los modelos finales (2026-10-21; `curvas_entrenamiento.py`, `figuras/entrenamiento/`)
 
 - **Matiz al motivo 2 de la decisión del recorte:** la menor distancia entre entrenamiento y validación se mide en la época elegida, y

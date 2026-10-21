@@ -4,8 +4,9 @@ Para cada familia de modelos (3 semillas x 5 folds) dibuja:
     <familia>_folds.png    una columna por fold; arriba la perdida, abajo el AUC; las 3 semillas en colores,
                            entrenamiento en linea continua y validacion discontinua; el punto es la epoca elegida
                            por el early stopping (parada.recorrer)
-y una figura que compara las dos familias:
+y dos figuras mas:
     comparativa.png        los 15 modelos de cada familia superpuestos (2.1 frente a recorte 128)
+    modelo_final.png       la figura para enseñar: modelo final por fold, media de las 3 semillas en grueso
 
 La linea gris de puntos de la perdida es la mejor perdida posible SIN mirar la imagen: la entropia de la proporcion
 de pCR de los cortes de entrenamiento (calculada desde samples.csv). Una red por encima de esa linea no ha aprendido
@@ -82,6 +83,48 @@ def figura_folds(prefijo: str, nombre: str, ref: float, ruta: Path) -> None:
     plt.close(fig)
 
 
+def figura_modelo_final(ref: float, ruta: Path) -> None:
+    """La figura para enseñar: modelo final, una columna por fold, perdida arriba y AUC abajo. Lineas finas: cada
+    semilla; linea gruesa: media de las 3 semillas en las epocas que entrenaron las tres; puntos: epoca elegida."""
+    plt = graficas._plt()
+    prefijo = FAMILIAS["recorte"][0]
+    fig, ax = plt.subplots(2, 5, figsize=(24, 9.5), constrained_layout=True, sharey="row")
+    fig.suptitle("Curvas de entrenamiento del modelo final (recorte central 128): 5 folds × 3 semillas\n"
+                 "azul: entrenamiento · naranja: validación · línea gruesa: media de las 3 semillas · "
+                 "punto: época elegida por el early stopping",
+                 fontsize=15, fontweight="bold")
+    for k in range(5):
+        runs = [leer(f"{prefijo}{sufijo}_fold{k}") for sufijo in SEMILLAS.values()]
+        n = min(len(d["epoca"]) for d in runs)
+        separaciones = [d["auc_train"][d["elegida"]] - d["auc_val"][d["elegida"]] for d in runs]
+        for fila, (tr, va) in enumerate((("perdida_train", "perdida_val"), ("auc_train", "auc_val"))):
+            a = ax[fila, k]
+            for d in runs:
+                a.plot(d["epoca"], d[tr], color=graficas.AZUL, lw=0.9, alpha=0.35)
+                a.plot(d["epoca"], d[va], color=graficas.NARANJA, lw=0.9, alpha=0.35)
+                a.scatter([d["epoca"][d["elegida"]]], [d[va][d["elegida"]]], color=graficas.ROJO, edgecolor="black",
+                          s=50, zorder=5)
+            epocas = runs[0]["epoca"][:n]
+            a.plot(epocas, [sum(d[tr][e] for d in runs) / 3 for e in range(n)], color=graficas.AZUL, lw=2.8,
+                   label="entrenamiento (media)")
+            a.plot(epocas, [sum(d[va][e] for d in runs) / 3 for e in range(n)], color=graficas.NARANJA, lw=2.8,
+                   label="validación (media)")
+            a.grid(alpha=0.3)
+        ax[0, k].axhline(ref, color=graficas.GRIS, ls=":", lw=1.5, label=f"sin mirar la imagen ({ref:.3f})")
+        ax[1, k].axhline(0.5, color=graficas.GRIS, ls=":", lw=1.5, label="azar (0,5)")
+        ax[0, k].set_title(f"fold {k}\nAUC entrenamiento − validación\nen la época elegida: "
+                           f"{sum(separaciones) / 3:+.3f}", fontsize=12)
+        ax[1, k].set_xlabel("época", fontsize=11)
+        ax[1, k].set_ylim(0.35, 1.0)
+    ax[0, 0].set_ylabel("pérdida (entropía cruzada binaria)", fontsize=12)
+    ax[1, 0].set_ylabel("AUC por paciente", fontsize=12)
+    h0, l0 = ax[0, 0].get_legend_handles_labels()
+    h1, l1 = ax[1, 0].get_legend_handles_labels()
+    fig.legend(h0 + h1[-1:], l0 + l1[-1:], loc="lower center", bbox_to_anchor=(0.5, -0.05), ncol=4, fontsize=11)
+    fig.savefig(ruta, dpi=110, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 def figura_comparativa(ref: float, ruta: Path) -> None:
     plt = graficas._plt()
     fig, ax = plt.subplots(2, 2, figsize=(15, 10), constrained_layout=True, sharey="row")
@@ -122,6 +165,7 @@ def main() -> None:
     for clave, (prefijo, nombre) in FAMILIAS.items():
         figura_folds(prefijo, nombre, ref, SALIDA / f"{clave}_folds.png")
     figura_comparativa(ref, SALIDA / "comparativa.png")
+    figura_modelo_final(ref, SALIDA / "modelo_final.png")
     print(f"Figuras en {SALIDA}")
 
 
