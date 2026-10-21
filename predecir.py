@@ -3,12 +3,15 @@
 Pipeline fijado en la fase 4 (DECISIONES.md, `modelo/umbral_final.json`):
     1. cada fase (PRE, EARLY, LATE) es un PNG en escala de grises de 256x256; se lee y se divide
        entre 255, exactamente como `utils_caso.cargar_fase` en el entrenamiento;
-    2. los 15 modelos (configuracion 2.1: 3 semillas x 5 folds), en modo evaluacion y sin gradientes,
+    2. los 15 modelos (recorte central 128: 3 semillas x 5 folds; cada modelo guarda su configuracion,
+       incluido el recorte, que se aplica dentro de la red), en modo evaluacion y sin gradientes,
        dan cada uno su probabilidad para el corte (sigmoide de su logit);
     3. se promedian las 15 probabilidades;
     4. calibracion de Platt: p = sigmoide(a * logit(p_media) + b), con los (a, b) del json;
     5. paciente con varios cortes: media de sus cortes calibrados (la agregacion que pide el profesor);
-    6. clase: "pCR" si p >= umbral (0,348; criterio de desescalar, especificidad >= 0,95 en validacion).
+    6. clase: "pCR" si p >= umbral (el del json; criterio de desescalar, especificidad >= 0,95 en validacion).
+
+La 2.1 (sin recorte) queda en `modelo_21/` como comparacion: ModeloFinal("modelo_21").
 
 Uso como modulo:
     from predecir import ModeloFinal

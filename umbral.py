@@ -54,7 +54,7 @@ import graficas
 
 RAIZ = Path(__file__).resolve().parent
 REFERENCIA = RAIZ / "referencia"
-POR_DEFECTO = ["bn_normal_lr0.0001", "bn_normal_lr0.0001_s1", "bn_normal_lr0.0001_s2"]
+POR_DEFECTO = ["bn_normal_c128_lr0.0001", "bn_normal_c128_lr0.0001_s1", "bn_normal_c128_lr0.0001_s2"]   # modelo final
 
 
 # --------------------------------------------------------------------------- #

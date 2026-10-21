@@ -634,6 +634,47 @@ que rodea al tumor (peritumoral), que la bibliografía considera útil (Braman e
 para la 2.1; diferencia emparejada por fold. **Solo se cambia el modelo final si la diferencia media supera +0,02 y su IC95 excluye el 0.**
 Si no, se cuenta en el informe como experimento complementario y el modelo final sigue siendo la 2.1 (el test se hace al día siguiente).
 
+### Resultado (2026-10-21)
+
+AUC de validación en la época elegida (`comparar.py`), media de las 3 semillas por fold:
+
+| Fold | 0 | 1 | 2 | 3 | 4 | Media |
+|---|---|---|---|---|---|---|
+| 2.1 | 0,553 | 0,548 | 0,568 | 0,561 | 0,572 | 0,560 |
+| Recorte 128 | 0,588 | 0,559 | 0,592 | 0,571 | 0,582 | 0,578 |
+| Diferencia | +0,036 | +0,011 | +0,024 | +0,010 | +0,010 | **+0,018 (IC95 +0,004 a +0,032)** |
+
+- Por semilla: 42 → +0,018 (IC −0,001 a +0,037, no concluyente); 1 → +0,035 (+0,001 a +0,069, mejora); 2 → +0,001 (−0,022 a
+  +0,024, no concluyente). La ventaja depende de la semilla.
+- **Sobreajuste:** 0 modelos sobreentrenados de 15 con el recorte, frente a 5 de 15 con la 2.1; diferencia media
+  entrenamiento − validación de ~0,04 frente a ~0,11. Sin aprendizaje: 5 de 15 frente a 6 de 15.
+- Con el recorte, el AUC de la época 1 (red casi sin entrenar) sube a 0,57-0,62 en varios folds: parte de la señal está en el centro
+  (el tumor) desde el principio.
+- Unas 3,5 veces más rápido (13 s por época frente a 47).
+- **Por la regla:** el IC excluye el 0, pero +0,018 no llega a +0,02 → la regla decía mantener la 2.1.
+
+### DECISIÓN (2026-10-21, ANTES del test): el modelo final pasa a ser el recorte central 128
+
+Decisión del usuario, **desviándose de forma explícita de la regla fijada antes** (que pedía +0,02 y se obtuvo +0,018). Motivos:
+
+1. Mejora en los 5 folds con la media de las 3 semillas, y el IC95 excluye el 0: no es solo ruido.
+2. **Generaliza mejor:** ningún modelo sobreentrenado y la distancia entre entrenamiento y validación baja de ~0,11 a ~0,04. Es el
+   comportamiento "BIEN" que pide el profesor, no solo un número de AUC algo mayor.
+3. Tiene sentido: las imágenes son recortes centrados en el tumor; mirar el centro quita distracciones del borde.
+4. El margen de +0,02 se fijó como el ruido de semilla en la media; +0,018 está en ese borde, y la mejora en sobreajuste inclina la
+   balanza.
+
+Riesgos que se asumen y se contarán en el informe: la regla se cambió después de ver el resultado; la ventaja depende de la semilla
+(semilla 2: +0,001); hemos probado unas 8 configuraciones con la misma validación, así que la mejor puede parecer algo mejor de lo que
+es (maldición del ganador). El juez independiente es el test.
+
+**Cómo queda:**
+- `modelo/` = recorte 128 (`bn_normal_c128_lr0.0001` + `_s1` + `_s2`, 15 modelos), con su calibración de Platt y su umbral
+  recalculados con `umbral.py` por el mismo criterio (especificidad ≥ 0,95). `predecir.py` lee el recorte de cada modelo.
+- `modelo_21/` = la 2.1 tal como estaba, para compararla.
+- **Test (una sola vez, cuando lo ordene el usuario):** se evalúan los dos, con el recorte declarado AHORA como modelo principal (el de
+  la app pase lo que pase) y la 2.1 como comparación. No se elige el principal mirando el test.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
