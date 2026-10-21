@@ -712,6 +712,19 @@ es (maldición del ganador). El juez independiente es el test.
   falso positivo causado por la imagen. No se quita del entrenamiento (ya está entrenado y sería decidir mirando resultados); se cuenta
   en el informe y `predecir.avisos` avisa ahora si una fase tiene brillo medio > 0,8 (no cambia la predicción).
 
+## Curvas de entrenamiento de los modelos finales (2026-10-21; `curvas_entrenamiento.py`, `figuras/entrenamiento/`)
+
+- **Matiz al motivo 2 de la decisión del recorte:** la menor distancia entre entrenamiento y validación se mide en la época elegida, y
+  el recorte elige épocas mucho más tempranas (media 5,6 frente a 13,8 de la 2.1). Las curvas muestran que, si se deja entrenar, el
+  recorte memoriza a un ritmo parecido (AUC de entrenamiento ~0,8 hacia la época 15 en las dos familias). Lo que cambia es que su AUC
+  de validación alcanza el máximo antes (épocas 1-8), en parte por la señal que ya da el centro de la imagen desde la época 1. Por
+  tanto: "con early stopping, los modelos elegidos sobreajustan menos porque su mejor época llega antes", no "la arquitectura
+  sobreajusta menos". La decisión no cambia (el AUC sigue siendo algo mejor y el early stopping forma parte del método), pero el
+  informe lo dirá así.
+- La pérdida de validación apenas baja de la pérdida "sin mirar la imagen" (0,606, entropía de la proporción de pCR de los cortes de
+  entrenamiento) y después sube: la señal que aprende la red es débil. La 2.1, si se deja entrenar, llega a pérdida de validación 2,25
+  y AUC de entrenamiento 0,98 (la figura "MAL" del profesor); el early stopping la corta antes.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
