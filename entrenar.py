@@ -120,6 +120,18 @@ class AumentadoAfin:
                              padding_mode="zeros", align_corners=False).squeeze(0)
 
 
+class AumentadoBrillo:
+    """Multiplica el corte entero (las TRES fases por el MISMO factor) por un numero al azar entre 1 - variacion y
+    1 + variacion. Cambia el brillo global, como pasa entre escaneres y hospitales, pero conserva la relacion entre
+    fases (el realce EARLY - PRE solo se escala). Asi el brillo absoluto deja de servir como atajo. Solo entrenamiento."""
+
+    def __init__(self, variacion: float = 0.2):
+        self.variacion = variacion
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return x * (1 + (2 * torch.rand(1).item() - 1) * self.variacion)
+
+
 def fijar_semilla(semilla: int) -> None:
     random.seed(semilla)
     np.random.seed(semilla)
@@ -278,18 +290,22 @@ def auc_aux_por_paciente(filas, probs_aux, etiquetas_aux: dict) -> list[float]:
 # Una epoca de entrenamiento y la medicion
 # --------------------------------------------------------------------------- #
 
-def entrenar_una_epoca(modelo, dl, criterio, optimizador, device, peso_aux: float = 0.0):
+def entrenar_una_epoca(modelo, dl, criterio, optimizador, device, peso_aux: float = 0.0, suavizado: float = 0.0):
     """Pasa una vez por todos los datos de entrenamiento, lote a lote (con el dropout activo,
     tal como se entrena). Devuelve (perdida media de pCR, perdida media auxiliar o None).
 
     Con tarea auxiliar, la perdida que se minimiza es:
         perdida_pCR + peso_aux * perdida_auxiliar   (media de HR y HER2, sin los datos que faltan)
     Con atencion guiada (el modelo tiene `atencion`), la auxiliar es la de atencion frente a la caja del tumor.
+    Con `suavizado` > 0 (label smoothing) la red aprende con objetivos suavizados (0 -> s/2, 1 -> 1 - s/2) para que no
+    se vuelva demasiado segura; la perdida que se DEVUELVE se calcula con las etiquetas reales (comparable con la base
+    y con la referencia sin imagen).
     La perdida de pCR que se devuelve es solo la de pCR, comparable con la de la base."""
     modelo.train()
     suma, suma_aux, n = 0.0, 0.0, 0
     for lote in dl:
-        x, y = lote[0].to(device, non_blocking=True), lote[1].to(device, non_blocking=True)
+        x, y_real = lote[0].to(device, non_blocking=True), lote[1].to(device, non_blocking=True)
+        y = y_real * (1 - suavizado) + suavizado / 2 if suavizado else y_real
         optimizador.zero_grad()              # PyTorch acumula gradientes si no se limpian
         if modelo.atencion:                  # con la caja del tumor como objetivo de la atencion
             objetivo, valida = lote[2].to(device, non_blocking=True), lote[3].to(device, non_blocking=True)
@@ -307,9 +323,13 @@ def entrenar_una_epoca(modelo, dl, criterio, optimizador, device, peso_aux: floa
             perdida = perdida_pcr + peso_aux * perdida_aux
             suma_aux += perdida_aux.item() * x.size(0)
         else:
-            perdida_pcr = perdida = criterio(modelo(x), y)
+            logit = modelo(x)
+            perdida_pcr = perdida = criterio(logit, y)
         perdida.backward()
         optimizador.step()
+        if suavizado:                        # se informa con las etiquetas reales, no con las suavizadas
+            with torch.no_grad():
+                perdida_pcr = criterio(logit, y_real)
         suma += perdida_pcr.item() * x.size(0)
         n += x.size(0)
     return suma / n, (suma_aux / n if (modelo.n_auxiliares or modelo.atencion) else None)
@@ -368,7 +388,11 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument("--muestra-rapida", type=int, default=0,
                    help="si > 0, usa solo N pacientes por lado: prueba rapida del flujo completo")
-    p.add_argument("--aumentado", choices=["ninguno", "geometrico"], default="ninguno",
+    p.add_argument("--suavizado", type=float, default=0.0,
+                   help="label smoothing: objetivos 0 -> s/2 y 1 -> 1 - s/2 al entrenar (p. ej. 0.1)")
+    p.add_argument("--weight-decay", type=float, default=0.0,
+                   help="si > 0, AdamW con este weight decay (penaliza los pesos grandes); 0 = Adam como siempre")
+    p.add_argument("--aumentado", choices=["ninguno", "geometrico", "brillo"], default="ninguno",
                    help="geometrico: volteo + rotacion + desplazamiento + escala, solo en entrenamiento")
     p.add_argument("--batchnorm", action="store_true",
                    help="BatchNorm tras cada convolucion (Conv -> BN -> ReLU -> pool)")
@@ -413,6 +437,9 @@ def main() -> None:
     #   base_normal_fold0, base_normal_aug_fold0, bn_normal_fold0, ...
     red = "bn" if args.batchnorm else "base"
     prefijo = (f"{red}_{args.perdida}" + ("_aug" if args.aumentado == "geometrico" else "") +
+               ("_brillo" if args.aumentado == "brillo" else "") +
+               (f"_ls{args.suavizado:g}" if args.suavizado else "") +
+               (f"_wd{args.weight_decay:g}" if args.weight_decay else "") +
                (f"_f{args.filtros}" if args.filtros != 16 else "") +
                ("_doble" if args.doble else "") + ("_norm" if args.normalizar else "") +
                (f"_c{args.recorte}" if args.recorte else "") +
@@ -450,7 +477,7 @@ def main() -> None:
 
     opciones = dict(num_workers=args.num_workers, pin_memory=(device.type == "cuda"),
                     persistent_workers=args.num_workers > 0)
-    transformacion = AumentadoAfin() if args.aumentado == "geometrico" else None   # solo en entrenamiento
+    transformacion = {"geometrico": AumentadoAfin(), "brillo": AumentadoBrillo()}.get(args.aumentado)   # solo entrenamiento
     ds_train = uc.BreastDCEDataset(entrenamiento, raiz=raiz_img, transform=transformacion)
     etiquetas_aux = None
     if args.aux:   # HR y HER2 de patients.csv: solo como OBJETIVO de entrenamiento, nunca como entrada
@@ -495,7 +522,8 @@ def main() -> None:
     print(f"perdida {args.perdida}" + (f" (pos_weight = {peso:.4f})" if args.perdida == "ponderada" else "") +
           f"; proporcion de cortes con pCR=1: {proporcion:.3f}; "
           f"mejor perdida sin mirar la imagen: {referencia:.4f} (entrenamiento), {referencia_val:.4f} (validacion)")
-    optimizador = torch.optim.Adam(modelo.parameters(), lr=args.lr)
+    optimizador = (torch.optim.AdamW(modelo.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+                   if args.weight_decay else torch.optim.Adam(modelo.parameters(), lr=args.lr))
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
@@ -532,7 +560,8 @@ def main() -> None:
         for epoca in range(1, args.epocas + 1):
             t0 = time.time()
             perdida_train, perdida_aux = entrenar_una_epoca(modelo, dl_train, criterio, optimizador, device,
-                                                            args.peso_atencion if args.atencion else args.peso_aux)
+                                                            args.peso_atencion if args.atencion else args.peso_aux,
+                                                            args.suavizado)
             perdida_val, res_val, probs_val, probs_aux = medir(modelo, dl_val, validacion, criterio, device, args.umbral)
             auc_aux = (auc_aux_por_paciente(validacion, probs_aux, etiquetas_aux)
                        if probs_aux is not None else [float("nan")] * len(AUXILIARES))
@@ -584,6 +613,9 @@ def main() -> None:
     # --- graficas del diagnostico, en la epoca elegida ---
     titulo = (f"Red {'con BatchNorm' if args.batchnorm else 'base'} · pérdida {args.perdida}"
               + (" · aumentado" if args.aumentado == "geometrico" else "")
+              + (" · brillo aleatorio" if args.aumentado == "brillo" else "")
+              + (f" · suavizado {args.suavizado:g}" if args.suavizado else "")
+              + (f" · weight decay {args.weight_decay:g}" if args.weight_decay else "")
               + (f" · filtros {args.filtros}" if args.filtros != 16 else "")
               + (" · conv+conv" if args.doble else "") + (" · normalización por corte" if args.normalizar else "")
               + (f" · recorte central {args.recorte}" if args.recorte else "")
@@ -613,7 +645,9 @@ def main() -> None:
         "atencion": args.atencion, "peso_atencion": args.peso_atencion if args.atencion else None,
         "atencion_dentro_val_elegida": atencion_historial[elegida] if args.atencion else None,
         "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
-        "aumentado": args.aumentado, "aux": args.aux, "peso_aux": args.peso_aux if args.aux else None,
+        "aumentado": args.aumentado, "suavizado": args.suavizado, "weight_decay": args.weight_decay,
+        "optimizador_clase": "AdamW" if args.weight_decay else "Adam",
+        "aux": args.aux, "peso_aux": args.peso_aux if args.aux else None,
         "auc_val_hr_ultima": auc_aux[0] if args.aux else None,
         "auc_val_her2_ultima": auc_aux[1] if args.aux else None,
         "pos_weight": peso if args.perdida == "ponderada" else None, "fold": args.fold,

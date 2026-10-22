@@ -833,6 +833,25 @@ defecto, sin ajustar). Comando: `--batchnorm --lr 1e-4 --recorte 128 --aux`, 3 s
 **se cambia el modelo final solo si la diferencia media supera +0,02 y su IC95 excluye el 0.** Si no, experimento complementario.
 Después de este no se lanzan más experimentos de entrenamiento: se pasa al test.
 
+## Experimento: regularización contra la memorización (decidido el 2026-10-22, ANTES de ver resultados)
+
+**Motivo (decisión del usuario, que cambia lo escrito arriba de "no más experimentos"):** en las curvas, la pérdida de validación se
+dispara tras pocas épocas (hasta 0,8-2,0): la red se vuelve demasiado segura y memoriza. Un único experimento con tres técnicas
+juntas (para no multiplicar comparaciones), sobre el modelo final (recorte 128):
+- **suavizado de etiquetas 0,1** (`--suavizado 0.1`): objetivos 0,05 y 0,95 al entrenar; la pérdida se informa con las reales;
+- **weight decay** con AdamW (`--weight-decay 0.5`; con lr 1e-4, el producto lr × wd = 5·10⁻⁵ equivale a AdamW con lr 1e-3 y
+  wd 0,05, un valor habitual; fijado antes, sin ajustar);
+- **brillo aleatorio** (`--aumentado brillo`): las 3 fases por el mismo factor entre 0,8 y 1,2 (solo entrenamiento); quita el atajo
+  del brillo del escáner y conserva la relación entre fases.
+Comando: `--batchnorm --lr 1e-4 --recorte 128 --aumentado brillo --suavizado 0.1 --weight-decay 0.5`, 3 semillas × 5 folds;
+ficheros `bn_normal_brillo_ls0.1_wd0.5_c128_lr0.0001_*`.
+**Lo esperado:** que la pérdida de validación no se dispare y la diferencia entrenamiento − validación sea menor (curvas más
+"BIEN"); el AUC, quizá igual.
+**REGLA FIJADA ANTES DE VER RESULTADOS:** la misma: `comparar_semillas.py bn_normal_c128_lr0.0001
+bn_normal_brillo_ls0.1_wd0.5_c128_lr0.0001`; se cambia el modelo final solo si la diferencia media supera +0,02 y su IC95 excluye
+el 0. Además se compararán (descriptivo) las curvas de pérdida, los modelos sobreentrenados y "sin aprendizaje" y la diferencia
+entrenamiento − validación. Con este se cierran los experimentos de entrenamiento.
+
 ## Medida: promedio con la imagen volteada (TTA) (decidido el 2026-10-22, ANTES de medir)
 
 **Qué:** al predecir, pasar cada corte tal cual y volteado de izquierda a derecha (el recorte central es simétrico) y promediar las
