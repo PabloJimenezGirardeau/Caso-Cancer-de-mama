@@ -841,6 +841,25 @@ dos probabilidades de cada modelo antes de la media de semillas. Sin reentrenar.
 **REGLA FIJADA ANTES DE MEDIR:** AUC por paciente en cada fold (promedio de semillas, sin calibrar), TTA frente a sin TTA; se adopta solo
 si la diferencia media es positiva y su IC95 excluye el 0 (no cuesta nada más que el doble de cálculo, así que no se exige margen).
 
+## Control positivo: ¿hay un error en el código? (2026-10-22, `control_positivo.py`)
+
+Misma red (recorte 128, BatchNorm), mismo código de entrenamiento y evaluación (`entrenar.entrenar_una_epoca`, `entrenar.medir`) y
+mismos datos, cambiando solo la etiqueta por algo que sí se ve en la imagen: si la paciente es de Duke (escáneres y protocolos
+distintos). En el portátil (CPU), fold 0, solo 300 pacientes de entrenamiento y 4 épocas:
+
+| Época | Pérdida entrenamiento | Pérdida validación | AUC validación (219 pacientes, 19 % Duke) |
+|---|---|---|---|
+| 1 | 0,614 | 0,546 | 0,695 |
+| 2 | 0,506 | 0,433 | 0,903 |
+| 3 | 0,432 | 0,374 | **0,923** |
+| 4 | 0,380 | 0,361 | 0,911 |
+
+- **El código funciona:** con un objetivo visible, la red llega a 0,92 en pacientes nuevas en 3 épocas y con un tercio de los datos, y
+  las dos pérdidas bajan juntas (la figura "BIEN"). El AUC bajo de la pCR no es un error del código: la pCR casi no se ve en un corte
+  2D (y, según el experimento auxiliar, HR y HER2 tampoco: AUC de validación ~0,50).
+- La cohorte se reconoce con mucha facilidad: riesgo de atajo. Pero dentro de cada cohorte el AUC de la pCR (0,55-0,60) es parecido
+  al global (0,576), así que el modelo no se limita a distinguir hospitales.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
