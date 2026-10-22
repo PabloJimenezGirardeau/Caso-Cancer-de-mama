@@ -833,6 +833,16 @@ defecto, sin ajustar). Comando: `--batchnorm --lr 1e-4 --recorte 128 --aux`, 3 s
 **se cambia el modelo final solo si la diferencia media supera +0,02 y su IC95 excluye el 0.** Si no, experimento complementario.
 Después de este no se lanzan más experimentos de entrenamiento: se pasa al test.
 
+### Resultado (2026-10-22)
+
+- AUC por fold (media de 3 semillas): recorte 0,578, con subtipo auxiliar 0,581: **+0,003 (IC95 −0,005 a +0,011)**, mejor en 3 de
+  5 folds → **la regla del AUC no se cumple**.
+- Curvas: margen −0,0095 (recorte −0,0023), subida +0,049 (+0,051), 2 sobreentrenados (0), 6 sin aprendizaje (5) → **la regla de
+  las curvas tampoco** (peor margen y más sobreentrenados y sin aprendizaje).
+- La red no reconoce el subtipo en la imagen: AUC de validación de HR y HER2 ~0,50 en las épocas observadas.
+- **El modelo final sigue siendo el recorte 128.** Experimento complementario: ni siquiera el subtipo, lo que más predice la pCR,
+  se ve en un corte 2D.
+
 ## Experimento: regularización contra la memorización (decidido el 2026-10-22, ANTES de ver resultados)
 
 **Motivo (decisión del usuario, que cambia lo escrito arriba de "no más experimentos"):** en las curvas, la pérdida de validación se
