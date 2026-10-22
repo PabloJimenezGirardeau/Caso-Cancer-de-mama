@@ -40,8 +40,10 @@ def leer(config: str) -> dict:
     with open(ruta, encoding="utf-8") as f:
         filas = list(csv.DictReader(f))
     datos = {c: [float(r[c]) for r in filas] for c in ("epoca", "perdida_train", "perdida_val", "auc_train", "auc_val")}
-    if filas and filas[0].get("perdida_train_eval"):          # registros desde el 2026-10-22
-        datos["perdida_train_eval"] = [float(r["perdida_train_eval"]) for r in filas]
+    # registros desde el 2026-10-23: entrenamiento medido como la validacion, con las clases pesadas como en el
+    # entrenamiento (la columna antigua perdida_train_eval, sin ponderar, no es comparable y no se usa)
+    if filas and filas[0].get("perdida_train_comparable"):
+        datos["perdida_train_eval"] = [float(r["perdida_train_comparable"]) for r in filas]
     datos["elegida"] = parada.recorrer(datos["auc_val"])["indice"]
     return datos
 

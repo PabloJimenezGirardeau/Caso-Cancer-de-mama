@@ -179,6 +179,17 @@ def perdida_de_referencia_validacion(proporcion_train: float, proporcion_val: fl
     return -(peso_positivos * proporcion_val * math.log(p) + (1.0 - proporcion_val) * math.log(1.0 - p))
 
 
+def perdida_ponderada(y, probs, proporcion_pcr: float) -> float:
+    """Entropia cruzada media con cada clase pesada como en el entrenamiento: proporcion_pcr x (perdida media de los
+    positivos) + (1 - proporcion_pcr) x (perdida media de los negativos). Para medir la perdida de los vigilados (mitad y
+    mitad) en la misma escala que la de validacion."""
+    y = np.asarray(y)
+    p = np.clip(np.asarray(probs, dtype=float), 1e-7, 1 - 1e-7)
+    pos = -np.log(p[y == 1]).mean() if (y == 1).any() else 0.0
+    neg = -np.log(1 - p[y == 0]).mean() if (y == 0).any() else 0.0
+    return float(proporcion_pcr * pos + (1 - proporcion_pcr) * neg)
+
+
 def por_paciente(filas, probs):
     """(etiqueta, probabilidad media) de cada paciente, en el mismo orden."""
     agregado = uc.agregar_por_paciente(filas.patient_id.values, probs, "mean")
@@ -565,7 +576,7 @@ def main() -> None:
     with open(ruta["csv"], "w", encoding="utf-8") as f:
         f.write("epoca,perdida_train,perdida_val,auc_train,auc_val,accuracy_val,sensibilidad_val,"
                 "especificidad_val,lr,tiempo_seg,perdida_aux_train,auc_val_hr,auc_val_her2,atencion_dentro_val,"
-                "perdida_train_eval\n")
+                "perdida_train_comparable\n")
         atencion_historial = []
         for epoca in range(1, args.epocas + 1):
             t0 = time.time()
@@ -576,8 +587,10 @@ def main() -> None:
             auc_aux = (auc_aux_por_paciente(validacion, probs_aux, etiquetas_aux)
                        if probs_aux is not None else [float("nan")] * len(AUXILIARES))
             # perdida de los pacientes vigilados de ENTRENAMIENTO medida como la de validacion (modo evaluacion, sin
-            # dropout ni aumentado ni suavizado): la curva de entrenamiento comparable con la de validacion
-            perdida_train_eval, res_vig, _, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
+            # dropout ni aumentado ni suavizado). Los vigilados son mitad pCR y mitad no pCR, asi que se pondera cada
+            # clase para que pese como en el entrenamiento (29 % de pCR): asi es comparable con la de validacion.
+            _, res_vig, probs_vig, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
+            perdida_train_eval = perdida_ponderada(vigilados.pCR.to_numpy(), probs_vig, proporcion)
             aten_val = atencion_dentro(modelo, dl_val, *cajas_val, device) if args.atencion else float("nan")
             atencion_historial.append(aten_val)
             auc_historial.append(res_val["auc"])
