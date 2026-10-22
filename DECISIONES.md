@@ -821,6 +821,26 @@ siendo el recorte 128. Además se informa de la atención en el tumor (validaci�
   memorizan del todo (AUC de entrenamiento 1,00) y aun así tienen picos tardíos de validación (épocas 33 y 39), probablemente ruido.
 - Se cuenta en el informe como experimento complementario, con los mapas de atención (`mapas_atencion.py`).
 
+## Experimento: subtipo (HR y HER2) como tarea auxiliar sobre el recorte (decidido el 2026-10-22, ANTES de ver resultados)
+
+**Motivo:** el subtipo es lo que más predice la pCR (modelo clínico 0,70), pero en la defensa solo llega el PNG. Igual que las cajas,
+HR y HER2 se usan **solo como objetivo de entrenamiento** (información privilegiada): la red tiene que predecirlos a partir de la
+imagen además de la pCR, para orientarse hacia rasgos biológicos del tumor. Nunca son entrada; en la app no hacen falta.
+**Qué:** el modelo final actual (recorte 128) con `--aux` (cabeza auxiliar lineal 128 → 2, solo al entrenar; peso 0,5, el valor por
+defecto, sin ajustar). Comando: `--batchnorm --lr 1e-4 --recorte 128 --aux`, 3 semillas × 5 folds; ficheros
+`bn_normal_c128_aux_lr0.0001_*`. Se registra en cada época el AUC de HR y HER2 en validación (si la red "ve" el subtipo).
+**REGLA FIJADA ANTES DE VER RESULTADOS:** la misma: `comparar_semillas.py bn_normal_c128_lr0.0001 bn_normal_c128_aux_lr0.0001`;
+**se cambia el modelo final solo si la diferencia media supera +0,02 y su IC95 excluye el 0.** Si no, experimento complementario.
+Después de este no se lanzan más experimentos de entrenamiento: se pasa al test.
+
+## Medida: promedio con la imagen volteada (TTA) (decidido el 2026-10-22, ANTES de medir)
+
+**Qué:** al predecir, pasar cada corte tal cual y volteado de izquierda a derecha (el recorte central es simétrico) y promediar las
+dos probabilidades de cada modelo antes de la media de semillas. Sin reentrenar. Se mide en validación con los 15 modelos del recorte
+(cada paciente con los 3 modelos de su fold), recalibrando Platt y el umbral equilibrado con el mismo procedimiento.
+**REGLA FIJADA ANTES DE MEDIR:** AUC por paciente en cada fold (promedio de semillas, sin calibrar), TTA frente a sin TTA; se adopta solo
+si la diferencia media es positiva y su IC95 excluye el 0 (no cuesta nada más que el doble de cálculo, así que no se exige margen).
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
