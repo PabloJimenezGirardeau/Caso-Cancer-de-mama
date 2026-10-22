@@ -564,7 +564,8 @@ def main() -> None:
     tiempos, t_inicio = [], time.time()
     with open(ruta["csv"], "w", encoding="utf-8") as f:
         f.write("epoca,perdida_train,perdida_val,auc_train,auc_val,accuracy_val,sensibilidad_val,"
-                "especificidad_val,lr,tiempo_seg,perdida_aux_train,auc_val_hr,auc_val_her2,atencion_dentro_val\n")
+                "especificidad_val,lr,tiempo_seg,perdida_aux_train,auc_val_hr,auc_val_her2,atencion_dentro_val,"
+                "perdida_train_eval\n")
         atencion_historial = []
         for epoca in range(1, args.epocas + 1):
             t0 = time.time()
@@ -574,7 +575,9 @@ def main() -> None:
             perdida_val, res_val, probs_val, probs_aux = medir(modelo, dl_val, validacion, criterio, device, args.umbral)
             auc_aux = (auc_aux_por_paciente(validacion, probs_aux, etiquetas_aux)
                        if probs_aux is not None else [float("nan")] * len(AUXILIARES))
-            _, res_vig, _, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
+            # perdida de los pacientes vigilados de ENTRENAMIENTO medida como la de validacion (modo evaluacion, sin
+            # dropout ni aumentado ni suavizado): la curva de entrenamiento comparable con la de validacion
+            perdida_train_eval, res_vig, _, _ = medir(modelo, dl_vig, vigilados, criterio, device, args.umbral)
             aten_val = atencion_dentro(modelo, dl_val, *cajas_val, device) if args.atencion else float("nan")
             atencion_historial.append(aten_val)
             auc_historial.append(res_val["auc"])
@@ -588,7 +591,7 @@ def main() -> None:
                     f"{res_val['accuracy']:.6f},{res_val['sensibilidad']:.6f},{res_val['especificidad']:.6f},"
                     f"{args.lr:.8f},{dur:.2f},"
                     f"{'' if perdida_aux is None else f'{perdida_aux:.6f}'},{auc_aux[0]:.6f},{auc_aux[1]:.6f},"
-                    f"{aten_val:.6f}\n")
+                    f"{aten_val:.6f},{perdida_train_eval:.6f}\n")
             f.flush()
 
             indice, parar = pa.elegir_epoca(auc_historial, paciencia)
@@ -596,7 +599,8 @@ def main() -> None:
                 guardar(indice)
             marca = (f"  [elegida {elegida + 1}: media movil {pa.suavizar(auc_historial)[elegida]:.3f}]"
                      if elegida is not None else "")
-            print(f"epoca {epoca:3d}/{args.epocas}  perdida train {perdida_train:.4f} val {perdida_val:.4f}  "
+            print(f"epoca {epoca:3d}/{args.epocas}  perdida train {perdida_train:.4f} (medida como val: "
+                  f"{perdida_train_eval:.4f}) val {perdida_val:.4f}  "
                   f"AUC train {res_vig['auc']:.3f} val {res_val['auc']:.3f}  "
                   f"(val: acc {res_val['accuracy']:.3f} sens {res_val['sensibilidad']:.3f} "
                   f"espec {res_val['especificidad']:.3f})"

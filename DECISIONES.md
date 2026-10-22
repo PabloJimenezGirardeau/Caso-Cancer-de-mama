@@ -862,6 +862,10 @@ también tener curvas de pérdida correctas, sin señales negativas. Indicadores
 curvas**: AUC no peor (diferencia media ≥ −0,01) **y** curvas mejores en todo: menos subida, margen no peor (tolerancia 0,002), no
 más sobreentrenados ni más sin aprendizaje que el recorte (que tiene: margen −0,0023, subida +0,051, 0 sobreentrenados, 5 sin
 aprendizaje).
+Además, desde este experimento `entrenar.py` guarda `perdida_train_eval`: la pérdida de los 200 pacientes vigilados de
+entrenamiento medida igual que la de validación (modo evaluación, sin dropout, aumentado ni suavizado). Es la curva de
+entrenamiento comparable con la de validación (la `perdida_train` se mide durante la época, con dropout y aumentado). Solo
+descriptiva: no entra en la regla.
 
 ## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
 

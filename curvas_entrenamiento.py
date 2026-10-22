@@ -40,6 +40,8 @@ def leer(config: str) -> dict:
     with open(ruta, encoding="utf-8") as f:
         filas = list(csv.DictReader(f))
     datos = {c: [float(r[c]) for r in filas] for c in ("epoca", "perdida_train", "perdida_val", "auc_train", "auc_val")}
+    if filas and filas[0].get("perdida_train_eval"):          # registros desde el 2026-10-22
+        datos["perdida_train_eval"] = [float(r["perdida_train_eval"]) for r in filas]
     datos["elegida"] = parada.recorrer(datos["auc_val"])["indice"]
     return datos
 
@@ -111,6 +113,10 @@ def figura_perdida(ruta: Path, prefijo: str | None = None, nombre: str = "modelo
             a.scatter([d["epoca"][i]], [d["perdida_val"][i]], color=graficas.ROJO, edgecolor="black", s=70, zorder=5)
         a.plot(ep_tr, m_tr, color=graficas.AZUL, lw=3.2)
         a.plot(ep_va, m_va, color=graficas.NARANJA, lw=3.2)
+        if all("perdida_train_eval" in d for d in runs):   # entrenamiento medido igual que la validacion
+            ep_ev, m_ev = media_semillas(runs, "perdida_train_eval")
+            a.plot(ep_ev, m_ev, color=graficas.AZUL, lw=2.2, ls=":")
+            m_tr = m_tr + m_ev
         a.axhline(refs[k][0], color=graficas.AZUL, ls="--", lw=1.5, alpha=0.8)
         a.axhline(refs[k][1], color=graficas.NARANJA, ls="--", lw=1.5)
         valores = m_tr + m_va + list(refs[k])
@@ -128,6 +134,8 @@ def figura_perdida(ruta: Path, prefijo: str | None = None, nombre: str = "modelo
     leyenda = axes.ravel()[5]
     leyenda.axis("off")
     elementos = [Line2D([], [], color=graficas.AZUL, lw=3.2, label="entrenamiento, media de las 3 semillas"),
+                 Line2D([], [], color=graficas.AZUL, lw=2.2, ls=":",
+                        label="entrenamiento medido como la validación\n(200 pacientes, sin dropout; si está registrado)"),
                  Line2D([], [], color=graficas.NARANJA, lw=3.2, label="validación, media de las 3 semillas"),
                  Line2D([], [], color=graficas.GRIS, lw=1, alpha=0.6, label="cada semilla (algún pico se sale por arriba)"),
                  Line2D([], [], color=graficas.AZUL, ls="--", lw=1.5, label="sin mirar la imagen (entrenamiento)"),
