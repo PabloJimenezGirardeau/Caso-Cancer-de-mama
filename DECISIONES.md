@@ -905,6 +905,25 @@ distintos). En el portátil (CPU), fold 0, solo 300 pacientes de entrenamiento y
 - La cohorte se reconoce con mucha facilidad: riesgo de atajo. Pero dentro de cada cohorte el AUC de la pCR (0,55-0,60) es parecido
   al global (0,576), así que el modelo no se limita a distinguir hospitales.
 
+## Panel de estabilidad del modelo final (2026-10-22, `diagnostico_estabilidad.py`, `figuras/estabilidad/`)
+
+Solo validación; cada paciente con los 3 modelos de su fold.
+1. **Acuerdo entre semillas** (Spearman por paciente entre dos semillas del mismo fold): media 0,77 (0,60-0,88; el fold 2 el más
+   inestable). Las semillas ordenan a las pacientes de forma parecida.
+2. **Robustez a cambios irrelevantes** (probabilidad calibrada por corte; la dispersión entre pacientes es 0,050):
+   - imagen volteada: cambio medio 0,018 (p95 0,057), Spearman 0,86, 11 % de pacientes cambian de clase;
+   - brillo ×0,9 / ×1,1: cambio medio 0,020 / 0,022, Spearman 0,98 / 0,99, 15 % / 11 % cambian de clase.
+   **Carencia:** un cambio de brillo del 10 % mueve todas las probabilidades en bloque (conserva el orden) en ~0,4 de la
+   dispersión entre pacientes; como el umbral está en la zona densa, 1 de cada 7-9 pacientes cambia de clase. El modelo depende
+   del brillo absoluto (el atajo del escáner) y algo de la orientación. El brillo aleatorio del experimento de regularización
+   ataca justo esto: se medirá también su robustez (descriptivo).
+3. **Coherencia entre cortes de una paciente:** dispersión dentro de la paciente 0,010 frente a 0,050 entre pacientes (cociente
+   0,19): muy coherente.
+4. **Variabilidad:** rango medio entre semillas en un fold 0,030 (máximo 0,045 en el fold 2); desviación entre folds del promedio
+   de semillas 0,013.
+- **TTA con volteo (regla fijada antes):** AUC por fold sin TTA 0,584, con TTA 0,587: +0,003 (IC95 −0,006 a +0,012) → **no se
+  adopta**.
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
