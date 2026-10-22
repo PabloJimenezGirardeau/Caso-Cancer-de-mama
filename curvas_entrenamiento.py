@@ -35,7 +35,9 @@ COLORES_SEMILLA = {"42": graficas.AZUL, "1": graficas.NARANJA, "2": graficas.VER
 
 
 def leer(config: str) -> dict:
-    with open(REFERENCIA / f"{config}_epocas.csv", encoding="utf-8") as f:
+    ruta = next((c / f"{config}_epocas.csv" for c in (RAIZ / "resultados", REFERENCIA)
+                 if (c / f"{config}_epocas.csv").exists()), REFERENCIA / f"{config}_epocas.csv")
+    with open(ruta, encoding="utf-8") as f:
         filas = list(csv.DictReader(f))
     datos = {c: [float(r[c]) for r in filas] for c in ("epoca", "perdida_train", "perdida_val", "auc_train", "auc_val")}
     datos["elegida"] = parada.recorrer(datos["auc_val"])["indice"]
@@ -84,7 +86,7 @@ def media_semillas(runs: list[dict], clave: str) -> tuple[list[float], list[floa
     return runs[0]["epoca"][:n], [sum(d[clave][e] for d in runs) / len(runs) for e in range(n)]
 
 
-def figura_perdida(ruta: Path) -> None:
+def figura_perdida(ruta: Path, prefijo: str | None = None, nombre: str = "modelo final (recorte central 128)") -> None:
     """Solo la perdida del modelo final, un panel grande por fold (rejilla 2x3; el sexto panel es la leyenda).
     Cada panel tiene SU escala, ajustada a las medias de las semillas y a sus lineas de referencia, para que se vea
     la forma de las curvas (los picos de una semilla suelta pueden salirse por arriba); epocas en numeros enteros.
@@ -93,10 +95,10 @@ def figura_perdida(ruta: Path) -> None:
     from matplotlib.lines import Line2D
     from matplotlib.ticker import MaxNLocator
     plt = graficas._plt()
-    prefijo = FAMILIAS["recorte"][0]
+    prefijo = prefijo or FAMILIAS["recorte"][0]
     refs = referencias_por_fold()
     fig, axes = plt.subplots(2, 3, figsize=(20, 11.5), constrained_layout=True)
-    fig.suptitle("Pérdida del modelo final (recorte central 128): 5 folds × 3 semillas",
+    fig.suptitle(f"Pérdida · {nombre}: 5 folds × 3 semillas",
                  fontsize=16, fontweight="bold")
     for k, a in zip(range(5), axes.ravel()):
         runs = [leer(f"{prefijo}{s}_fold{k}") for s in SEMILLAS.values()]
@@ -250,7 +252,16 @@ def figura_comparativa(ref: float, ruta: Path) -> None:
 
 
 def main() -> None:
+    import argparse
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--familia", help="solo la figura de perdida de esta familia (prefijo sin _s1/_s2 ni _fold<k>), "
+                                     "p. ej. bn_normal_brillo_ls0.1_wd0.5_c128_lr0.0001; lee resultados/ y referencia/")
+    args = p.parse_args()
     SALIDA.mkdir(parents=True, exist_ok=True)
+    if args.familia:
+        figura_perdida(SALIDA / f"perdida_{args.familia}.png", args.familia, args.familia)
+        print(f"Figura en {SALIDA / f'perdida_{args.familia}.png'}")
+        return
     ref = perdida_sin_imagen()
     for clave, (prefijo, nombre) in FAMILIAS.items():
         figura_folds(prefijo, nombre, ref, SALIDA / f"{clave}_folds.png")
