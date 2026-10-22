@@ -117,7 +117,7 @@ def dibujar_curvas_entrenamiento(ruta_csv: Path, ruta_png: Path, titulo: str,
                     label=f"sin mirar la imagen, con las proporciones de entrenamiento ({perdida_ref:.3f})")
     if perdida_ref_val:
         izq.axhline(perdida_ref_val, color=NARANJA, ls=":", lw=1.4, alpha=0.9,
-                    label=f"sin mirar la imagen, con las proporciones de validación ({perdida_ref_val:.3f})")
+                    label=f"sin mirar la imagen, evaluado en validación ({perdida_ref_val:.3f})")
     izq.set_title("Pérdida", fontsize=12)
     izq.set_ylabel("pérdida", fontsize=11)
 

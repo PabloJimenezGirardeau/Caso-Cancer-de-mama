@@ -171,6 +171,14 @@ def perdida_de_referencia(proporcion_pcr: float, peso_positivos: float) -> float
     return -(a * math.log(p) + b * math.log(1.0 - p))
 
 
+def perdida_de_referencia_validacion(proporcion_train: float, proporcion_val: float, peso_positivos: float) -> float:
+    """La perdida en VALIDACION del modelo sin imagen: la probabilidad constante optima del ENTRENAMIENTO (la unica que
+    puede conocer) evaluada con las etiquetas de validacion. Es la referencia justa para la curva de validacion."""
+    a = peso_positivos * proporcion_train
+    p = a / (a + 1.0 - proporcion_train)
+    return -(peso_positivos * proporcion_val * math.log(p) + (1.0 - proporcion_val) * math.log(1.0 - p))
+
+
 def por_paciente(filas, probs):
     """(etiqueta, probabilidad media) de cada paciente, en el mismo orden."""
     agregado = uc.agregar_por_paciente(filas.patient_id.values, probs, "mean")
@@ -518,7 +526,8 @@ def main() -> None:
         criterio = nn.BCEWithLogitsLoss()
     proporcion = float((entrenamiento.pCR == 1).mean())
     referencia = perdida_de_referencia(proporcion, peso)
-    referencia_val = perdida_de_referencia(float((validacion.pCR == 1).mean()), peso)   # con la proporcion de la VALIDACION
+    # validacion: la constante del entrenamiento evaluada con las etiquetas de validacion (corregido el 2026-10-22)
+    referencia_val = perdida_de_referencia_validacion(proporcion, float((validacion.pCR == 1).mean()), peso)
     print(f"perdida {args.perdida}" + (f" (pos_weight = {peso:.4f})" if args.perdida == "ponderada" else "") +
           f"; proporcion de cortes con pCR=1: {proporcion:.3f}; "
           f"mejor perdida sin mirar la imagen: {referencia:.4f} (entrenamiento), {referencia_val:.4f} (validacion)")

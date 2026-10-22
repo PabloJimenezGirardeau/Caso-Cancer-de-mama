@@ -55,8 +55,12 @@ def perdida_sin_imagen() -> float:
 
 
 def referencias_por_fold() -> dict[int, tuple[float, float]]:
-    """Para cada fold k: (perdida sin mirar la imagen en su ENTRENAMIENTO, en su VALIDACION). Es la entropia de la
-    proporcion de pCR de esos cortes (calculada desde samples.csv): cada fold de validacion tiene su proporcion."""
+    """Para cada fold k: (perdida sin mirar la imagen en su ENTRENAMIENTO, en su VALIDACION), calculadas desde samples.csv.
+
+    Un modelo que no mira la imagen solo puede decir a todos los cortes la proporcion de pCR que ha visto: la de SU
+    entrenamiento, p. En entrenamiento su perdida es la entropia de p. En validacion es la entropia cruzada de las
+    etiquetas de validacion con ese mismo p (corregido el 2026-10-22: antes se usaba la proporcion de la propia
+    validacion, que el modelo no puede conocer, y la linea quedaba demasiado baja en los folds 2 y 3)."""
     for base in (RAIZ, RAIZ / "breastdcedl"):
         ruta = base / "metadata" / "samples.csv"
         if ruta.exists():
@@ -65,12 +69,12 @@ def referencias_por_fold() -> dict[int, tuple[float, float]]:
             break
     else:
         raise FileNotFoundError("No encuentro metadata/samples.csv")
-    entropia = lambda p: -(p * math.log(p) + (1 - p) * math.log(1 - p))
+    cruzada = lambda q, p: -(q * math.log(p) + (1 - q) * math.log(1 - p))   # etiquetas con proporcion q, prediccion p
     salida = {}
     for k in range(5):
-        tr = [y for f, y in filas if f != k]
-        va = [y for f, y in filas if f == k]
-        salida[k] = (entropia(sum(tr) / len(tr)), entropia(sum(va) / len(va)))
+        p_tr = sum(y for f, y in filas if f != k) / sum(1 for f, _ in filas if f != k)
+        q_va = sum(y for f, y in filas if f == k) / sum(1 for f, _ in filas if f == k)
+        salida[k] = (cruzada(p_tr, p_tr), cruzada(q_va, p_tr))
     return salida
 
 
@@ -195,7 +199,7 @@ def figura_modelo_final(ref: float, ruta: Path) -> None:
                    label="validación (media)")
             a.grid(alpha=0.3)
         ax[0, k].axhline(refs[k][1], color=graficas.NARANJA, ls="--", lw=1.4,
-                         label="sin mirar la imagen (proporción de pCR de cada fold de validación)")
+                         label="sin mirar la imagen (proporción de pCR del entrenamiento, evaluada en validación)")
         ax[1, k].axhline(0.5, color=graficas.GRIS, ls=":", lw=1.5, label="azar (0,5)")
         ax[0, k].set_title(f"fold {k}\nAUC entrenamiento − validación\nen la época elegida: "
                            f"{sum(separaciones) / 3:+.3f}", fontsize=12)

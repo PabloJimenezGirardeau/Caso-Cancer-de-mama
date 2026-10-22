@@ -852,6 +852,28 @@ bn_normal_brillo_ls0.1_wd0.5_c128_lr0.0001`; se cambia el modelo final solo si l
 el 0. Además se compararán (descriptivo) las curvas de pérdida, los modelos sobreentrenados y "sin aprendizaje" y la diferencia
 entrenamiento − validación. Con este se cierran los experimentos de entrenamiento.
 
+**AMPLIACIÓN DE LA REGLA (2026-10-22, decisión del usuario, ANTES de lanzar este experimento):** el objetivo ya no es solo el AUC;
+también tener curvas de pérdida correctas, sin señales negativas. Indicadores fijados ahora (`comparar_semillas.py`, media de los
+15 modelos; referencia sin imagen = la justa, ver abajo):
+- **margen** = referencia sin imagen − pérdida de validación en la época elegida (> 0: el modelo aporta algo);
+- **subida** = media de la pérdida de validación en las épocas tras la elegida − la de la elegida (cuánto se dispara);
+- modelos **sobreentrenados** y **sin aprendizaje**; diferencia de AUC entrenamiento − validación.
+**El candidato sustituye al modelo actual si se cumple cualquiera de las dos reglas:** (1) la del AUC (arriba); o (2) **la de las
+curvas**: AUC no peor (diferencia media ≥ −0,01) **y** curvas mejores en todo: menos subida, margen no peor (tolerancia 0,002), no
+más sobreentrenados ni más sin aprendizaje que el recorte (que tiene: margen −0,0023, subida +0,051, 0 sobreentrenados, 5 sin
+aprendizaje).
+
+## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
+
+- La línea de validación usaba la entropía de la proporción de pCR de la **propia validación**, que el modelo no puede conocer. La
+  referencia justa es la del modelo sin imagen entrenado: la proporción del **entrenamiento** evaluada con las etiquetas de
+  validación. Cambia poco salvo en los folds 2 (0,581 → 0,583) y 3 (0,643 → 0,651). Corregido en `curvas_entrenamiento.py`,
+  `entrenar.py` y `comparar_semillas.py`; figuras regeneradas.
+- Con la referencia justa, las redes sueltas del recorte quedan en la época elegida justo en la referencia (margen medio −0,002; 8
+  de 15 algo por encima): sus probabilidades sin calibrar están desplazadas. **El modelo final (media de 3 semillas + Platt) mejora
+  la referencia en los 5 folds** (pérdida por corte en validación frente a la referencia: 0,599/0,605, 0,595/0,596, 0,569/0,583,
+  0,644/0,651, 0,589/0,597). La calibración se ajustó con estas mismas pacientes (2 parámetros: algo optimista).
+
 ## Medida: promedio con la imagen volteada (TTA) (decidido el 2026-10-22, ANTES de medir)
 
 **Qué:** al predecir, pasar cada corte tal cual y volteado de izquierda a derecha (el recorte central es simétrico) y promediar las
