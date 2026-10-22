@@ -803,6 +803,24 @@ modelo final actual (recorte 128); diferencia emparejada por fold. **Se cambia e
 +0,02 y su IC95 excluye el 0.** Si no, se cuenta como experimento complementario (con los mapas de atención) y el modelo sigue
 siendo el recorte 128. Además se informa de la atención en el tumor (validación) en la época elegida.
 
+### Resultado (2026-10-22; `comparar_semillas.py`)
+
+| Fold | 0 | 1 | 2 | 3 | 4 | Media |
+|---|---|---|---|---|---|---|
+| Recorte 128 (actual) | 0,588 | 0,559 | 0,592 | 0,571 | 0,582 | 0,578 |
+| Atención guiada | 0,600 | 0,610 | 0,572 | 0,581 | 0,587 | 0,590 |
+| Diferencia | +0,011 | +0,051 | −0,020 | +0,009 | +0,006 | **+0,012 (IC95 −0,020 a +0,043)** |
+
+- **Regla: NO se cumple → el modelo final sigue siendo el recorte 128.** Mejora en 4 de 5 folds, pero el IC incluye el 0 y la
+  diferencia varía mucho entre folds.
+- **La atención sí aprendió a mirar el tumor sin la caja:** en la época elegida, el 65 % de la atención cae en las celdas de la caja
+  (de 46 % a 82 %), frente al 16 % de una atención uniforme. Pero mirar mejor el tumor no añade información sobre la pCR en un corte
+  2D: refuerza que el límite es la señal, no dónde mira la red.
+- **Más sobreajuste:** 6 de 15 modelos sobreentrenados (recorte: 0), época elegida media 12,3 (recorte: 5,6), diferencia
+  entrenamiento − validación media +0,142 (recorte: +0,041); 5 de 15 sin aprendizaje (igual). Con la imagen entera varios modelos
+  memorizan del todo (AUC de entrenamiento 1,00) y aun así tienen picos tardíos de validación (épocas 33 y 39), probablemente ruido.
+- Se cuenta en el informe como experimento complementario, con los mapas de atención (`mapas_atencion.py`).
+
 ## Ideas guardadas para probar en el futuro (2026-10-08)
 
 Salen de analizar una propuesta de arquitectura externa. Se probarán **de una en una**, medidas con el AUC del modelo combinado
