@@ -429,6 +429,8 @@ def construir_parser() -> argparse.ArgumentParser:
                    help="tarea auxiliar: predecir tambien HR y HER2 (de patients.csv) durante el entrenamiento")
     p.add_argument("--peso-aux", type=float, default=0.5,
                    help="peso de la perdida auxiliar frente a la de pCR (solo con --aux)")
+    p.add_argument("--cabeza", choices=["normal", "simple"], default="normal",
+                   help="simple: sin la capa intermedia de 64 (dropout + lineal 128 -> 1)")
     p.add_argument("--atencion", action="store_true",
                    help="atencion guiada: media ponderada del mapa final, entrenada para mirar la caja del tumor "
                         "(cajas de patients.csv solo como objetivo de entrenamiento; imagen entera, sin recorte)")
@@ -464,6 +466,7 @@ def main() -> None:
                (f"_c{args.recorte}" if args.recorte else "") +
                ("_realce" if args.realce else "") + ("_aux" if args.aux else "") +
                ("_aten" + (f"{args.peso_atencion:g}" if args.peso_atencion != 1.0 else "") if args.atencion else "") +
+               ("_cs" if args.cabeza == "simple" else "") +
                (f"_lr{args.lr:g}" if args.lr != 3e-4 else "") +
                (f"_s{args.semilla}" if args.semilla != 42 else "") +
                f"_fold{args.fold}" + (f"_prueba{args.muestra_rapida}" if args.muestra_rapida else ""))
@@ -521,7 +524,8 @@ def main() -> None:
     # --- modelo, perdida y optimizador ---
     modelo = mo.RedBase(batchnorm=args.batchnorm, n_auxiliares=len(AUXILIARES) if args.aux else 0,
                         realce=args.realce, filtros=args.filtros, doble=args.doble,
-                        normalizar=args.normalizar, recorte=args.recorte, atencion=args.atencion).to(device)
+                        normalizar=args.normalizar, recorte=args.recorte, atencion=args.atencion,
+                        cabeza=args.cabeza).to(device)
     print(f"red: {'RedBase con BatchNorm' if args.batchnorm else 'RedBase (la de la diapositiva)'}"
           f"{f' estrecha ({args.filtros}-{2 * args.filtros}-{4 * args.filtros}-{8 * args.filtros})' if args.filtros != 16 else ''}"
           f"{' conv+conv' if args.doble else ''}{' + normalizacion por corte' if args.normalizar else ''}"
@@ -563,7 +567,7 @@ def main() -> None:
         elegida, elegida_probs = indice, probs
         torch.save({"red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "aux": args.aux,
                     "filtros": args.filtros, "doble": args.doble, "normalizar": args.normalizar,
-                    "recorte": args.recorte, "atencion": args.atencion,
+                    "recorte": args.recorte, "atencion": args.atencion, "cabeza": args.cabeza,
                     "perdida": args.perdida, "fold": args.fold, "epoca": indice + 1,
                     "auc_val": auc_historial[indice], "lr": args.lr, "lote": args.lote,
                     "state_dict": pesos}, ruta["pesos"])
@@ -646,6 +650,7 @@ def main() -> None:
               + (" · conv+conv" if args.doble else "") + (" · normalización por corte" if args.normalizar else "")
               + (f" · recorte central {args.recorte}" if args.recorte else "")
               + (" · atención guiada" if args.atencion else "")
+              + (" · cabeza simple" if args.cabeza == "simple" else "")
               + (" · realce y lavado" if args.realce else "")
               + (f" · lr {args.lr:g}" if args.lr != 3e-4 else "")
               + (" · tarea auxiliar HR/HER2" if args.aux else "") + f" · fold {args.fold}")
@@ -669,6 +674,7 @@ def main() -> None:
         "red": "RedBase", "batchnorm": args.batchnorm, "realce": args.realce, "filtros": args.filtros,
         "doble": args.doble, "normalizar": args.normalizar, "recorte": args.recorte,
         "atencion": args.atencion, "peso_atencion": args.peso_atencion if args.atencion else None,
+        "cabeza": args.cabeza,
         "atencion_dentro_val_elegida": atencion_historial[elegida] if args.atencion else None,
         "parametros": mo.contar_parametros(modelo), "perdida": args.perdida,
         "aumentado": args.aumentado, "suavizado": args.suavizado, "weight_decay": args.weight_decay,

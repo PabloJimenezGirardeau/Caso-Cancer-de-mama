@@ -895,6 +895,24 @@ entero y saltó los terminados.)
   validación casi en la referencia) es propio de la poca señal: con un objetivo visible, el mismo código da curvas que bajan juntas
   (control positivo).
 
+## Experimentos: cabeza simple y tasa de aprendizaje más baja (decididos el 2026-10-23, ANTES de ver resultados)
+
+**Motivo (decisión del usuario):** buscar curvas que se separen más tarde y bajen suaves juntas hasta entonces. Al analizar las
+gráficas de un compañero se vio que sus curvas no son mejores (escala 0,3-0,9; su validación nunca baja de la referencia sin
+imagen), pero su red tiene una cabeza más simple (128 → 1, sin la capa de 64): menos sitio para memorizar en la parte que decide,
+sin tocar las convoluciones. Y una tasa de aprendizaje más baja da pasos más pequeños (curvas más suaves, separación más tarde);
+al bajarla de 3e-4 a 1e-4 ya mejoró algo.
+**Tres experimentos sobre el recorte 128** (3 semillas × 5 folds cada uno; `--cabeza simple`: dropout 0,5 + lineal 128 → 1,
+97.809 parámetros):
+- **A** (el principal): `--cabeza simple --lr 3e-5` → `bn_normal_c128_cs_lr3e-05_*`
+- **B** (solo la cabeza): `--cabeza simple --lr 1e-4` → `bn_normal_c128_cs_lr0.0001_*`
+- **C** (solo la tasa): `--lr 3e-5` → `bn_normal_c128_lr3e-05_*`
+**REGLA FIJADA ANTES DE VER RESULTADOS:** cada uno frente al recorte 128 con `comparar_semillas.py` y las dos reglas (la del AUC:
+> +0,02 con IC95 que excluye el 0; la de las curvas: AUC ≥ −0,01 y curvas mejores en todo). Si cumplen varios, se elige el de mayor
+AUC medio por fold (a igualdad, el de menos sobreentrenados). Si no cumple ninguno, el modelo final sigue siendo el recorte 128.
+Al comparar tres candidatos con la misma validación aumenta la probabilidad de un ganador por suerte: se tendrá en cuenta al leer
+los resultados. Son los últimos experimentos de entrenamiento.
+
 ## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
 
 - La línea de validación usaba la entropía de la proporción de pCR de la **propia validación**, que el modelo no puede conocer. La

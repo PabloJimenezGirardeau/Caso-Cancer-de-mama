@@ -143,7 +143,7 @@ class ModeloFinal:
                 red = mo.RedBase(batchnorm=ck.get("batchnorm", False), realce=ck.get("realce", False),
                                  filtros=ck.get("filtros", 16), doble=ck.get("doble", False),
                                  normalizar=ck.get("normalizar", False), recorte=ck.get("recorte", 0),
-                                 atencion=ck.get("atencion", False))
+                                 atencion=ck.get("atencion", False), cabeza=ck.get("cabeza", "normal"))
                 red.load_state_dict(ck["state_dict"])
                 red.to(self.dispositivo).eval()
                 self.redes.append(red)

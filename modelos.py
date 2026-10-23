@@ -106,6 +106,10 @@ class RedBase(nn.Module):
                        Se usa con la imagen entera (sin recorte), asi puede encontrar tambien los tumores que no
                        estan en el centro.
 
+    cabeza="simple" -> sin la capa intermedia de 64: dropout y una lineal 128 -> 1 (97.809 parametros con BatchNorm,
+                       8.192 menos). Las convoluciones no cambian; se quita la parte donde es mas facil memorizar
+                       combinaciones de rasgos propias de cada paciente.
+
     n_auxiliares > 0 -> anade una cabeza auxiliar (una capa lineal 8*filtros -> n_auxiliares) que,
                        a partir de las mismas caracteristicas, predice otras etiquetas
                        (el subtipo del tumor: HR y HER2). SOLO se usa durante el entrenamiento
@@ -116,8 +120,9 @@ class RedBase(nn.Module):
 
     def __init__(self, dropout: float = 0.5, batchnorm: bool = False, n_auxiliares: int = 0,
                  realce: bool = False, filtros: int = 16, doble: bool = False, normalizar: bool = False,
-                 recorte: int = 0, atencion: bool = False):
+                 recorte: int = 0, atencion: bool = False, cabeza: str = "normal"):
         super().__init__()
+        self.tipo_cabeza = cabeza
         self.n_auxiliares = n_auxiliares
         self.atencion = atencion
         self.realce = realce
@@ -130,12 +135,18 @@ class RedBase(nn.Module):
             bloque(2 * f, 4 * f, batchnorm, d),   # 32 @ 64x64   ->  64 @  32x32
             bloque(4 * f, 8 * f, batchnorm, d),   # 64 @ 32x32   -> 128 @  16x16
         )
-        self.cabeza = nn.Sequential(
-            nn.Linear(8 * f, 64),   # cada una de las 64 neuronas mira los 128 numeros (8 x filtros)
-            nn.ReLU(),              # decision nuestra: la diapositiva no la indica
-            nn.Dropout(dropout),    # durante entrenar apaga al azar el 50 % de las 64
-            nn.Linear(64, 1),       # un unico logit
-        )
+        if cabeza == "simple":      # cabeza simple: sin la capa intermedia de 64 (menos sitio para memorizar)
+            self.cabeza = nn.Sequential(
+                nn.Dropout(dropout),    # apaga al azar el 50 % de los 128 numeros al entrenar
+                nn.Linear(8 * f, 1),    # un unico logit directamente de los 128 numeros (129 parametros)
+            )
+        else:
+            self.cabeza = nn.Sequential(
+                nn.Linear(8 * f, 64),   # cada una de las 64 neuronas mira los 128 numeros (8 x filtros)
+                nn.ReLU(),              # decision nuestra: la diapositiva no la indica
+                nn.Dropout(dropout),    # durante entrenar apaga al azar el 50 % de las 64
+                nn.Linear(64, 1),       # un unico logit
+            )
         # cabeza auxiliar (solo entrenamiento): mismas 128 caracteristicas -> HR, HER2
         self.cabeza_aux = nn.Linear(8 * f, n_auxiliares) if n_auxiliares else None
         # atencion guiada: una puntuacion por punto del mapa final (128 @ 16x16 -> 1 @ 16x16)
@@ -251,3 +262,6 @@ if __name__ == "__main__":
         logit, puntos = red_aten.eval().forward_atencion(torch.rand(2, 3, 256, 256))
     assert logit.shape == (2,) and puntos.shape == (2, 16, 16)
     print("OK: atencion guiada, 106.130 parametros (+129 de la convolucion 1x1); mapa de atencion de 16x16.")
+    total_simple = contar_parametros(RedBase(batchnorm=True, recorte=128, cabeza="simple"))
+    assert total_simple == 97_809, f"la cabeza simple deberia dejar 97.809 parametros y deja {total_simple:,}"
+    print("OK: cabeza simple (dropout + lineal 128 -> 1), 97.809 parametros (-8.192 de la capa intermedia).")
