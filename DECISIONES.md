@@ -877,6 +877,24 @@ entrenamiento medida igual que la de validación (modo evaluación, sin dropout,
 entrenamiento comparable con la de validación (la `perdida_train` se mide durante la época, con dropout y aumentado). Solo
 descriptiva: no entra en la regla.
 
+### Resultado de la regularización (2026-10-23)
+
+(Durante el entrenamiento la GPU del PC se colgó en el fold 3 de la semilla 42; se relanzó el mismo comando, que repitió ese fold
+entero y saltó los terminados.)
+
+- AUC por fold (media de 3 semillas): recorte 0,578, regularizado 0,574: **−0,004 (IC95 −0,016 a +0,008)**, mejor en 1 de 5
+  folds → la regla del AUC no se cumple.
+- Curvas: subida tras la elegida +0,037 (recorte +0,051, mejor), pero margen −0,0135 (−0,0023, peor), **5 sobreentrenados (0)**,
+  5 sin aprendizaje (5), diferencia de AUC entrenamiento − validación +0,070 (+0,041) → **la regla de las curvas no se cumple**.
+- En la figura (`figuras/entrenamiento/perdida_bn_normal_brillo_ls0.1_wd0.5_c128_lr0.0001.png`) la pérdida de validación sigue
+  con picos (hasta 0,8 en el fold 1) y la de entrenamiento medida como la validación (línea de puntos, folds 3 y 4) va junto a la de
+  entrenamiento: la separación es real, no un efecto del dropout o el aumentado. El suavizado de etiquetas, además, desplaza un poco
+  las probabilidades (la constante óptima pasa de 0,29 a ~0,31) y empeora el margen.
+- **El modelo final sigue siendo el recorte 128.** Con este se cierran los experimentos de entrenamiento: ni la atención, ni el
+  subtipo auxiliar, ni la regularización mejoran el AUC ni las curvas. El comportamiento de las curvas (separación temprana,
+  validación casi en la referencia) es propio de la poca señal: con un objetivo visible, el mismo código da curvas que bajan juntas
+  (control positivo).
+
 ## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
 
 - La línea de validación usaba la entropía de la proporción de pCR de la **propia validación**, que el modelo no puede conocer. La
