@@ -28,8 +28,9 @@ import parada
 RAIZ = Path(__file__).resolve().parent
 REFERENCIA = RAIZ / "referencia"
 SALIDA = RAIZ / "figuras" / "entrenamiento"
-FAMILIAS = {"recorte": ("bn_normal_c128_lr0.0001", "recorte 128 (modelo final)"),
+FAMILIAS = {"recorte": ("bn_normal_c128_lr0.0001", "recorte 128, lr 1e-4 (modelo final anterior)"),
             "v21": ("bn_normal_lr0.0001", "2.1 (sin recorte)")}
+FINAL = ("bn_normal_c128_lr3e-05", "modelo final: recorte 128, lr 3e-5")   # decidido el 2026-10-24
 SEMILLAS = {"42": "", "1": "_s1", "2": "_s2"}
 COLORES_SEMILLA = {"42": graficas.AZUL, "1": graficas.NARANJA, "2": graficas.VERDE}
 
@@ -90,7 +91,7 @@ def media_semillas(runs: list[dict], clave: str) -> tuple[list[float], list[floa
     return runs[0]["epoca"][:n], [sum(d[clave][e] for d in runs) / len(runs) for e in range(n)]
 
 
-def figura_perdida(ruta: Path, prefijo: str | None = None, nombre: str = "modelo final (recorte central 128)") -> None:
+def figura_perdida(ruta: Path, prefijo: str | None = None, nombre: str = FINAL[1]) -> None:
     """Solo la perdida del modelo final, un panel grande por fold (rejilla 2x3; el sexto panel es la leyenda).
     Cada panel tiene SU escala, ajustada a las medias de las semillas y a sus lineas de referencia, para que se vea
     la forma de las curvas (los picos de una semilla suelta pueden salirse por arriba); epocas en numeros enteros.
@@ -99,7 +100,7 @@ def figura_perdida(ruta: Path, prefijo: str | None = None, nombre: str = "modelo
     from matplotlib.lines import Line2D
     from matplotlib.ticker import MaxNLocator
     plt = graficas._plt()
-    prefijo = prefijo or FAMILIAS["recorte"][0]
+    prefijo = prefijo or FINAL[0]
     refs = referencias_por_fold()
     fig, axes = plt.subplots(2, 3, figsize=(20, 11.5), constrained_layout=True)
     fig.suptitle(f"Pérdida · {nombre}: 5 folds × 3 semillas",
@@ -183,7 +184,7 @@ def figura_modelo_final(ref: float, ruta: Path) -> None:
     """La figura para enseñar: modelo final, una columna por fold, perdida arriba y AUC abajo. Lineas finas: cada
     semilla; linea gruesa: media de las 3 semillas en las epocas que entrenaron las tres; puntos: epoca elegida."""
     plt = graficas._plt()
-    prefijo = FAMILIAS["recorte"][0]
+    prefijo = FINAL[0]
     refs = referencias_por_fold()
     todos = {k: [leer(f"{prefijo}{s}_fold{k}") for s in SEMILLAS.values()] for k in range(5)}
     medias = [v for k in range(5) for c in ("perdida_train", "perdida_val") for v in media_semillas(todos[k], c)[1]]
