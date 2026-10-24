@@ -151,6 +151,57 @@ def figura_perdida(ruta: Path, prefijo: str | None = None, nombre: str = FINAL[1
     plt.close(fig)
 
 
+def figura_normal_ponderada(ruta: Path) -> None:
+    """Perdida normal (2.1, bn_normal_lr0.0001) frente a ponderada (3.1, bn_ponderada_lr0.0001), semilla 42, 5 folds; cada
+    panel con su escala. La ponderada multiplica por pos_weight = N0/N1 (~2,4) el error en las pCR, asi que sus valores son
+    mas altos y NO se comparan los niveles entre filas, sino la forma; cada fila lleva su propia referencia sin imagen."""
+    from matplotlib.ticker import MaxNLocator
+    plt = graficas._plt()
+    for base in (RAIZ, RAIZ / "breastdcedl"):
+        if (base / "metadata" / "samples.csv").exists():
+            with open(base / "metadata" / "samples.csv", encoding="utf-8") as f:
+                filas = [(int(r["fold"]), int(r["pCR"])) for r in csv.DictReader(f) if int(r["fold"]) >= 0]
+            break
+
+    def referencias(k: int, ponderada: bool) -> tuple[float, float]:
+        tr = [y for f, y in filas if f != k]
+        q_tr, q_va = sum(tr) / len(tr), sum(y for f, y in filas if f == k) / sum(1 for f, _ in filas if f == k)
+        peso = (len(tr) - sum(tr)) / sum(tr) if ponderada else 1.0
+        p = peso * q_tr / (peso * q_tr + 1 - q_tr)                 # constante optima del entrenamiento
+        h = lambda q: -(peso * q * math.log(p) + (1 - q) * math.log(1 - p))
+        return h(q_tr), h(q_va)
+
+    fig, ax = plt.subplots(2, 5, figsize=(25, 9.5), constrained_layout=True)
+    fig.suptitle("Pérdida normal (arriba) frente a ponderada (abajo) · BatchNorm, lr 1e-4, imagen entera, semilla 42\n"
+                 "cada panel con su escala; la ponderada multiplica por ~2,4 el error en las pCR, así que sus valores son más "
+                 "altos: compara la forma, no el nivel", fontsize=14, fontweight="bold")
+    for fila, (prefijo, nombre, pond) in enumerate((("bn_normal_lr0.0001", "normal", False),
+                                                     ("bn_ponderada_lr0.0001", "ponderada", True))):
+        for k in range(5):
+            d = leer(f"{prefijo}_fold{k}")
+            a, i = ax[fila, k], d["elegida"]
+            r_tr, r_va = referencias(k, pond)
+            a.plot(d["epoca"], d["perdida_train"], color=graficas.AZUL, lw=2.4, label="entrenamiento")
+            a.plot(d["epoca"], d["perdida_val"], color=graficas.NARANJA, lw=2.4, label="validación")
+            a.scatter([d["epoca"][i]], [d["perdida_val"][i]], color=graficas.ROJO, edgecolor="black", s=70, zorder=5,
+                      label="época elegida")
+            a.axhline(r_tr, color=graficas.AZUL, ls="--", lw=1.3, alpha=0.8, label="sin mirar la imagen (entrenamiento)")
+            a.axhline(r_va, color=graficas.NARANJA, ls="--", lw=1.3, label="sin mirar la imagen (validación)")
+            vals = sorted(d["perdida_train"] + d["perdida_val"])
+            lo, hi = min(vals + [r_tr, r_va]), vals[int(0.9 * (len(vals) - 1))]      # el 10 % mas alto se puede salir
+            hi = max(hi, r_tr, r_va)
+            m = 0.08 * (hi - lo)
+            a.set_ylim(lo - m, hi + m)
+            a.xaxis.set_major_locator(MaxNLocator(integer=True))
+            a.set_title(f"{nombre} · fold {k} · época elegida {d['epoca'][i]:.0f}", fontsize=12)
+            a.set_xlabel("época")
+            a.grid(alpha=0.3)
+        ax[fila, 0].set_ylabel(f"pérdida {nombre}", fontsize=12)
+    ax[0, 0].legend(fontsize=8.5, loc="upper left")
+    fig.savefig(ruta, dpi=110, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 def figura_folds(prefijo: str, nombre: str, ref: float, ruta: Path) -> None:
     plt = graficas._plt()
     fig, ax = plt.subplots(2, 5, figsize=(24, 9), constrained_layout=True, sharey="row")
@@ -279,6 +330,7 @@ def main() -> None:
     figura_comparativa(ref, SALIDA / "comparativa.png")
     figura_modelo_final(ref, SALIDA / "modelo_final.png")
     figura_perdida(SALIDA / "perdida_modelo_final.png")
+    figura_normal_ponderada(SALIDA / "normal_frente_a_ponderada.png")
     print(f"Figuras en {SALIDA}")
 
 
