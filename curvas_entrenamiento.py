@@ -151,6 +151,62 @@ def figura_perdida(ruta: Path, prefijo: str | None = None, nombre: str = FINAL[1
     plt.close(fig)
 
 
+def figura_unificada(ruta: Path, prefijo: str | None = None, nombre: str = FINAL[1], minimo: int = 5) -> None:
+    """Las 15 ejecuciones (5 folds x 3 semillas) superpuestas en una sola grafica.
+
+    Izquierda: la perdida tal cual (cada fold tiene su nivel, porque su proporcion de pCR es distinta).
+    Derecha: UNIFICADA, la perdida menos su referencia sin imagen (la de su fold): 0 = lo mismo que no mirar la imagen,
+    por debajo de 0 = el modelo aporta. Asi los 15 modelos quedan en la misma escala. Entrenamiento medido como la
+    validacion (si esta registrado). Lineas finas: cada ejecucion; gruesas: la media de las que siguen entrenando en cada
+    epoca (se corta cuando quedan menos de `minimo`); puntos: epoca elegida."""
+    plt = graficas._plt()
+    prefijo = prefijo or FINAL[0]
+    refs = referencias_por_fold()
+    runs = [(k, leer(f"{prefijo}{s}_fold{k}")) for k in range(5) for s in SEMILLAS.values()]
+    clave_tr = "perdida_train_eval" if all("perdida_train_eval" in d for _, d in runs) else "perdida_train"
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(16, 6.2), constrained_layout=True)
+    fig.suptitle(f"Las 15 curvas de pérdida superpuestas · {nombre} (5 folds × 3 semillas)", fontsize=14, fontweight="bold")
+    for ax, unificar in ((a1, False), (a2, True)):
+        series = {"tr": [], "va": []}
+        for k, d in runs:
+            r_tr, r_va = refs[k] if unificar else (0.0, 0.0)
+            tr = [v - r_tr for v in d[clave_tr]]
+            va = [v - r_va for v in d["perdida_val"]]
+            ax.plot(d["epoca"], tr, color=graficas.AZUL, lw=0.8, alpha=0.25)
+            ax.plot(d["epoca"], va, color=graficas.NARANJA, lw=0.8, alpha=0.25)
+            i = d["elegida"]
+            ax.scatter([d["epoca"][i]], [va[i]], color=graficas.ROJO, edgecolor="black", s=28, zorder=5)
+            series["tr"].append(tr); series["va"].append(va)
+        for clave, color, texto in (("tr", graficas.AZUL, "entrenamiento" + (" (medido como la validación)"
+                                                                           if clave_tr == "perdida_train_eval" else "")),
+                                    ("va", graficas.NARANJA, "validación")):
+            largo = max(len(s) for s in series[clave])
+            medias = []
+            for e in range(largo):
+                vals = [s[e] for s in series[clave] if len(s) > e]
+                if len(vals) < minimo:
+                    break
+                medias.append(sum(vals) / len(vals))
+            ax.plot(range(1, len(medias) + 1), medias, color=color, lw=3, label=f"{texto}, media")
+        if unificar:
+            ax.axhline(0, color=graficas.GRIS, ls="--", lw=1.5, label="sin mirar la imagen (referencia de cada fold)")
+            ax.set(ylabel="pérdida − referencia sin imagen  (< 0: el modelo aporta)",
+                   title="Unificada: cada curva respecto a la referencia de su fold")
+        else:
+            ax.set(ylabel="pérdida (entropía cruzada) por corte", title="Tal cual (cada fold tiene su nivel)")
+        todos = [v for s in series["tr"] + series["va"] for v in s]
+        todos.sort()
+        lo, hi = todos[int(0.01 * len(todos))], todos[int(0.97 * len(todos))]
+        m = 0.08 * (hi - lo)
+        ax.set_ylim(lo - m, hi + m)
+        ax.set_xlabel("época")
+        ax.grid(alpha=0.3)
+        ax.scatter([], [], color=graficas.ROJO, edgecolor="black", s=28, label="época elegida")
+        ax.legend(fontsize=9, loc="upper right")
+    fig.savefig(ruta, dpi=110, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 def figura_un_fold(config: str, ruta: Path, titulo: str) -> None:
     """Un solo modelo (una semilla, un fold), en el formato de presentacion: a la izquierda la perdida de entrenamiento
     MEDIDA COMO LA VALIDACION (pacientes vigilados, modo evaluacion, clases pesadas como en el entrenamiento) y la de
@@ -370,6 +426,7 @@ def main() -> None:
         figura_un_fold(f"{FINAL[0]}_fold{k}", SALIDA / f"final_fold{k}.png",
                        f"Fold {k} · {FINAL[1]} (semilla 42) · validación interna")
     figura_perdida(SALIDA / "final_perdida_3_semillas.png")
+    figura_unificada(SALIDA / "final_todas_superpuestas.png")
     ref = perdida_sin_imagen()
     figura_modelo_final(ref, SALIDA / "final_perdida_y_auc_3_semillas.png")
     # --- experimentos y comparaciones ---
