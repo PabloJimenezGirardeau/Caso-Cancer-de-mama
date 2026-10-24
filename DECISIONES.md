@@ -913,6 +913,34 @@ AUC medio por fold (a igualdad, el de menos sobreentrenados). Si no cumple ningu
 Al comparar tres candidatos con la misma validación aumenta la probabilidad de un ganador por suerte: se tendrá en cuenta al leer
 los resultados. Son los últimos experimentos de entrenamiento.
 
+### Resultados de A, B y C (2026-10-24)
+
+| | AUC (media por fold) | Margen | Subida | Mayor subida | Sobreentrenados | Sin aprendizaje | AUC train − val |
+|---|---|---|---|---|---|---|---|
+| Recorte 128 (actual) | 0,578 | −0,002 | +0,051 | +0,30 | 0 | 5 | +0,041 |
+| A: cabeza simple + lr 3e-5 | 0,574 (−0,004; IC −0,014 a +0,006) | −0,021 | −0,009 | +0,08 | 1 | 5 | +0,019 |
+| B: cabeza simple | 0,587 (+0,009; IC −0,004 a +0,021) | −0,026 | +0,043 | +0,39 | 3 | 3 | +0,090 |
+| C: lr 3e-5 | 0,580 (+0,002; IC −0,004 a +0,007) | +0,000 | +0,005 | +0,07 | 1 | 10 | +0,004 |
+
+- **Ninguno cumple la regla.** B: más AUC pero no significativo y peores curvas. A: curvas suaves pero peor margen (varios
+  modelos elegidos en la época 1, con pérdida 0,66). C: las mejores curvas con el mismo AUC, pero 10 de 15 "sin aprendizaje" y 1
+  sobreentrenado.
+- **La cabeza simple empeora el margen** (A y B): las redes sueltas quedan peor calibradas. **La tasa baja quita los picos** de la
+  pérdida de validación (A y C).
+
+### DECISIÓN (2026-10-24, ANTES del test): el modelo final pasa a ser C (recorte 128, lr 3e-5)
+
+Decisión del usuario, **desviándose de forma explícita de la regla** (segunda vez, tras la del recorte). Motivos:
+1. Mismo AUC (0,580 frente a 0,578): la decisión no se toma por rendimiento, así que no infla lo que se espera del test.
+2. Cumple el objetivo fijado por el usuario para las curvas: la pérdida de validación ya no se dispara (subida +0,005 frente a
+   +0,051; mayor subida 0,07 frente a 0,30), queda en o por debajo de la referencia sin imagen (margen +0,000 frente a −0,002) y
+   entrenamiento y validación van juntos (diferencia de AUC 0,004 frente a 0,041).
+3. Falla en el contador "sin aprendizaje" (10 de 15), que se definió para detectar modelos elegidos en la época 1 por suerte. En C la
+   época elegida media es 10,6: el contador refleja un aprendizaje lento que generaliza igual (AUC de entrenamiento casi igual al de
+   validación), no elecciones al azar. Y 1 sobreentrenado frente a 0.
+Se contará así en el informe. **Cómo queda:** `modelo/` = C (15 modelos `bn_normal_c128_lr3e-05[_s1|_s2]_fold*`, con su
+calibración y su umbral equilibrado recalculados con `umbral.py`); el recorte con lr 1e-4 pasa a `modelo_c128/` como comparación.
+
 ## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
 
 - La línea de validación usaba la entropía de la proporción de pCR de la **propia validación**, que el modelo no puede conocer. La
