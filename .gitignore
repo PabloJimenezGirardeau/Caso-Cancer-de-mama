@@ -228,3 +228,6 @@ presentacion_caso.pdf
 
 # Resultados de los entrenamientos: se generan en cada ordenador
 resultados/
+
+# Datos del caso (imagenes y metadatos descargados): nunca al repositorio
+breastdcedl/

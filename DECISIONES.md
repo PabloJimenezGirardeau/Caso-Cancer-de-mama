@@ -941,6 +941,21 @@ Decisión del usuario, **desviándose de forma explícita de la regla** (segunda
 Se contará así en el informe. **Cómo queda:** `modelo/` = C (15 modelos `bn_normal_c128_lr3e-05[_s1|_s2]_fold*`, con su
 calibración y su umbral equilibrado recalculados con `umbral.py`); el recorte con lr 1e-4 pasa a `modelo_c128/` como comparación.
 
+### El modelo final C montado y su estabilidad (2026-10-24)
+
+- `umbral.py` (3 semillas juntas): AUC por fold 0,586 (anterior 0,584); todas las pacientes 0,573 (IC95 0,534-0,609; anterior
+  0,576); AP 0,342; Brier 0,2051 (referencia 0,2074); Platt a = 0,610, b = −0,377. **Umbral equilibrado 0,316**: sensibilidad 41 %,
+  especificidad 70 %, precisión 36 %; precisión, recall y F1 medios 0,55. Por fold, sensibilidad 0,31-0,52. Desescalar: 0,361.
+  `predecir.py --verificar 20`: 5,6·10⁻⁷ → OK. Un solo corte: AUC 0,571, sensibilidad 40 %, especificidad 70 %.
+- **Panel de estabilidad** (`figuras/estabilidad/`): acuerdo entre semillas 0,82 (anterior 0,77); rango de AUC entre semillas 0,020
+  (0,030); coherencia entre cortes 0,19 (igual). **Robustez:** volteo 9,9 % de pacientes cambian de clase (11 %); brillo ×0,9 16 %
+  (15 %), ×1,1 13,5 % (11 %). TTA con volteo: +0,003 (IC −0,006 a +0,012) → no se adopta.
+- **Sensibilidad al brillo (limitación):** el brillo desplaza todas las probabilidades en bloque (orden casi intacto, Spearman 0,98),
+  y las pacientes cerca del umbral lo cruzan. Parte de la señal del modelo es el brillo absoluto (al normalizarlo, el AUC bajó a
+  0,544), que puede ser en parte atajo de escáner y en parte biología (dentro de cada cohorte el AUC se mantiene). Con PNG del mismo
+  dataset (test y defensa) no debería afectar; con imágenes de otro hospital o procesado, sí. **No se lanzan más experimentos**: se
+  documenta como limitación. El modelo final queda cerrado.
+
 ## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
 
 - La línea de validación usaba la entropía de la proporción de pCR de la **propia validación**, que el modelo no puede conocer. La
