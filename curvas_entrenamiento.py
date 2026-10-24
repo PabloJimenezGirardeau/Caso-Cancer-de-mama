@@ -151,6 +151,36 @@ def figura_perdida(ruta: Path, prefijo: str | None = None, nombre: str = FINAL[1
     plt.close(fig)
 
 
+def figura_un_fold(config: str, ruta: Path, titulo: str) -> None:
+    """Un solo modelo (una semilla, un fold), en el formato de presentacion: a la izquierda la perdida de entrenamiento
+    MEDIDA COMO LA VALIDACION (pacientes vigilados, modo evaluacion, clases pesadas como en el entrenamiento) y la de
+    validacion, con la referencia sin imagen; a la derecha el AUC por paciente de entrenamiento y de validacion (eje 0-1).
+    Linea vertical: epoca elegida por el early stopping."""
+    plt = graficas._plt()
+    d = leer(config)
+    if "perdida_train_eval" not in d:
+        raise SystemExit(f"{config} no tiene registrada la perdida de entrenamiento comparable")
+    k = int(config.split("_fold")[1][0])
+    ref_val = referencias_por_fold()[k][1]
+    e = d["epoca"][d["elegida"]]
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(14, 4.8), constrained_layout=True)
+    fig.suptitle(titulo, fontsize=13)
+    a1.plot(d["epoca"], d["perdida_train_eval"], color=graficas.AZUL, lw=2, label="entrenamiento (medido como la validación)")
+    a1.plot(d["epoca"], d["perdida_val"], color=graficas.NARANJA, lw=2, label="validación")
+    a1.axhline(ref_val, color=graficas.GRIS, ls=":", lw=1.5, label=f"sin mirar la imagen ({ref_val:.3f})")
+    a1.axvline(e, color=graficas.GRIS, ls="--", lw=1.5, label="época elegida")
+    a1.set(xlabel="época", ylabel="pérdida (entropía cruzada) por corte")
+    a1.grid(alpha=0.3); a1.legend(fontsize=9)
+    a2.plot(d["epoca"], d["auc_val"], color=graficas.NARANJA, lw=2, label="validación, media por paciente")
+    a2.plot(d["epoca"], d["auc_train"], color=graficas.AZUL, lw=2, label="entrenamiento, media por paciente")
+    a2.axhline(0.5, color=graficas.GRIS, ls=":", lw=1.5, label="azar")
+    a2.axvline(e, color=graficas.GRIS, ls="--", lw=1.5, label="época elegida")
+    a2.set(xlabel="época", ylabel="AUC por paciente", ylim=(0, 1))
+    a2.grid(alpha=0.3); a2.legend(fontsize=9, loc="upper left")
+    fig.savefig(ruta, dpi=110, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+
+
 def figura_normal_ponderada(ruta: Path) -> None:
     """Perdida normal (2.1, bn_normal_lr0.0001) frente a ponderada (3.1, bn_ponderada_lr0.0001), semilla 42, 5 folds; cada
     panel con su escala. La ponderada multiplica por pos_weight = N0/N1 (~2,4) el error en las pCR, asi que sus valores son
