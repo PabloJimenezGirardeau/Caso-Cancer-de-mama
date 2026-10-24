@@ -1,6 +1,6 @@
 {
   "conjunto": "validacion",
-  "fecha": "2026-10-24T18:58:51",
+  "fecha": "2026-10-24T20:40:23",
   "pacientes": 1097,
   "cortes": 10945,
   "pcr": 322,
@@ -170,6 +170,15 @@
       ],
       "ap": 0.4922822603090834,
       "brier": 0.18456998387001694
+    },
+    "solo_cohorte": {
+      "auc": 0.5225726307353236,
+      "auc_ic95": [
+        0.4862631829215425,
+        0.5588214890932316
+      ],
+      "ap": 0.3011705423016531,
+      "brier": 0.20642642345676043
     }
   },
   "siempre_no_pcr": {
@@ -236,6 +245,13 @@
       "ic95": [
         -0.1788172228689217,
         -0.08119079380191306
+      ]
+    },
+    "recorte - solo cohorte": {
+      "diferencia": 0.05001402524544185,
+      "ic95": [
+        0.00425953815261044,
+        0.09382104894705007
       ]
     }
   },
@@ -334,5 +350,12 @@
       }
     }
   },
-  "segundos": 8.0
+  "comprobacion_fuga": {
+    "pacientes_test": 176,
+    "pacientes_entrenamiento": 1097,
+    "pacientes_en_ambos": 0,
+    "cortes_en_ambos": 0,
+    "pacientes_con_mas_de_un_fold": 0
+  },
+  "segundos": 10.3
 }

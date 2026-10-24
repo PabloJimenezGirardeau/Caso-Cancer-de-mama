@@ -4,6 +4,7 @@ AVISO: ensayo con la validacion; la calibracion y el umbral se eligieron con est
 recorte 128, lr 3e-5 (principal) AUC 0.573 (IC95 0.534-0.609)   AP 0.342 (azar 0.294)   Brier 0.2051 (referencia 0.2074)
 recorte 128, lr 1e-4 (anterior) AUC 0.576 (IC95 0.539-0.613)   AP 0.347 (azar 0.294)   Brier 0.2046 (referencia 0.2074)
 clínico (comparación)      AUC 0.704 (IC95 0.671-0.738)   AP 0.492 (azar 0.294)   Brier 0.1846 (referencia 0.2074)
+solo cohorte (referencia)  AUC 0.523 (IC95 0.486-0.559)   AP 0.301 (azar 0.294)   Brier 0.2064 (referencia 0.2074)
 
 recorte 128, lr 3e-5 (principal) con el umbral 0.316 (equilibrado):
    matriz: VP 132  FN 190  VN 545  FP 230
@@ -26,6 +27,7 @@ siempre 'no pCR': accuracy 71%; media de las dos clases: precision 0.35, recall 
 
 diferencia de AUC recorte - 2.1: -0.003 (IC95 -0.021 a +0.015) -> el intervalo incluye el 0
 diferencia de AUC recorte - clinico: -0.131 (IC95 -0.179 a -0.081) -> el intervalo excluye el 0
+diferencia de AUC recorte - solo cohorte: +0.050 (IC95 +0.004 a +0.094) -> el intervalo excluye el 0
 
 AUC por cohorte:   recorte 128, lr 3e-5   recorte 128, lr 1e-4        clínico
   duke  ( 209 pac.,  44 pCR)        0.545          0.552          0.739

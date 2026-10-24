@@ -956,6 +956,18 @@ calibración y su umbral equilibrado recalculados con `umbral.py`); el recorte c
   dataset (test y defensa) no debería afectar; con imágenes de otro hospital o procesado, sí. **No se lanzan más experimentos**: se
   documenta como limitación. El modelo final queda cerrado.
 
+### Añadido a `evaluar_test.py` antes del test (2026-10-24): referencia "solo cohorte" y comprobación de fuga
+
+- **Solo cohorte** (idea tomada del documento de un compañero): a cada paciente, la tasa de pCR de su cohorte (duke 21 %, spy1 25 %,
+  spy2 32 %), calculada con las pacientes de entrenamiento (en validación, con los otros 4 folds). No mira la imagen. Como la red
+  reconoce la cohorte en la imagen con facilidad (control positivo, AUC 0,92), es la referencia que dice si el modelo aprende algo
+  más que el hospital. Entra en las curvas ROC y precisión-recall y en la diferencia de AUC con bootstrap emparejado.
+- **Ensayo con la validación:** solo cohorte AUC 0,523 (IC95 0,486-0,559; 0,549 de media por fold); modelo C 0,573: **+0,050
+  (IC95 +0,004 a +0,094), el intervalo excluye el 0**. Por fold: C gana en 4 de 5 (en el fold 3, solo cohorte 0,593 frente a 0,577).
+- **Comprobación de fuga:** antes de evaluar, el script verifica que ninguna paciente ni ningún corte del test (fold −1) está en los
+  folds de entrenamiento y que cada paciente tiene un solo fold; si no, se para. Resultado: 176 pacientes de test, 1.097 de
+  entrenamiento, 0 en común. Se guarda en `metricas.json`.
+
 ## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
 
 - La línea de validación usaba la entropía de la proporción de pCR de la **propia validación**, que el modelo no puede conocer. La

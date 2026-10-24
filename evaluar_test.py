@@ -13,6 +13,8 @@ Dos modos, con las MISMAS cifras y figuras:
 Modelos:
     recorte 128, lr 3e-5 (principal, modelo/)       el de la app; declarado principal ANTES del test (DECISIONES.md, 2026-10-24)
     recorte 128, lr 1e-4 (anterior, modelo_c128/)   el modelo final anterior, como comparacion
+    solo cohorte (referencia)          la tasa de pCR de la cohorte de cada paciente, con las de entrenamiento: si la CNN
+                                       no la supera, su AUC podria venir solo de reconocer el hospital
     clinico (comparacion)              regresion logistica con HR, HER2, HRxHER2, edad y log(tum_vol); en validacion
                                        se ajusta con los otros 4 folds, en el test con todo el entrenamiento
 
@@ -23,7 +25,7 @@ comparacion. El clinico no tiene umbral fijado: solo entra en las curvas y en el
 
 Salida:
     0_matriz_principal.png  la matriz de confusion del modelo principal, grande y con sus metricas
-    1_roc.png               curvas ROC de los tres modelos, con AUC e IC95, y el punto del umbral
+    1_roc.png               curvas ROC (principal, anterior, clinico y "solo cohorte"), con AUC e IC95 y el umbral
     2_matriz_confusion.png  matrices: recorte (equilibrado y desescalar), 2.1 y "siempre pCR = 0"
     3_precision_recall.png  curvas precision-recall (clase pCR) con su AP
     4_umbral.png            sensibilidad, especificidad y precision segun el umbral (recorte)
@@ -54,8 +56,9 @@ RAIZ = Path(__file__).resolve().parent
 # de comparacion (modelo_c128/: el recorte 128 anterior, lr 1e-4). Los nombres de las claves se conservan para no tocar el resto.
 CARPETAS_CNN = {"recorte": RAIZ / "modelo", "v21": RAIZ / "modelo_c128"}
 NOMBRES = {"recorte": "recorte 128, lr 3e-5 (principal)", "v21": "recorte 128, lr 1e-4 (anterior)",
-           "clinico": "clínico (comparación)"}
-COLORES = {"recorte": graficas.AZUL, "v21": graficas.NARANJA, "clinico": graficas.VERDE}
+           "clinico": "clínico (comparación)", "solo_cohorte": "solo cohorte (referencia)"}
+COLORES = {"recorte": graficas.AZUL, "v21": graficas.NARANJA, "clinico": graficas.VERDE, "solo_cohorte": graficas.GRIS}
+CURVAS = ("recorte", "v21", "clinico", "solo_cohorte")         # modelos que entran en las curvas ROC y precision-recall
 COHORTES = ("duke", "spy1", "spy2")
 RECORTE = 128                                   # lado del cuadrado central que mira el modelo principal
 
@@ -121,6 +124,38 @@ def clinico(pacientes: pd.DataFrame, test: bool) -> pd.Series:
         return ajustar_y_predecir(entrenamiento, pacientes[pacientes.fold == -1])
     return pd.concat([ajustar_y_predecir(entrenamiento[entrenamiento.fold != k], entrenamiento[entrenamiento.fold == k])
                       for k in range(5)])
+
+
+def solo_cohorte(pacientes: pd.DataFrame, test: bool) -> pd.Series:
+    """Referencia "solo cohorte": a cada paciente, la tasa de pCR de su cohorte (duke, spy1, spy2) calculada con las
+    pacientes de ENTRENAMIENTO (en validacion, con los otros 4 folds; en el test, con todo el entrenamiento). No mira la
+    imagen: si la CNN no la supera, su AUC podria venir solo de reconocer el hospital."""
+    entrenamiento = pacientes[pacientes.fold >= 0]
+    if test:
+        ev = pacientes[pacientes.fold == -1]
+        return ev.dataset.map(entrenamiento.groupby("dataset").pCR.mean()).astype(float)
+    partes = []
+    for k in range(5):
+        tasa = entrenamiento[entrenamiento.fold != k].groupby("dataset").pCR.mean()
+        ev = entrenamiento[entrenamiento.fold == k]
+        partes.append(ev.dataset.map(tasa).astype(float))
+    return pd.concat(partes)
+
+
+def comprobar_fuga(samples: pd.DataFrame) -> dict:
+    """Comprueba, antes de evaluar, que no hay fuga entre el test y el entrenamiento: ninguna paciente ni ningun corte
+    del test (fold -1) aparece en los folds de entrenamiento, y cada paciente tiene un solo fold. Si falla, se para."""
+    folds_por_paciente = samples.groupby("patient_id").fold.nunique()
+    test_pac = set(samples[samples.fold == -1].patient_id)
+    train_pac = set(samples[samples.fold >= 0].patient_id)
+    test_cortes = set(samples[samples.fold == -1].sample_id)
+    train_cortes = set(samples[samples.fold >= 0].sample_id)
+    r = {"pacientes_test": len(test_pac), "pacientes_entrenamiento": len(train_pac),
+         "pacientes_en_ambos": len(test_pac & train_pac), "cortes_en_ambos": len(test_cortes & train_cortes),
+         "pacientes_con_mas_de_un_fold": int((folds_por_paciente > 1).sum())}
+    if r["pacientes_en_ambos"] or r["cortes_en_ambos"] or r["pacientes_con_mas_de_un_fold"]:
+        raise SystemExit(f"FUGA DE DATOS entre el test y el entrenamiento: {r}")
+    return r
 
 
 # --------------------------------------------------------------------------- #
@@ -196,10 +231,10 @@ def fig_roc(pac, res, umbrales, titulo, ruta):
     plt = _plt()
     y = pac.pCR.to_numpy()
     fig, ax = plt.subplots(figsize=(7.2, 7), constrained_layout=True)
-    for n in ("recorte", "v21", "clinico"):
+    for n in CURVAS:
         fpr, tpr, a = graficas.calcular_roc(y, pac[n].to_numpy())
         lo, hi = res[n]["auc_ic95"]
-        ax.plot(fpr, tpr, color=COLORES[n], lw=2.6 if n == "recorte" else 1.8,
+        ax.plot(fpr, tpr, color=COLORES[n], lw=2.6 if n == "recorte" else 1.8, ls="--" if n == "solo_cohorte" else "-",
                 label=f"{NOMBRES[n]}: AUC {a:.3f} (IC95 {lo:.2f}-{hi:.2f})")
         if n in umbrales:
             ax.scatter([1 - res[n]["especificidad"]], [res[n]["sensibilidad"]], color=COLORES[n], s=70, zorder=5,
@@ -276,9 +311,10 @@ def fig_pr(pac, res, titulo, ruta):
     plt = _plt()
     y = pac.pCR.to_numpy()
     fig, ax = plt.subplots(figsize=(7.2, 6.4), constrained_layout=True)
-    for n in ("recorte", "v21", "clinico"):
+    for n in CURVAS:
         rec, prec, ap = um.precision_recall(y, pac[n].to_numpy())
         ax.step(rec, prec, where="post", color=COLORES[n], lw=2.6 if n == "recorte" else 1.8,
+                ls="--" if n == "solo_cohorte" else "-",
                 label=f"{NOMBRES[n]}: AP {ap:.3f}")
         if "sensibilidad" in res[n] and res[n]["VP"] + res[n]["FP"]:
             ax.scatter([res[n]["sensibilidad"]], [res[n]["precision"]], color=COLORES[n], s=70, zorder=5,
@@ -417,6 +453,9 @@ def main() -> None:
 
     base_meta, base_img = localizar("metadata"), localizar("dataset")
     samples = uc.cargar_samples(base_meta)
+    fuga = comprobar_fuga(samples)
+    print(f"Comprobación de fuga: {fuga['pacientes_test']} pacientes de test y {fuga['pacientes_entrenamiento']} de "
+          f"entrenamiento, 0 en común (ni pacientes ni cortes); cada paciente en un solo fold")
     pacientes = uc.cargar_patients(base_meta).set_index("pid")
     pacientes["fold"] = samples.groupby("patient_id").fold.first().reindex(pacientes.index)
     pacientes = pacientes[pacientes.fold.notna()]
@@ -443,6 +482,9 @@ def main() -> None:
     pac["clinico"] = clinico(pacientes, args.test).reindex(pac.index)
     if pac.clinico.isna().any():
         raise SystemExit("Faltan predicciones del modelo clinico")
+    pac["solo_cohorte"] = solo_cohorte(pacientes, args.test).reindex(pac.index)
+    if pac.solo_cohorte.isna().any():
+        raise SystemExit("Faltan predicciones de la referencia solo cohorte")
     y = pac.pCR.to_numpy()
 
     # ---- metricas ----
@@ -450,11 +492,13 @@ def main() -> None:
     u_desescalar = float(configs["recorte"]["umbral_desescalar"])
     res["recorte_desescalar"] = evaluar_cnn(y, pac.recorte.to_numpy(), u_desescalar)
     res["clinico"] = resumen_curvas(y, pac.clinico.to_numpy())
+    res["solo_cohorte"] = resumen_curvas(y, pac.solo_cohorte.to_numpy())
     siempre_no = con_medias(um.metricas(y, np.zeros(len(y)), 0.5))
     un_corte = {n: {"auc": um.auc(cortes.pCR, cortes[n]), **um.metricas(cortes.pCR, cortes[n], umbrales[n])}
                 for n in ("recorte", "v21")}
     diferencias = {"recorte - 2.1": diferencia_auc(y, pac.recorte, pac.v21),
-                   "recorte - clinico": diferencia_auc(y, pac.recorte, pac.clinico)}
+                   "recorte - clinico": diferencia_auc(y, pac.recorte, pac.clinico),
+                   "recorte - solo cohorte": diferencia_auc(y, pac.recorte, pac.solo_cohorte)}
     cohortes = {}
     for c in COHORTES:
         d = pac[pac.cohorte == c]
@@ -468,7 +512,7 @@ def main() -> None:
     lineas = [f"{titulo} · {len(cortes)} cortes · {int(y.sum())} pCR ({y.mean():.1%})",
               "" if args.test else "AVISO: ensayo con la validacion; la calibracion y el umbral se eligieron con estos "
                                    "mismos datos, asi que las cifras son algo optimistas. El juez es el test.", ""]
-    for n in ("recorte", "v21", "clinico"):
+    for n in CURVAS:
         r = res[n]
         lineas.append(f"{NOMBRES[n]:<26} AUC {r['auc']:.3f} (IC95 {r['auc_ic95'][0]:.3f}-{r['auc_ic95'][1]:.3f})   "
                       f"AP {r['ap']:.3f} (azar {y.mean():.3f})   Brier {r['brier']:.4f} (referencia {y.mean() * (1 - y.mean()):.4f})")
@@ -523,7 +567,7 @@ def main() -> None:
                    "pacientes": len(pac), "cortes": len(cortes), "pcr": int(y.sum()), "principal": "recorte",
                    "umbrales": umbrales, "umbral_desescalar_recorte": u_desescalar, "configuraciones": {n: cfg["configuraciones"] for n, cfg in configs.items()},
                    "checksums": checksums, "modelos": res, "siempre_no_pcr": siempre_no, "un_corte": un_corte,
-                   "diferencias_auc": diferencias, "cohortes": cohortes,
+                   "diferencias_auc": diferencias, "cohortes": cohortes, "comprobacion_fuga": fuga,
                    "segundos": round(time.time() - t0, 1)}, f, indent=2, ensure_ascii=False, default=float)
     print(f"Listo en {time.time() - t0:.0f} s. Resultados en {salida}")
 
