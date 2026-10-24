@@ -343,25 +343,43 @@ def figura_comparativa(ref: float, ruta: Path) -> None:
     plt.close(fig)
 
 
+EXPERIMENTOS = {   # familias de experimentos con 3 semillas x 5 folds (figura de perdida en experimentos/)
+    "bn_normal_c128_lr0.0001": "recorte 128, lr 1e-4 (modelo final anterior)",
+    "bn_normal_aten_lr0.0001": "atención guiada por la caja del tumor",
+    "bn_normal_c128_aux_lr0.0001": "recorte 128 + subtipo (HR, HER2) como tarea auxiliar",
+    "bn_normal_brillo_ls0.1_wd0.5_c128_lr0.0001": "recorte 128 + regularización (brillo, suavizado, weight decay)",
+    "bn_normal_c128_cs_lr3e-05": "recorte 128, cabeza simple, lr 3e-5 (experimento A)",
+    "bn_normal_c128_cs_lr0.0001": "recorte 128, cabeza simple, lr 1e-4 (experimento B)",
+}
+
+
 def main() -> None:
     import argparse
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--familia", help="solo la figura de perdida de esta familia (prefijo sin _s1/_s2 ni _fold<k>), "
                                      "p. ej. bn_normal_brillo_ls0.1_wd0.5_c128_lr0.0001; lee resultados/ y referencia/")
     args = p.parse_args()
-    SALIDA.mkdir(parents=True, exist_ok=True)
+    exp = SALIDA / "experimentos"
+    exp.mkdir(parents=True, exist_ok=True)
     if args.familia:
-        figura_perdida(SALIDA / f"perdida_{args.familia}.png", args.familia, args.familia)
-        print(f"Figura en {SALIDA / f'perdida_{args.familia}.png'}")
+        figura_perdida(exp / f"perdida_{args.familia}.png", args.familia, args.familia)
+        print(f"Figura en {exp / f'perdida_{args.familia}.png'}")
         return
+    # --- modelo final: figuras limpias (una por fold, semilla 42) y las de detalle (las 3 semillas) ---
+    for k in range(5):
+        figura_un_fold(f"{FINAL[0]}_fold{k}", SALIDA / f"final_fold{k}.png",
+                       f"Fold {k} · {FINAL[1]} (semilla 42) · validación interna")
+    figura_perdida(SALIDA / "final_perdida_3_semillas.png")
     ref = perdida_sin_imagen()
+    figura_modelo_final(ref, SALIDA / "final_perdida_y_auc_3_semillas.png")
+    # --- experimentos y comparaciones ---
     for clave, (prefijo, nombre) in FAMILIAS.items():
-        figura_folds(prefijo, nombre, ref, SALIDA / f"{clave}_folds.png")
-    figura_comparativa(ref, SALIDA / "comparativa.png")
-    figura_modelo_final(ref, SALIDA / "modelo_final.png")
-    figura_perdida(SALIDA / "perdida_modelo_final.png")
-    figura_normal_ponderada(SALIDA / "normal_frente_a_ponderada.png")
-    print(f"Figuras en {SALIDA}")
+        figura_folds(prefijo, nombre, ref, exp / f"{clave}_folds.png")
+    figura_comparativa(ref, exp / "comparativa_2.1_y_recorte.png")
+    figura_normal_ponderada(exp / "normal_frente_a_ponderada.png")
+    for prefijo, nombre in EXPERIMENTOS.items():
+        figura_perdida(exp / f"perdida_{prefijo}.png", prefijo, nombre)
+    print(f"Figuras en {SALIDA} (modelo final) y en {exp} (experimentos)")
 
 
 if __name__ == "__main__":
