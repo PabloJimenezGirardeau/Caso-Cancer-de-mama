@@ -173,7 +173,7 @@ def main() -> None:
     if not args.sin_imagenes:
         import torch
         from predecir import ModeloFinal, cargar_corte
-        modelo = ModeloFinal(CARPETA, dispositivo="cpu")
+        modelo = ModeloFinal(CARPETA)          # GPU si la hay (en el PC), si no CPU
         base_img = localizar("dataset")
         samples = uc.cargar_samples(localizar("metadata")).set_index("sample_id").loc[d.sample_id]
         variantes = {"original": lambda x: x, "volteada": lambda x: x[:, :, :, ::-1].copy(),

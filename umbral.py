@@ -55,7 +55,7 @@ import graficas
 
 RAIZ = Path(__file__).resolve().parent
 REFERENCIA = RAIZ / "referencia"
-POR_DEFECTO = ["bn_normal_c128_lr0.0001", "bn_normal_c128_lr0.0001_s1", "bn_normal_c128_lr0.0001_s2"]   # modelo final
+POR_DEFECTO = ["bn_normal_c128_lr3e-05", "bn_normal_c128_lr3e-05_s1", "bn_normal_c128_lr3e-05_s2"]   # modelo final (C)
 CRITERIOS = {"equilibrado": "maximo F1 equilibrada", "desescalar": "desescalar"}   # --criterio: inicio de la clave
 
 

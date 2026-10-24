@@ -11,8 +11,8 @@ Dos modos, con las MISMAS cifras y figuras:
                                       predecir.ModeloFinal, lo mismo que en la app. Salida en figuras/test/.
 
 Modelos:
-    recorte 128 (principal, modelo/)   el de la app; declarado principal ANTES del test (DECISIONES.md)
-    2.1 (comparacion, modelo_21/)      el modelo anterior, sin recorte
+    recorte 128, lr 3e-5 (principal, modelo/)       el de la app; declarado principal ANTES del test (DECISIONES.md, 2026-10-24)
+    recorte 128, lr 1e-4 (anterior, modelo_c128/)   el modelo final anterior, como comparacion
     clinico (comparacion)              regresion logistica con HR, HER2, HRxHER2, edad y log(tum_vol); en validacion
                                        se ajusta con los otros 4 folds, en el test con todo el entrenamiento
 
@@ -50,8 +50,11 @@ import umbral as um
 import utils_caso as uc
 
 RAIZ = Path(__file__).resolve().parent
-CARPETAS_CNN = {"recorte": RAIZ / "modelo", "v21": RAIZ / "modelo_21"}
-NOMBRES = {"recorte": "recorte 128 (principal)", "v21": "2.1 (comparación)", "clinico": "clínico (comparación)"}
+# Claves internas: "recorte" = el modelo PRINCIPAL (modelo/: recorte 128 con lr 3e-5, decidido el 2026-10-24) y "v21" = el
+# de comparacion (modelo_c128/: el recorte 128 anterior, lr 1e-4). Los nombres de las claves se conservan para no tocar el resto.
+CARPETAS_CNN = {"recorte": RAIZ / "modelo", "v21": RAIZ / "modelo_c128"}
+NOMBRES = {"recorte": "recorte 128, lr 3e-5 (principal)", "v21": "recorte 128, lr 1e-4 (anterior)",
+           "clinico": "clínico (comparación)"}
 COLORES = {"recorte": graficas.AZUL, "v21": graficas.NARANJA, "clinico": graficas.VERDE}
 COHORTES = ("duke", "spy1", "spy2")
 RECORTE = 128                                   # lado del cuadrado central que mira el modelo principal
@@ -253,7 +256,7 @@ def fig_matriz_principal(m, u, titulo, ruta):
 def fig_matrices(res, siempre_no, umbrales, titulo, ruta):
     plt = _plt()
     paneles = [(NOMBRES["recorte"], res["recorte"], f"umbral equilibrado {umbrales['recorte']:.3f}"),
-               ("recorte 128 · umbral de desescalar (comparación)", res["recorte_desescalar"],
+               ("principal · umbral de desescalar (comparación)", res["recorte_desescalar"],
                 f"umbral {res['recorte_desescalar']['umbral']:.3f} (especificidad ≥ 95 % en validación)"),
                (NOMBRES["v21"], res["v21"], f"umbral equilibrado {umbrales['v21']:.3f}"),
                ("siempre pCR = 0 (referencia)", siempre_no, "no predice pCR = 1 a nadie")]
