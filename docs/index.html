@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Predicción de pCR</title>
+  <meta name="description" content="CNN entrenada desde cero que estima la respuesta patológica completa (pCR) a partir de un corte de resonancia DCE pretratamiento. Uso educativo.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <div class="aviso-educativo" role="alert">
+    <strong>Uso exclusivamente educativo.</strong> Esta herramienta <strong>no tiene validez clínica</strong> y no debe
+    usarse para tomar decisiones sobre pacientes.
+  </div>
+
+  <header class="cabecera">
+    <div class="contenedor">
+      <p class="antetitulo">Caso BreastDCEDL · Aprendizaje automático</p>
+      <h1>Predicción de la respuesta patológica completa</h1>
+      <p class="subtitulo">Una red convolucional entrenada desde cero estima, a partir de un corte de resonancia DCE
+        <em>antes</em> de la quimioterapia, la probabilidad de que no quede tumor invasivo tras el tratamiento (pCR).</p>
+      <div class="estado" id="estado"><span class="punto"></span><span id="estado-texto">Cargando el modelo…</span></div>
+    </div>
+  </header>
+
+  <main class="contenedor">
+    <!-- 1. Cargar la muestra -->
+    <section class="panel" aria-labelledby="t-carga">
+      <div class="panel-cabecera">
+        <h2 id="t-carga"><span class="numero">1</span> Cargar una muestra</h2>
+        <p>Sube las tres fases de un mismo corte (PNG en escala de grises, 256 × 256 píxeles, máximo 5 MB cada una) o
+          elige un ejemplo.</p>
+      </div>
+      <div class="cargas">
+        <label class="zona" data-fase="PRE">
+          <input type="file" accept="image/png" data-fase="PRE">
+          <span class="zona-titulo">PRE</span><span class="zona-ayuda">antes del contraste</span>
+          <span class="zona-fichero" data-nombre="PRE">Arrastra o elige un PNG</span>
+        </label>
+        <label class="zona" data-fase="EARLY">
+          <input type="file" accept="image/png" data-fase="EARLY">
+          <span class="zona-titulo">EARLY</span><span class="zona-ayuda">poco después del contraste</span>
+          <span class="zona-fichero" data-nombre="EARLY">Arrastra o elige un PNG</span>
+        </label>
+        <label class="zona" data-fase="LATE">
+          <input type="file" accept="image/png" data-fase="LATE">
+          <span class="zona-titulo">LATE</span><span class="zona-ayuda">un rato después</span>
+          <span class="zona-fichero" data-nombre="LATE">Arrastra o elige un PNG</span>
+        </label>
+      </div>
+      <div class="acciones">
+        <div class="campo-ejemplo">
+          <label for="ejemplo">o un ejemplo</label>
+          <select id="ejemplo"><option value="">Elige un ejemplo…</option></select>
+        </div>
+        <button id="predecir" class="boton-principal" disabled>Predecir</button>
+        <button id="limpiar" class="boton-secundario">Limpiar</button>
+      </div>
+      <div id="errores" class="errores" hidden></div>
+    </section>
+
+    <!-- 2. Imagenes -->
+    <section class="panel" aria-labelledby="t-imagenes" id="panel-imagenes" hidden>
+      <div class="panel-cabecera">
+        <h2 id="t-imagenes"><span class="numero">2</span> Las tres fases</h2>
+        <label class="interruptor"><input type="checkbox" id="ver-recorte" checked> Mostrar la zona que mira la red
+          (cuadrado central de 128 × 128)</label>
+      </div>
+      <div class="fases">
+        <figure><canvas id="c-PRE" width="256" height="256"></canvas><figcaption>PRE</figcaption></figure>
+        <figure><canvas id="c-EARLY" width="256" height="256"></canvas><figcaption>EARLY</figcaption></figure>
+        <figure><canvas id="c-LATE" width="256" height="256"></canvas><figcaption>LATE</figcaption></figure>
+        <figure><canvas id="c-REALCE" width="256" height="256"></canvas><figcaption>Realce (EARLY − PRE)</figcaption></figure>
+      </div>
+    </section>
+
+    <!-- 3. Resultado -->
+    <section class="panel" aria-labelledby="t-resultado" id="panel-resultado" hidden>
+      <div class="panel-cabecera">
+        <h2 id="t-resultado"><span class="numero">3</span> Resultado</h2>
+      </div>
+      <div class="resultado">
+        <div class="resultado-principal">
+          <p class="etiqueta">Probabilidad de pCR</p>
+          <p class="probabilidad" id="r-prob">—</p>
+          <p class="clase" id="r-clase">—</p>
+          <div class="medidor" aria-hidden="true">
+            <div class="medidor-barra"></div>
+            <div class="medidor-umbral" id="r-umbral-marca"><span>umbral</span></div>
+            <div class="medidor-aguja" id="r-aguja"></div>
+          </div>
+          <div class="medidor-escala"><span>0</span><span>0,25</span><span>0,5</span><span>0,75</span><span>1</span></div>
+          <ul class="avisos" id="r-avisos"></ul>
+        </div>
+        <dl class="detalles">
+          <div><dt>Umbral</dt><dd id="r-umbral">—</dd></div>
+          <div><dt>Media de los 15 modelos (sin calibrar)</dt><dd id="r-media">—</dd></div>
+          <div><dt>Dispositivo de inferencia</dt><dd id="r-dispositivo">—</dd></div>
+          <div><dt>Tiempo de respuesta</dt><dd id="r-tiempo">—</dd></div>
+          <div><dt>Checksum del modelo (web)</dt><dd class="mono" id="r-checksum">—</dd></div>
+          <div><dt>Checksum del modelo (PyTorch)</dt><dd class="mono" id="r-checksum-pt">—</dd></div>
+          <div class="ancho"><dt>Lo que dice cada uno de los 15 modelos (sin calibrar)</dt>
+            <dd><div class="modelos" id="r-modelos"></div></dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- 4. El modelo -->
+    <section class="panel" aria-labelledby="t-modelo">
+      <div class="panel-cabecera">
+        <h2 id="t-modelo"><span class="numero">4</span> El modelo</h2>
+        <p id="m-nombre"></p>
+      </div>
+      <div class="dos-columnas">
+        <div>
+          <h3>Entrenamiento</h3>
+          <dl class="tabla" id="m-entrenamiento"></dl>
+        </div>
+        <div>
+          <h3>Métricas internas (validación cruzada)</h3>
+          <dl class="tabla" id="m-metricas"></dl>
+          <p class="nota" id="m-nota"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Verificacion -->
+    <section class="panel" aria-labelledby="t-verificacion">
+      <div class="panel-cabecera">
+        <h2 id="t-verificacion"><span class="numero">5</span> Verificación: ¿da lo mismo que Python?</h2>
+        <p>Pasa los cortes de ejemplo por esta página y compara su probabilidad con la que calculó el pipeline de Python
+          (<code>predecir.py</code>). Si la diferencia es prácticamente cero, la lectura de las imágenes, los 15 modelos,
+          la calibración y el umbral son idénticos a los del entrenamiento.</p>
+      </div>
+      <button id="verificar" class="boton-secundario" disabled>Verificar con los ejemplos</button>
+      <div id="verificacion"></div>
+    </section>
+  </main>
+
+  <footer class="pie">
+    <div class="contenedor">
+      <p><strong>Sin validez clínica.</strong> Herramienta docente: el modelo tiene una capacidad de discriminación
+        limitada (AUC ≈ 0,57 en validación) y solo se ha probado con imágenes del dataset BreastDCEDL.</p>
+      <p>Red convolucional propia entrenada desde cero (sin modelos preentrenados). El modelo se ejecuta en tu
+        navegador: las imágenes no salen de tu ordenador. Datos: BreastDCEDL (Fridman et al.).</p>
+    </div>
+  </footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/1.0.11/pako.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/upng-js/2.1.0/UPNG.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
