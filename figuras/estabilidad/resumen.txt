@@ -20,3 +20,13 @@ Panel de estabilidad · modelo final (bn_normal_c128_lr3e-05, bn_normal_c128_lr3
    fold 4: semillas 0.573  0.595  0.572  (rango 0.023)  promedio de las 3: 0.583
    rango medio entre semillas en un fold: 0.020; desviacion entre folds del promedio: 0.020
 
+2. ROBUSTEZ A CAMBIOS IRRELEVANTES (media de los 3 modelos del fold, por corte)
+   comprobacion: la prediccion original reproduce los probs_val guardados (dif. max 5.0e-07)
+   volteada     cambio medio de probabilidad 0.0131 (percentil 95 0.0431); Spearman con la original 0.902; pacientes que cambian de clase 9.9%
+   brillo x0,9  cambio medio de probabilidad 0.0187 (percentil 95 0.0390); Spearman con la original 0.976; pacientes que cambian de clase 16.0%
+   brillo x1,1  cambio medio de probabilidad 0.0195 (percentil 95 0.0393); Spearman con la original 0.985; pacientes que cambian de clase 13.5%
+   PROMEDIO CON LA IMAGEN VOLTEADA (TTA), AUC por paciente en cada fold (sin calibrar):
+   sin TTA 0.6051  0.5578  0.6042  0.5774  0.5832   media 0.5855
+   con TTA 0.6024  0.5607  0.6119  0.5711  0.5946   media 0.5881
+   diferencia media +0.0026  IC95 -0.0064 a +0.0116  ->  REGLA (positiva y el IC excluye el 0): NO se adopta
+
