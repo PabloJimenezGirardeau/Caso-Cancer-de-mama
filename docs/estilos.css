@@ -249,6 +249,7 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .impresion .nopcr { --c: var(--nopcr); }
 .avisos { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
 .avisos li { padding: 8px 10px; border-left: 3px solid var(--aviso); background: color-mix(in srgb, var(--aviso) 8%, transparent); color: var(--aviso); font-size: 14px; }
+.nota-informe { margin: 14px 0 0; font-size: 12px; color: var(--texto-3); }
 .informe-seccion { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--linea); }
 .detalles summary { cursor: pointer; font-weight: 700; color: var(--texto-2); }
 .detalles[open] summary { margin-bottom: 10px; }
@@ -388,7 +389,7 @@ tbody tr:hover td { background: var(--acento-suave); }
 
 /* ---- barra de estado (abajo, como en una estación de trabajo) ---- */
 .pie-estado {
-  position: fixed; z-index: 15; left: 0; right: 0; bottom: 0; height: 32px; display: flex; align-items: center; justify-content: space-between;
+  position: fixed; z-index: 15; left: 0; right: 0; bottom: 0; height: 32px; display: flex; align-items: center; justify-content: flex-end;
   gap: 16px; padding: 0 24px; background: var(--consola); border-top: 1px solid var(--linea); font-size: 12px; color: var(--texto-3);
 }
 .pastilla { display: inline-flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
@@ -400,20 +401,39 @@ tbody tr:hover td { background: var(--acento-suave); }
 .progreso i { display: block; height: 100%; width: 0; background: var(--texto-2); transition: width .3s; }
 .pastilla.listo .progreso { display: none; }
 
-/* ---- portada: la sala a oscuras y una imagen que se ilumina ---- */
-.portada { position: fixed; inset: 0; z-index: 100; overflow-y: auto; display: grid; place-items: center; padding: 40px 32px; background: var(--portada-fondo); opacity: 0; transition: opacity .35s ease; }
+/* ---- portada: la sala a oscuras; la imagen, a sangre, se adquiere y se ilumina ----
+   Siempre oscura, también con el negatoscopio: es el momento de la presentación. */
+.portada {
+  --texto: #eef2f6; --texto-2: #aeb8c5; --texto-3: #7d8897; --anotacion-texto: #ffd23f; --consola: #000;
+  --linea: #313a45; --linea-fuerte: #4a5462; --portada-fondo: #000; color-scheme: dark;
+  position: fixed; inset: 0; z-index: 100; overflow: hidden; background: #000; color: var(--texto); opacity: 0; transition: opacity .35s ease;
+}
 .portada.visible { opacity: 1; }
-.portada-contenido { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 64px; align-items: center; width: 100%; max-width: 1180px; }
-.portada h1 { max-width: 15ch; text-wrap: balance; font-size: clamp(2.75rem, 5.6vw, 4.6rem); font-weight: 800; line-height: 1.02; letter-spacing: -.028em; }
-.portada-entrada { max-width: 34em; margin: 22px 0 0; font-size: 20px; line-height: 1.5; color: var(--texto-2); }
-.portada-resultado { max-width: 34em; margin: 18px 0 0; padding-left: 14px; border-left: 2px solid var(--anotacion-texto); font-size: 16px; color: var(--texto); }
-.portada-botones { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
-.portada-botones .boton { flex: 0 0 auto; padding: 12px 22px; font-size: 16px; }
-.portada-nota { margin: 24px 0 0; font-size: 12px; color: var(--texto-3); }
-.portada-visual { margin: 0; display: grid; justify-items: center; gap: 14px; }
-.visor-portada { width: min(100%, 460px); min-width: 0; margin: 0; }
-.portada-curva { max-width: 460px; }
-.portada-visual figcaption { max-width: 460px; font-size: 14px; color: var(--texto-3); text-align: center; }
+.portada-visual { position: absolute; top: 0; right: 0; bottom: 0; width: min(64vw, 100vh); margin: 0; }
+.portada-visual canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.portada-visual::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, .88) 22%, rgba(0, 0, 0, 0) 46%),
+              linear-gradient(0deg, #000 0%, rgba(0, 0, 0, .55) 18%, rgba(0, 0, 0, 0) 34%),
+              linear-gradient(180deg, rgba(0, 0, 0, .6) 0%, rgba(0, 0, 0, 0) 16%);
+}
+.portada-visual .ov { z-index: 2; font-size: 13px; }
+.portada-visual .ov-tr { top: 28px; right: 32px; }
+.portada-lectura { position: absolute; z-index: 2; right: 32px; bottom: 28px; width: min(380px, 70%); }
+.portada-lectura-titulo { display: block; font-family: var(--letra-mono); font-size: 12px; color: #c8d0da; }
+.portada-curva { margin-top: 2px; }
+.portada .grafica .eje text { fill: #9aa4b2; }
+.portada-leyenda { display: flex; gap: 16px; margin-top: 2px; font-family: var(--letra-mono); font-size: 12px; color: #dce2ea; opacity: 0; }
+.portada-leyenda span { display: inline-flex; align-items: center; gap: 6px; }
+.portada-leyenda i { width: 10px; height: 10px; border-radius: 2px; background: var(--c); }
+.portada-contenido { position: relative; z-index: 3; height: 100%; display: flex; align-items: center; padding: 48px clamp(24px, 7vw, 120px); pointer-events: none; }
+.portada-texto { max-width: 640px; pointer-events: auto; }
+.portada h1 { max-width: 10ch; text-wrap: balance; font-size: clamp(3rem, 6.6vw, 6.2rem); font-weight: 800; line-height: .95; letter-spacing: -.035em; color: #fff; }
+.portada-entrada { max-width: 32em; margin: 28px 0 0; font-size: 20px; line-height: 1.5; color: var(--texto-2); }
+.portada-resultado { max-width: 34em; margin: 20px 0 0; padding-left: 14px; border-left: 2px solid var(--anotacion-texto); font-size: 16px; color: var(--texto); }
+.portada-botones { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 32px; }
+.portada-botones .boton { flex: 0 0 auto; padding: 13px 24px; font-size: 16px; }
+.portada-texto > p.portada-nota { margin: 26px 0 0; font-size: 12px; color: var(--texto-3); }
 
 /* ---- pantallas medianas: el informe pasa debajo, en tres columnas ---- */
 @media (max-width: 1280px) {
@@ -442,19 +462,22 @@ tbody tr:hover td { background: var(--acento-suave); }
   .visor { width: 100%; min-width: 0; }
   .boton-herramienta { margin-left: 0; }
   .ov { font-size: 10px; }
-  .visor:not(.visor-portada) .ov-tr { display: none; }
+  .panel-visor .ov-tr { display: none; }
   .pestanas { overflow-x: auto; max-width: 100%; }
   .dos, .dos-interno, .comparacion { grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .cabecera-vista h1, .prosa h1 { font-size: 25px; }
   .resumen { font-size: 16px; }
   .linea-tiempo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .portada { place-items: start center; padding: 28px 18px; }
-  .portada-contenido { grid-template-columns: minmax(0, 1fr); gap: 28px; }
-  .portada-visual { order: -1; }
-  .visor-portada, .portada-curva { width: min(100%, 300px); }
+  .portada { overflow-y: auto; }
+  .portada-visual { position: relative; width: 100%; height: min(56vh, 100vw); }
+  .portada-visual::after { background: linear-gradient(0deg, #000 0%, rgba(0, 0, 0, 0) 40%), linear-gradient(180deg, rgba(0, 0, 0, .5) 0%, rgba(0, 0, 0, 0) 20%); }
+  .portada-visual .ov-tr { top: 14px; right: 16px; font-size: 11px; }
+  .portada-lectura { right: 16px; bottom: 6px; width: min(240px, 66%); }
+  .portada-lectura-titulo { font-size: 11px; }
+  .portada-contenido { height: auto; padding: 8px 18px 40px; }
+  .portada h1 { font-size: 2.7rem; }
   .portada-entrada { font-size: 16px; }
   .pie-estado { padding: 0 12px; }
-  .pie-estado > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lote-rejilla { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -16,6 +16,19 @@
 <body>
   <!-- ================================================= PORTADA ================================================= -->
   <div class="portada" id="portada" hidden role="dialog" aria-modal="true" aria-label="Presentación" tabindex="-1">
+    <figure class="portada-visual" aria-hidden="true">
+      <canvas id="portada-canvas" width="256" height="256"></canvas>
+      <div class="ov ov-tr" id="pov-fase"></div>
+      <div class="portada-lectura">
+        <span class="portada-lectura-titulo">Brillo de la zona de interés</span>
+        <svg class="grafica portada-curva" id="portada-curva" viewBox="0 0 440 120"></svg>
+        <div class="portada-leyenda" id="portada-leyenda">
+          <span><i style="--c:var(--cin-persistente)"></i>persistente</span>
+          <span><i style="--c:var(--cin-meseta)"></i>meseta</span>
+          <span><i style="--c:var(--cin-lavado)"></i>lavado</span>
+        </div>
+      </div>
+    </figure>
     <div class="portada-contenido">
       <div class="portada-texto">
         <h1>¿Responderá a la quimioterapia?</h1>
@@ -28,17 +41,6 @@
         </div>
         <p class="portada-nota">Trabajo académico con el conjunto de datos BreastDCEDL. Uso exclusivamente educativo, sin validez clínica.</p>
       </div>
-      <figure class="portada-visual">
-        <div class="visor visor-portada">
-          <canvas id="portada-canvas" width="256" height="256"></canvas>
-          <div class="ov ov-tl" id="pov-tl"></div>
-          <div class="ov ov-tr">256 × 256</div>
-          <div class="ov ov-bl">Zona de interés<br>128 × 128</div>
-          <div class="ov ov-br" id="pov-br"></div>
-        </div>
-        <svg class="grafica portada-curva" id="portada-curva" viewBox="0 0 440 120" role="img" aria-label="Brillo de la zona de interés en las tres fases"></svg>
-        <figcaption>El contraste llega al tumor: antes de inyectarlo (PRE), poco después (EARLY) y un rato después (LATE).</figcaption>
-      </figure>
     </div>
   </div>
 
@@ -161,6 +163,7 @@
             <h3>Impresión</h3>
             <p class="impresion"><span id="r-clase"></span> <span id="r-frase"></span></p>
             <ul class="avisos" id="r-avisos"></ul>
+            <p class="nota-informe">Resultado de un trabajo académico, para uso educativo: no tiene validez clínica.</p>
           </div>
           <section class="informe-seccion">
             <h3>Contexto</h3>
@@ -360,7 +363,6 @@
   </main>
 
   <footer class="pie-estado">
-    <span>Uso exclusivamente educativo, sin validez clínica.</span>
     <span class="pastilla" id="estado"><span class="luz"></span><span id="estado-texto">Cargando…</span>
       <span class="progreso"><i id="estado-progreso"></i></span></span>
   </footer>
