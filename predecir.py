@@ -131,7 +131,8 @@ class ModeloFinal:
         self.a, self.b = (float(cal["a"]), float(cal["b"])) if cal else (1.0, 0.0)
         self.dispositivo = torch.device(dispositivo or ("cuda" if torch.cuda.is_available() else "cpu"))
 
-        huella = hashlib.sha256(ruta_json.read_bytes())
+        # el json se normaliza a saltos de linea LF: asi el checksum es el mismo en Windows (git lo guarda con CRLF) y en Linux
+        huella = hashlib.sha256(ruta_json.read_bytes().replace(b"\r\n", b"\n"))
         self.nombres, self.redes = [], []
         for nombre in self.config["configuraciones"]:
             for k in range(5):

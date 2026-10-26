@@ -6,8 +6,8 @@ navegador) y los datos de la calibracion y el umbral. Este script:
     2. comprueba con onnxruntime que cada ONNX da EXACTAMENTE lo mismo que PyTorch sobre cortes reales;
     3. elige cortes de ejemplo (pacientes de ENTRENAMIENTO: nunca del test) y guarda, para cada uno, la probabilidad que
        da `predecir.py`: la pagina la recalcula y la compara (verificacion de que es el mismo pipeline);
-    4. guarda en docs/datos/modelo.json el umbral, la calibracion, los checksums, los parametros del entrenamiento y las
-       metricas internas.
+    4. guarda en docs/datos/web.js la lista de modelos, el checksum web y los ejemplos con su probabilidad de Python.
+       (El umbral, la calibracion, las metricas y las curvas los escribe datos_web.py en docs/datos/datos.js.)
 
 Uso (en el PC, que tiene PyTorch):
     pip install onnxruntime
@@ -17,8 +17,7 @@ Salida, en docs/:
     modelos/<nombre>.onnx                         entrada "imagen" float32 [N, 3, 256, 256] en [0, 1] (PRE, EARLY, LATE);
                                                   salida "logit" [N]
     ejemplos/<sample_id>_{PRE,EARLY,LATE}.png     los cortes de ejemplo, copiados tal cual
-    datos/modelo.json                             todo lo que la pagina necesita y muestra
-    datos/verificacion.json                       probabilidad de Python para cada ejemplo
+    datos/web.js                                  modelos, checksum web y ejemplos con su probabilidad de Python
 """
 
 from __future__ import annotations
@@ -104,53 +103,28 @@ def main() -> None:
         ejemplos.append({"sample_id": r.sample_id, "patient_id": pid, "fold": int(r.fold), "pCR": int(r.pCR),
                          "rutas": rutas, "probabilidad_python": res["probabilidad"], "clase_python": res["clase"],
                          "avisos_python": res["avisos"]})
-    (WEB / "datos" / "verificacion.json").write_text(json.dumps(
-        {"nota": "Pacientes de ENTRENAMIENTO (nunca del test). La mayoria de los 15 modelos las vieron al entrenar, asi "
-                 "que sus predicciones no miden el rendimiento: sirven para comprobar que la pagina reproduce a Python.",
-         "ejemplos": ejemplos}, indent=1, ensure_ascii=False), encoding="utf-8")
-
-    # --- 4: modelo.json ---
+    # --- 4: datos/web.js (lo que depende de los ONNX; el resto lo escribe datos_web.py en datos/datos.js) ---
     cfg = json.loads((RAIZ / "modelo" / "umbral_final.json").read_text(encoding="utf-8"))
     huella = hashlib.sha256()
     for a in archivos:
         huella.update((WEB / "modelos" / a).read_bytes())
     huella.update(f"{cfg['umbral']!r}|{cfg['calibracion']['a']!r}|{cfg['calibracion']['b']!r}".encode())
-    resumenes = [json.loads((RAIZ / "modelo" / f"{n}_resumen.json").read_text(encoding="utf-8")) for n in modelo.nombres]
-    r0 = resumenes[0]
-    datos = {
-        "nombre": "Modelo final C: recorte central 128, lr 3e-5 (3 semillas x 5 folds)",
-        "fecha_exportacion": datetime.now().isoformat(timespec="seconds"),
-        "modelos": archivos,
-        "umbral": cfg["umbral"], "criterio_umbral": cfg["criterio"], "umbral_desescalar": cfg.get("umbral_desescalar"),
-        "calibracion": {"a": cfg["calibracion"]["a"], "b": cfg["calibracion"]["b"],
-                        "formula": "p = sigmoide(a * logit(media de las 15 probabilidades) + b)"},
-        "checksum_pytorch": modelo.checksum,
+    web = {
+        "generado": datetime.now().isoformat(timespec="seconds"),
+        "modelos": archivos, "opset_onnx": OPSET, "onnx_frente_a_pytorch": peor,
         "checksum_web": huella.hexdigest()[:16],
         "checksum_web_como": "SHA-256 de los 15 .onnx (en este orden) y de 'umbral|a|b'; primeros 16 caracteres",
-        "entrenamiento": {
-            "red": f"RedBase: 4 bloques conv 3x3 (16-32-64-128) + BatchNorm + ReLU + maxpool, media global, "
-                   f"lineal 128 -> 64 + ReLU + dropout 0,5 + lineal 64 -> 1; recorte central {r0['recorte']}x{r0['recorte']}",
-            "parametros": r0["parametros"], "optimizador": r0["optimizador_clase"], "lr": r0["lr"], "lote": r0["lote"],
-            "perdida": "entropía cruzada binaria (normal)", "epocas_max": r0["epocas"],
-            "parada": "early stopping: media móvil de 3 épocas del AUC de validación, paciencia 10",
-            "semillas": sorted({r["semilla"] for r in resumenes}),
-            "epocas_elegidas": {n: r["epoca_elegida"] for n, r in zip(modelo.nombres, resumenes)},
-            "auc_val_por_modelo": {n: r["auc_val"] for n, r in zip(modelo.nombres, resumenes)},
-            "version_torch": r0["version_torch"], "opset_onnx": OPSET,
-        },
-        "metricas_validacion": {
-            "nota": "Validación cruzada de 5 folds (cada paciente predicha por los modelos de su fold); la calibración y "
-                    "el umbral se eligieron con estos datos, así que son algo optimistas.",
-            "auc": cfg["auc_validacion"], "auc_ic95": cfg["auc_ic95"], "ap": cfg["ap"], "brier": cfg["brier"],
-            "brier_referencia": cfg["brier_referencia"], "con_el_umbral": cfg["metricas_validacion"],
-            "auc_por_fold": cfg["auc_por_fold"].get("promedio"),
-        },
+        "checksum_pytorch": modelo.checksum,
+        "nota_ejemplos": "Pacientes de ENTRENAMIENTO (nunca del test). La mayoria de los 15 modelos las vieron al entrenar, "
+                         "asi que sus predicciones no miden el rendimiento: sirven para comprobar que la pagina reproduce "
+                         "a Python.",
+        "ejemplos": ejemplos,
     }
-    (WEB / "datos" / "modelo.json").write_text(json.dumps(datos, indent=1, ensure_ascii=False), encoding="utf-8")
-    print(f"\nEjemplos: {len(ejemplos)} cortes en {WEB / 'ejemplos'}; checksum web {datos['checksum_web']}; "
+    (WEB / "datos" / "web.js").write_text("// Generado por exportar_web.py: no editar a mano.\nwindow.WEB = "
+                                          + json.dumps(web, ensure_ascii=False, indent=1) + ";\n", encoding="utf-8")
+    print(f"\nEjemplos: {len(ejemplos)} cortes en {WEB / 'ejemplos'}; checksum web {web['checksum_web']}; "
           f"checksum PyTorch {modelo.checksum}")
-    print(f"Listo: {WEB}")
-
+    print(f"Listo: {WEB}  (recuerda ejecutar tambien python datos_web.py)")
 
 if __name__ == "__main__":
     main()
