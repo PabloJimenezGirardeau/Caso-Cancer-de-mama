@@ -72,11 +72,14 @@ html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; min-height: 100vh; padding-bottom: 32px;
   background: var(--consola); color: var(--texto);
-  font-family: var(--letra); font-size: 14px; line-height: 1.5; font-variant-numeric: tabular-nums;
+  font-family: var(--letra); font-size: 14px; line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 body.sin-desplazar { overflow: hidden; }
 h1, h2, h3 { margin: 0; color: var(--texto); }
+/* cifras de ancho fijo solo donde se comparan en columna: gráficas, tablas y datos; en el texto, las proporcionales */
+.grafica, .escala, table, .cifra .valor, .matriz, .metricas-umbral, .ficha, .deslizador-cabecera b, .lote-dato, .leyenda-columna b,
+.pastilla, .chips, .ranura-estado { font-variant-numeric: tabular-nums; }
 button, select, input { font: inherit; color: inherit; }
 a { color: inherit; text-underline-offset: 2px; }
 :focus-visible { outline: 2px solid var(--anotacion-texto); outline-offset: 2px; }
@@ -403,6 +406,8 @@ tbody tr:hover td { background: var(--acento-suave); }
 .portada.visible { opacity: 1; }
 .portada-contenido { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 64px; align-items: center; width: 100%; max-width: 1180px; }
 .portada h1 { max-width: 15ch; text-wrap: balance; font-size: clamp(2.75rem, 5.6vw, 4.6rem); font-weight: 800; line-height: 1.02; letter-spacing: -.028em; }
+/* el signo de apertura cuelga en el margen: la R queda alineada con el texto de debajo */
+.portada h1 .colgado { position: absolute; transform: translateX(-100%); }
 .portada-entrada { max-width: 34em; margin: 22px 0 0; font-size: 20px; line-height: 1.5; color: var(--texto-2); }
 .portada-resultado { max-width: 34em; margin: 18px 0 0; padding-left: 14px; border-left: 2px solid var(--anotacion-texto); font-size: 16px; color: var(--texto); }
 .portada-botones { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
@@ -452,6 +457,7 @@ tbody tr:hover td { background: var(--acento-suave); }
   .portada-visual { order: -1; }
   .visor-portada, .portada-curva, .portada-curva-titulo { width: min(100%, 300px); }
   .portada-entrada { font-size: 16px; }
+  .portada h1 .colgado { position: static; transform: none; }
   .pie-estado { padding: 0 12px; }
   .lote-rejilla { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
