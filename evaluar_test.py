@@ -1,4 +1,4 @@
-"""Evaluacion final (fase 6): cifras y figuras del modelo final, comparado con la 2.1 y con el modelo clinico.
+"""Evaluacion final (fase 6): el modelo principal (CNN solo imagen) frente a los datos clinicos y a la combinacion.
 
 Dos modos, con las MISMAS cifras y figuras:
 
@@ -10,25 +10,31 @@ Dos modos, con las MISMAS cifras y figuras:
                                       si ya existe figuras/test/metricas.json, se niega a repetirlo. Cada corte pasa por
                                       predecir.ModeloFinal, lo mismo que en la app. Salida en figuras/test/.
 
-Modelos:
-    recorte 128, lr 3e-5 (principal, modelo/)       el de la app; declarado principal ANTES del test (DECISIONES.md, 2026-10-24)
-    recorte 128, lr 1e-4 (anterior, modelo_c128/)   el modelo final anterior, como comparacion
-    solo cohorte (referencia)          la tasa de pCR de la cohorte de cada paciente, con las de entrenamiento: si la CNN
-                                       no la supera, su AUC podria venir solo de reconocer el hospital
-    clinico (comparacion)              regresion logistica con HR, HER2, HRxHER2, edad y log(tum_vol); en validacion
-                                       se ajusta con los otros 4 folds, en el test con todo el entrenamiento
+Modelos (declarados ANTES del test, DECISIONES.md, 2026-10-26):
+    CNN solo imagen (principal)   modelo/ (recorte 128, lr 3e-5, 15 redes): el de la app. Es el UNICO con umbral.
+    solo datos clinicos           regresion logistica con HR, HER2, HRxHER2, edad y log(tum_vol) (clinicas.py)
+    imagen + datos clinicos       la misma regresion con una sexta variable: el logit de la probabilidad que la CNN
+                                  principal da a la paciente (estandarizado). Aprende cuanto fiarse de la CNN con sus
+                                  predicciones de validacion, hechas por modelos que no vieron a esa paciente
+                                  ("stacking"). Matiz para el informe: en el test la CNN es la media de las 15 redes y
+                                  en validacion la de las 3 semillas de un fold, algo mas ruidosa; es la misma practica
+                                  que con la calibracion de Platt del modelo principal.
+    solo cohorte (referencia)     la tasa de pCR de la cohorte de cada paciente, con las de entrenamiento: si la CNN
+                                  no la supera, su AUC podria venir solo de reconocer el hospital
+Las regresiones se ajustan, en validacion, con los otros 4 folds; en el test, con las 1.097 pacientes de entrenamiento.
+(La CNN anterior, recorte con lr 1e-4 en modelo_c128/, se quito de la evaluacion por decision del usuario antes del test.)
 
-Cada CNN se aplica tal cual: media de sus 15 modelos en cada corte, calibracion de Platt (a, b) y media de los
-cortes de la paciente; pCR = 1 si la probabilidad >= su umbral (umbral_final.json: criterio EQUILIBRADO, maxima
-F1 equilibrada en validacion). El umbral de DESESCALAR (especificidad >= 0,95) del recorte se muestra como
-comparacion. El clinico no tiene umbral fijado: solo entra en las curvas y en el AUC.
+La CNN se aplica tal cual: media de sus 15 modelos en cada corte, calibracion de Platt (a, b) y media de los cortes
+de la paciente; pCR = 1 si la probabilidad >= el umbral (umbral_final.json: criterio EQUILIBRADO, maxima F1
+equilibrada en validacion). El umbral de DESESCALAR (especificidad >= 0,95) se muestra como comparacion. Los otros
+modelos no tienen umbral fijado: entran en las curvas, el AUC, la precision media y el Brier.
 
 Salida:
     0_matriz_principal.png  la matriz de confusion del modelo principal, grande y con sus metricas
-    1_roc.png               curvas ROC (principal, anterior, clinico y "solo cohorte"), con AUC e IC95 y el umbral
-    2_matriz_confusion.png  matrices: recorte (equilibrado y desescalar), 2.1 y "siempre pCR = 0"
+    1_roc.png               curvas ROC de los cuatro, con AUC e IC95, y el umbral del principal
+    2_matriz_confusion.png  matrices del principal (equilibrado y desescalar) y de "siempre pCR = 0"
     3_precision_recall.png  curvas precision-recall (clase pCR) con su AP
-    4_umbral.png            sensibilidad, especificidad y precision segun el umbral (recorte)
+    4_umbral.png            sensibilidad, especificidad y precision segun el umbral (principal)
     5_calibracion.png       calibracion por grupos e histograma de probabilidades por clase
     6_cohortes.png          AUC por cohorte (duke, spy1, spy2)
     7_casos.png             un acierto y un fallo de cada clase: sus imagenes y el cuadrado que mira la red
@@ -52,13 +58,13 @@ import umbral as um
 import utils_caso as uc
 
 RAIZ = Path(__file__).resolve().parent
-# Claves internas: "recorte" = el modelo PRINCIPAL (modelo/: recorte 128 con lr 3e-5, decidido el 2026-10-24) y "v21" = el
-# de comparacion (modelo_c128/: el recorte 128 anterior, lr 1e-4). Los nombres de las claves se conservan para no tocar el resto.
-CARPETAS_CNN = {"recorte": RAIZ / "modelo", "v21": RAIZ / "modelo_c128"}
-NOMBRES = {"recorte": "recorte 128, lr 3e-5 (principal)", "v21": "recorte 128, lr 1e-4 (anterior)",
-           "clinico": "clínico (comparación)", "solo_cohorte": "solo cohorte (referencia)"}
-COLORES = {"recorte": graficas.AZUL, "v21": graficas.NARANJA, "clinico": graficas.VERDE, "solo_cohorte": graficas.GRIS}
-CURVAS = ("recorte", "v21", "clinico", "solo_cohorte")         # modelos que entran en las curvas ROC y precision-recall
+# Clave interna "recorte" = el modelo PRINCIPAL (modelo/: CNN solo imagen, recorte 128 con lr 3e-5, decidido el 2026-10-24)
+CARPETA_CNN = RAIZ / "modelo"
+NOMBRES = {"recorte": "CNN solo imagen (principal)", "clinico": "solo datos clínicos",
+           "combinado": "imagen + datos clínicos", "solo_cohorte": "solo cohorte (referencia)"}
+COLORES = {"recorte": graficas.AZUL, "clinico": graficas.VERDE, "combinado": graficas.NARANJA, "solo_cohorte": graficas.GRIS}
+CURVAS = ("recorte", "clinico", "combinado", "solo_cohorte")   # modelos que entran en las curvas ROC y precision-recall
+COMPARADOS = ("recorte", "clinico", "combinado")              # los que se comparan tambien por cohorte
 COHORTES = ("duke", "spy1", "spy2")
 RECORTE = 128                                   # lado del cuadrado central que mira el modelo principal
 
@@ -93,20 +99,18 @@ def cnn_validacion(carpeta: Path, cortes: pd.DataFrame) -> np.ndarray:
     return um.sigmoide(cal["a"] * um.logit(p) + cal["b"]) if cal else p
 
 
-def cnn_test(cortes: pd.DataFrame, base_img: Path, lote: int = 128) -> tuple[dict, dict]:
-    """Probabilidad calibrada de cada corte del test con predecir.ModeloFinal (lo mismo que la app).
-    Las imagenes se leen una vez por lote y pasan por los dos modelos."""
+def cnn_test(cortes: pd.DataFrame, base_img: Path, lote: int = 128) -> tuple[np.ndarray, str]:
+    """Probabilidad calibrada de cada corte del test con predecir.ModeloFinal (lo mismo que la app)."""
     from predecir import ModeloFinal, cargar_corte
-    modelos = {n: ModeloFinal(c) for n, c in CARPETAS_CNN.items()}
-    salida = {n: [] for n in modelos}
+    modelo = ModeloFinal(CARPETA_CNN)
+    salida = []
     for i in range(0, len(cortes), lote):
         x = np.stack([cargar_corte(base_img / r.path_pre, base_img / r.path_early, base_img / r.path_late)
                       for r in cortes.iloc[i:i + lote].itertuples()])
-        for n, m in modelos.items():
-            salida[n].append(m.probabilidades(x))
+        salida.append(modelo.probabilidades(x))
         print(f"  {min(i + lote, len(cortes))}/{len(cortes)} cortes", end="\r")
     print()
-    return {n: np.concatenate(v) for n, v in salida.items()}, {n: m.checksum for n, m in modelos.items()}
+    return np.concatenate(salida), modelo.checksum
 
 
 def clinico(pacientes: pd.DataFrame, test: bool) -> pd.Series:
@@ -124,6 +128,40 @@ def clinico(pacientes: pd.DataFrame, test: bool) -> pd.Series:
         return ajustar_y_predecir(entrenamiento, pacientes[pacientes.fold == -1])
     return pd.concat([ajustar_y_predecir(entrenamiento[entrenamiento.fold != k], entrenamiento[entrenamiento.fold == k])
                       for k in range(5)])
+
+
+def combinado(pacientes: pd.DataFrame, cnn: pd.Series, test: bool) -> tuple[pd.Series, dict]:
+    """Imagen + datos clinicos: la regresion del modelo clinico con una sexta variable, el logit de la probabilidad de
+    la CNN principal para la paciente (estandarizado con las pacientes con las que se ajusta).
+
+    `cnn` tiene la probabilidad de la CNN por paciente: para las de entrenamiento, la de validacion (hecha por modelos
+    que no vieron a esa paciente); en el test, ademas, la de las pacientes del test. Asi la regresion aprende cuanto
+    fiarse de la CNN con predicciones tan honestas como las que vera despues ("stacking").
+    Devuelve la probabilidad de cada paciente evaluada y los coeficientes del ajuste con todo el entrenamiento."""
+    from sklearn.linear_model import LogisticRegression
+
+    def matriz(d: pd.DataFrame, prep: dict, escala: dict) -> np.ndarray:
+        l = um.logit(cnn.loc[d.index].to_numpy())
+        return np.column_stack([clinicas.preparar(d, prep), (l - escala["media"]) / escala["desv"]])
+
+    def ajustar(tr: pd.DataFrame):
+        prep = clinicas.ajustar_preparacion(tr)
+        l = um.logit(cnn.loc[tr.index].to_numpy())
+        escala = {"media": float(l.mean()), "desv": float(l.std())}
+        return prep, escala, LogisticRegression(C=1.0, max_iter=1000).fit(matriz(tr, prep, escala), tr.pCR)
+
+    def predecir(ajuste, ev: pd.DataFrame) -> pd.Series:
+        prep, escala, modelo = ajuste
+        return pd.Series(modelo.predict_proba(matriz(ev, prep, escala))[:, 1], index=ev.index)
+
+    entrenamiento = pacientes[pacientes.fold >= 0]
+    completo = ajustar(entrenamiento)
+    coeficientes = dict(zip(list(clinicas.VARIABLES) + ["cnn"], map(float, completo[2].coef_[0])))
+    coeficientes["intercepto"] = float(completo[2].intercept_[0])
+    if test:
+        return predecir(completo, pacientes[pacientes.fold == -1]), coeficientes
+    return pd.concat([predecir(ajustar(entrenamiento[entrenamiento.fold != k]), entrenamiento[entrenamiento.fold == k])
+                      for k in range(5)]), coeficientes
 
 
 def solo_cohorte(pacientes: pd.DataFrame, test: bool) -> pd.Series:
@@ -293,10 +331,9 @@ def fig_matrices(res, siempre_no, umbrales, titulo, ruta):
     paneles = [(NOMBRES["recorte"], res["recorte"], f"umbral equilibrado {umbrales['recorte']:.3f}"),
                ("principal · umbral de desescalar (comparación)", res["recorte_desescalar"],
                 f"umbral {res['recorte_desescalar']['umbral']:.3f} (especificidad ≥ 95 % en validación)"),
-               (NOMBRES["v21"], res["v21"], f"umbral equilibrado {umbrales['v21']:.3f}"),
                ("siempre pCR = 0 (referencia)", siempre_no, "no predice pCR = 1 a nadie")]
-    fig, axes = plt.subplots(2, 2, figsize=(14, 13), constrained_layout=True)
-    fig.suptitle(f"Matrices de confusión por paciente · {titulo}", fontsize=14, fontweight="bold")
+    fig, axes = plt.subplots(1, 3, figsize=(21, 7.4), constrained_layout=True)
+    fig.suptitle(f"Matrices de confusión por paciente · {titulo}", fontsize=14, fontweight="bold", y=1.07)
     for ax, (nombre, m, sub) in zip(axes.ravel(), paneles):
         dibujar_matriz(ax, m)
         prec = f"{m['precision']:.0%}" if m["VP"] + m["FP"] else "—"
@@ -351,7 +388,7 @@ def fig_calibracion(pac, u, titulo, ruta):
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(14, 5.8), constrained_layout=True)
     fig.suptitle(f"Calibración · {titulo}", fontsize=14, fontweight="bold")
     lim = 0
-    for n in ("recorte", "v21"):
+    for n in COMPARADOS:
         s = pac[n].to_numpy()
         cal = um.calibracion(y, s, grupos)
         a1.plot(cal.predicha, cal.real, "o-", color=COLORES[n], lw=2,
@@ -378,7 +415,7 @@ def fig_cohortes(cohortes, titulo, ruta):
     plt = _plt()
     fig, ax = plt.subplots(figsize=(9, 5.6), constrained_layout=True)
     x = np.arange(len(COHORTES)); ancho = 0.26
-    for j, n in enumerate(("recorte", "v21", "clinico")):
+    for j, n in enumerate(COMPARADOS):
         vals = [cohortes[c][n]["auc"] for c in COHORTES]
         err = np.array([[v - cohortes[c][n]["auc_ic95"][0], cohortes[c][n]["auc_ic95"][1] - v]
                         for c, v in zip(COHORTES, vals)]).T
@@ -463,47 +500,63 @@ def main() -> None:
     cortes = cortes.reset_index(drop=True)
     if args.test and (cortes.split != "test").any():
         raise SystemExit("Hay cortes con fold -1 que no son del split de test")
-    configs = {n: leer_config(c) for n, c in CARPETAS_CNN.items()}
-    umbrales = {n: float(cfg["umbral"]) for n, cfg in configs.items()}
+    config = leer_config(CARPETA_CNN)
+    umbrales = {"recorte": float(config["umbral"])}
+
+    # probabilidad de la CNN por paciente en validacion (fuera de fold): el ensayo la usa como prediccion y el modelo
+    # combinado, en los dos modos, para aprender cuanto fiarse de la CNN
+    cortes_ent = samples[samples.fold >= 0].reset_index(drop=True)
+    cnn_val = cortes_ent.assign(p=cnn_validacion(CARPETA_CNN, cortes_ent)).groupby("patient_id").p.mean()
 
     if args.test:
-        print(f"TEST: {cortes.patient_id.nunique()} pacientes, {len(cortes)} cortes; prediciendo con los dos modelos...")
-        probs, checksums = cnn_test(cortes, base_img)
+        print(f"TEST: {cortes.patient_id.nunique()} pacientes, {len(cortes)} cortes; prediciendo con el modelo principal "
+              f"(15 redes)...")
+        cortes["recorte"], checksum = cnn_test(cortes, base_img)
+        checksums = {"recorte": checksum}
     else:
-        probs, checksums = {n: cnn_validacion(c, cortes) for n, c in CARPETAS_CNN.items()}, None
-    for n, v in probs.items():
-        cortes[n] = v
+        cortes["recorte"], checksums = cnn_validacion(CARPETA_CNN, cortes), None
 
     pac = cortes.groupby("patient_id").agg(pCR=("pCR", "first"), fold=("fold", "first"), cortes=("sample_id", "size"),
-                                           recorte=("recorte", "mean"), v21=("v21", "mean"))
+                                           recorte=("recorte", "mean"))
     if (pac.pCR != pacientes.loc[pac.index, "pCR"]).any():
         raise SystemExit("pCR no coincide entre samples.csv y patients.csv")
     pac["cohorte"] = pacientes.loc[pac.index, "dataset"]
     pac["clinico"] = clinico(pacientes, args.test).reindex(pac.index)
-    if pac.clinico.isna().any():
-        raise SystemExit("Faltan predicciones del modelo clinico")
+    cnn_todas = pd.concat([cnn_val, pac.recorte]) if args.test else cnn_val
+    prob_comb, coeficientes = combinado(pacientes, cnn_todas, args.test)
+    pac["combinado"] = prob_comb.reindex(pac.index)
     pac["solo_cohorte"] = solo_cohorte(pacientes, args.test).reindex(pac.index)
-    if pac.solo_cohorte.isna().any():
-        raise SystemExit("Faltan predicciones de la referencia solo cohorte")
+    for n in ("clinico", "combinado", "solo_cohorte"):
+        if pac[n].isna().any():
+            raise SystemExit(f"Faltan predicciones de '{n}'")
     y = pac.pCR.to_numpy()
 
+    # en el test, el AUC que tenia cada modelo en validacion (fuera de fold), para comparar
+    auc_validacion = None
+    if args.test:
+        ent = pacientes[pacientes.fold >= 0]
+        auc_validacion = {"recorte": um.auc(ent.pCR, cnn_val.reindex(ent.index)),
+                          "clinico": um.auc(ent.pCR, clinico(pacientes, False).reindex(ent.index)),
+                          "combinado": um.auc(ent.pCR, combinado(pacientes, cnn_val, False)[0].reindex(ent.index)),
+                          "solo_cohorte": um.auc(ent.pCR, solo_cohorte(pacientes, False).reindex(ent.index))}
+
     # ---- metricas ----
-    res = {n: evaluar_cnn(y, pac[n].to_numpy(), umbrales[n]) for n in ("recorte", "v21")}
-    u_desescalar = float(configs["recorte"]["umbral_desescalar"])
+    res = {"recorte": evaluar_cnn(y, pac.recorte.to_numpy(), umbrales["recorte"])}
+    u_desescalar = float(config["umbral_desescalar"])
     res["recorte_desescalar"] = evaluar_cnn(y, pac.recorte.to_numpy(), u_desescalar)
-    res["clinico"] = resumen_curvas(y, pac.clinico.to_numpy())
-    res["solo_cohorte"] = resumen_curvas(y, pac.solo_cohorte.to_numpy())
+    for n in ("clinico", "combinado", "solo_cohorte"):
+        res[n] = resumen_curvas(y, pac[n].to_numpy())
     siempre_no = con_medias(um.metricas(y, np.zeros(len(y)), 0.5))
-    un_corte = {n: {"auc": um.auc(cortes.pCR, cortes[n]), **um.metricas(cortes.pCR, cortes[n], umbrales[n])}
-                for n in ("recorte", "v21")}
-    diferencias = {"recorte - 2.1": diferencia_auc(y, pac.recorte, pac.v21),
-                   "recorte - clinico": diferencia_auc(y, pac.recorte, pac.clinico),
-                   "recorte - solo cohorte": diferencia_auc(y, pac.recorte, pac.solo_cohorte)}
+    un_corte = {"recorte": {"auc": um.auc(cortes.pCR, cortes.recorte),
+                            **um.metricas(cortes.pCR, cortes.recorte, umbrales["recorte"])}}
+    diferencias = {"imagen - solo cohorte": diferencia_auc(y, pac.recorte, pac.solo_cohorte),
+                   "imagen - clinico": diferencia_auc(y, pac.recorte, pac.clinico),
+                   "imagen + clinico - clinico": diferencia_auc(y, pac.combinado, pac.clinico)}
     cohortes = {}
     for c in COHORTES:
         d = pac[pac.cohorte == c]
         cohortes[c] = {"pacientes": len(d), "pcr": int(d.pCR.sum())}
-        for n in ("recorte", "v21", "clinico"):
+        for n in COMPARADOS:
             cohortes[c][n] = resumen_curvas(d.pCR.to_numpy(), d[n].to_numpy())
 
     # ---- resumen en texto ----
@@ -514,17 +567,19 @@ def main() -> None:
                                    "mismos datos, asi que las cifras son algo optimistas. El juez es el test.", ""]
     for n in CURVAS:
         r = res[n]
-        lineas.append(f"{NOMBRES[n]:<26} AUC {r['auc']:.3f} (IC95 {r['auc_ic95'][0]:.3f}-{r['auc_ic95'][1]:.3f})   "
+        lineas.append(f"{NOMBRES[n]:<28} AUC {r['auc']:.3f} (IC95 {r['auc_ic95'][0]:.3f}-{r['auc_ic95'][1]:.3f})   "
                       f"AP {r['ap']:.3f} (azar {y.mean():.3f})   Brier {r['brier']:.4f} (referencia {y.mean() * (1 - y.mean()):.4f})")
-        if args.test and n in configs:
-            lineas.append(f"{'':<26} en validacion era AUC {configs[n]['auc_validacion']:.3f}")
-    lineas.append("")
+        if auc_validacion:
+            lineas.append(f"{'':<28} en validacion era AUC {auc_validacion[n]:.3f}")
+    c = coeficientes
+    lineas += ["", "imagen + datos clinicos, pesos de la regresion ajustada con todo el entrenamiento (edad, volumen y CNN "
+                   "estandarizados):",
+               "   " + "   ".join(f"{k} {v:+.3f}" for k, v in c.items() if k != "intercepto"), ""]
     for n, u, criterio in (("recorte", umbrales["recorte"], "equilibrado"),
-                           ("recorte_desescalar", u_desescalar, "desescalar, comparacion"),
-                           ("v21", umbrales["v21"], "equilibrado")):
+                           ("recorte_desescalar", u_desescalar, "desescalar, comparacion")):
         r = res[n]; ic = r["ic95"]
         f = lambda clave: f"{r[clave]:.0%} ({ic[clave][0]:.0%}-{ic[clave][1]:.0%})"
-        nombre = NOMBRES[n] if n in NOMBRES else "recorte 128"
+        nombre = NOMBRES["recorte"]
         lineas += [f"{nombre} con el umbral {u:.3f} ({criterio}):",
                    f"   matriz: VP {r['VP']}  FN {r['FN']}  VN {r['VN']}  FP {r['FP']}",
                    f"   sensibilidad {f('sensibilidad')}   especificidad {f('especificidad')}   "
@@ -541,10 +596,10 @@ def main() -> None:
     for k, d in diferencias.items():
         lineas.append(f"diferencia de AUC {k}: {d['diferencia']:+.3f} (IC95 {d['ic95'][0]:+.3f} a {d['ic95'][1]:+.3f}) -> "
                       + ("el intervalo excluye el 0" if d["ic95"][0] > 0 or d["ic95"][1] < 0 else "el intervalo incluye el 0"))
-    lineas += ["", "AUC por cohorte:   " + "   ".join(f"{NOMBRES[n].split(' (')[0]:>12}" for n in ("recorte", "v21", "clinico"))]
+    lineas += ["", "AUC por cohorte:          " + "   ".join(f"{n:>12}" for n in ("solo imagen", "solo clinico", "imagen+clin."))]
     for c in COHORTES:
         lineas.append(f"  {c:<5} ({cohortes[c]['pacientes']:>4} pac., {cohortes[c]['pcr']:>3} pCR) "
-                      + "   ".join(f"{cohortes[c][n]['auc']:>12.3f}" for n in ("recorte", "v21", "clinico")))
+                      + "   ".join(f"{cohortes[c][n]['auc']:>12.3f}" for n in COMPARADOS))
     print("\n".join(lineas))
 
     # ---- figuras ----
@@ -565,8 +620,10 @@ def main() -> None:
     with open(salida / "metricas.json", "w", encoding="utf-8") as f:
         json.dump({"conjunto": conjunto, "fecha": datetime.now().isoformat(timespec="seconds"),
                    "pacientes": len(pac), "cortes": len(cortes), "pcr": int(y.sum()), "principal": "recorte",
-                   "umbrales": umbrales, "umbral_desescalar_recorte": u_desescalar, "configuraciones": {n: cfg["configuraciones"] for n, cfg in configs.items()},
-                   "checksums": checksums, "modelos": res, "siempre_no_pcr": siempre_no, "un_corte": un_corte,
+                   "umbrales": umbrales, "umbral_desescalar_recorte": u_desescalar,
+                   "configuraciones": {"recorte": config["configuraciones"]}, "nombres": NOMBRES,
+                   "checksums": checksums, "modelos": res, "auc_validacion": auc_validacion,
+                   "combinado_coeficientes": coeficientes, "siempre_no_pcr": siempre_no, "un_corte": un_corte,
                    "diferencias_auc": diferencias, "cohortes": cohortes, "comprobacion_fuga": fuga,
                    "segundos": round(time.time() - t0, 1)}, f, indent=2, ensure_ascii=False, default=float)
     print(f"Listo en {time.time() - t0:.0f} s. Resultados en {salida}")

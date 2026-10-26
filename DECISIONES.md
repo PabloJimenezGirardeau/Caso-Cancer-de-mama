@@ -968,6 +968,32 @@ calibración y su umbral equilibrado recalculados con `umbral.py`); el recorte c
   folds de entrenamiento y que cada paciente tiene un solo fold; si no, se para. Resultado: 176 pacientes de test, 1.097 de
   entrenamiento, 0 en común. Se guarda en `metricas.json`.
 
+### DECLARACIÓN ANTES DEL TEST (2026-10-26): qué se evalúa en el test
+
+Fijado por el usuario antes de ejecutar `python evaluar_test.py --test` (una sola vez):
+
+- **Modelo principal: CNN solo imagen** (`modelo/`, C: recorte 128, lr 3e-5, 15 redes, Platt, umbral equilibrado 0,316). Es el
+  de la app y el único con umbral. Su resultado no depende de los demás modelos.
+- **Comparaciones** (sin umbral: AUC, precisión media y Brier), para la pregunta de la defensa "¿añade algo la imagen?":
+  - **solo datos clínicos:** regresión logística con HR, HER2, HR×HER2, edad y log(tum_vol), las variables fijadas el 8 oct
+    (`clinicas.py`). No entran las columnas de la caja del tumor (`mask_start/end`, `sraw/eraw`, `scol/ecol`): delatan la cohorte
+    (mediana de `mask_start` 2 en Duke, 15 en I-SPY1 y 30 en I-SPY2; alto de la caja 52, 81 y 100 píxeles), su tamaño ya lo recoge
+    `tum_vol` y los píxeles no miden lo mismo en todos los escáneres.
+  - **imagen + datos clínicos:** la misma regresión con una sexta variable, el logit de la probabilidad de la CNN principal para la
+    paciente (estandarizado). Aprende cuánto fiarse de la CNN con sus predicciones de validación, hechas por modelos que no vieron a
+    esa paciente (stacking). En el test se ajusta con las 1.097 pacientes de entrenamiento.
+  - **solo cohorte** (referencia, ya declarada el 24 oct).
+- **Se retira la CNN anterior** (recorte 128 con lr 1e-4, `modelo_c128/`): decisión del usuario, para centrar la evaluación en el
+  modelo elegido. Su comparación con C queda hecha en validación (arriba).
+- Diferencias de AUC con bootstrap emparejado: imagen − solo cohorte, imagen − clínico, (imagen + clínico) − clínico.
+- Si en el test el combinado supera a la CNN, **no pasa a ser el principal**: sigue siendo una comparación (correo del profesor:
+  modelo principal solo imagen; `patients.csv` solo para comparar).
+
+**Ensayo con la validación (fuera de fold, algo optimista):** CNN 0,573 · clínico 0,704 · imagen + clínico 0,710 · solo cohorte
+0,523. Imagen + clínico − clínico: **+0,006 (IC95 −0,005 a +0,017), no concluyente**: con los datos clínicos delante, la imagen
+apenas añade. Peso de la CNN en la regresión: +0,23 (por desviación típica), frente a −1,35 de HR y +0,88 de HER2. Por cohorte,
+imagen + clínico frente a clínico: Duke 0,731 / 0,739, I-SPY1 0,805 / 0,784, I-SPY2 0,690 / 0,689.
+
 ## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
 
 - La línea de validación usaba la entropía de la proporción de pCR de la **propia validación**, que el modelo no puede conocer. La
