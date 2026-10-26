@@ -7,6 +7,10 @@ fichero, sin servidor) con:
     validacion   las 1.097 pacientes de validacion: probabilidad calibrada (fuera de fold), pCR real, fold y cohorte
                  (para la curva ROC, el deslizador del umbral, la calibracion y el contexto del resultado)
     curvas       curvas de entrenamiento del modelo final (semilla 42, los 5 folds) con su referencia sin imagen
+    comparacion  validacion y TEST de los cuatro modelos de evaluar_test.py (CNN solo imagen, solo datos clinicos,
+                 imagen + datos clinicos, solo cohorte): metricas y la probabilidad de cada paciente (sin su
+                 identificador), para las curvas ROC y la tabla de la vista Modelo
+    gradcam      el resumen de mapas_gradcam.py (parte del mapa dentro de la caja del tumor en validacion)
 
 Lo que SI necesita PyTorch (los modelos ONNX, los ejemplos y la verificacion) lo genera exportar_web.py en el PC.
 
@@ -36,6 +40,34 @@ def checksum_pytorch(cfg: dict) -> str:
         for k in range(5):
             huella.update((MODELO / f"{nombre}_fold{k}.pt").read_bytes())
     return huella.hexdigest()[:16]
+
+
+MODELOS_COMPARADOS = ("recorte", "clinico", "combinado", "solo_cohorte")
+
+
+def comparacion(conjunto: str) -> dict | None:
+    """Metricas y probabilidades por paciente de los cuatro modelos (figuras/<conjunto>/, de evaluar_test.py)."""
+    carpeta = RAIZ / "figuras" / conjunto
+    if not (carpeta / "metricas.json").exists():
+        return None
+    m = json.loads((carpeta / "metricas.json").read_text(encoding="utf-8"))
+    with open(carpeta / "pacientes.csv", encoding="utf-8") as f:
+        filas = [[round(float(r[n]), 6) for n in MODELOS_COMPARADOS] + [int(r["pCR"]), r["cohorte"]]
+                 for r in csv.DictReader(f)]
+    claves = ("VP", "FN", "VN", "FP", "sensibilidad", "especificidad", "precision", "vpn", "f1_pcr", "f1_no_pcr",
+              "f1_equilibrada", "accuracy", "precision_media", "recall_medio", "ic95")
+    principal = m["modelos"]["recorte"]
+    return {
+        "pacientes_n": m["pacientes"], "cortes": m["cortes"], "pcr": m["pcr"],
+        "modelos": {n: {k: m["modelos"][n][k] for k in ("auc", "auc_ic95", "ap", "brier")} for n in MODELOS_COMPARADOS},
+        "con_el_umbral": {k: principal[k] for k in claves}, "umbral": m["umbrales"]["recorte"],
+        "un_corte": {k: m["un_corte"]["recorte"][k] for k in ("auc", "sensibilidad", "especificidad")},
+        "diferencias": m["diferencias_auc"], "coeficientes_combinado": m.get("combinado_coeficientes"),
+        "cohortes": {c: {"pacientes": d["pacientes"], "pcr": d["pcr"],
+                         **{n: {"auc": d[n]["auc"], "auc_ic95": d[n]["auc_ic95"]} for n in ("recorte", "clinico", "combinado")}}
+                     for c, d in m["cohortes"].items()},
+        "columnas": [*MODELOS_COMPARADOS, "pCR", "cohorte"], "filas": filas,
+    }
 
 
 def main() -> None:
@@ -85,7 +117,11 @@ def main() -> None:
         },
         "validacion": {"columnas": ["probabilidad", "pCR", "fold", "cohorte"], "pacientes": pacientes},
         "curvas": curvas,
+        "comparacion": {"validacion": comparacion("validacion"), "test": comparacion("test")},
     }
+    ruta_gradcam = RAIZ / "figuras" / "mapas" / "gradcam_resumen.json"
+    if ruta_gradcam.exists():
+        datos["gradcam"] = json.loads(ruta_gradcam.read_text(encoding="utf-8"))["validacion"]
     SALIDA.parent.mkdir(parents=True, exist_ok=True)
     SALIDA.write_text("// Generado por datos_web.py: no editar a mano.\nwindow.DATOS = "
                       + json.dumps(datos, ensure_ascii=False, separators=(",", ":")) + ";\n", encoding="utf-8")

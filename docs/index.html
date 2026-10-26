@@ -14,6 +14,28 @@
   </script>
 </head>
 <body>
+  <div class="portada" id="portada" hidden role="dialog" aria-label="Presentación">
+    <div class="portada-contenido">
+      <div class="portada-texto">
+        <span class="portada-etiqueta">Trabajo académico · BreastDCEDL</span>
+        <h1>¿Responderá a la quimioterapia?</h1>
+        <p>Una red convolucional <b>entrenada desde cero</b> estima la probabilidad de <b>respuesta patológica completa (pCR)</b>
+          a partir de un solo corte de resonancia DCE antes del tratamiento. Todo se calcula aquí, en tu navegador.</p>
+        <div class="portada-cifras" id="portada-cifras"></div>
+        <div class="portada-botones">
+          <button class="boton boton-principal" id="portada-empezar">Empezar</button>
+          <button class="boton boton-secundario" id="portada-modelo">Ver el modelo y el test</button>
+        </div>
+        <p class="portada-nota">Uso exclusivamente educativo · sin validez clínica</p>
+      </div>
+      <div class="portada-visual">
+        <div class="portada-marco"><canvas id="portada-canvas" width="256" height="256"></canvas></div>
+        <div class="portada-fases"><span data-pf="PRE">PRE</span><span data-pf="EARLY">EARLY</span><span data-pf="LATE">LATE</span></div>
+        <div class="portada-pie">Así llega el contraste al tumor · el cuadrado es la zona que mira la red</div>
+      </div>
+    </div>
+  </div>
+
   <div class="franja franja-demo" id="franja-demo" hidden>
     <span class="insignia">Maqueta</span>Datos de validación y curvas reales; <strong>predicciones inventadas</strong> (sin cargar los
     modelos). Publicada en GitHub Pages usa el modelo de verdad.
@@ -34,6 +56,9 @@
       <button data-vista="acerca">Acerca de</button>
     </nav>
     <div class="barra-derecha">
+      <button class="icono-boton" id="abrir-portada" title="Ver la portada" aria-label="Ver la portada">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
+      </button>
       <span class="pastilla" id="estado"><span class="luz"></span><span id="estado-texto">Cargando…</span>
         <span class="progreso"><i id="estado-progreso"></i></span></span>
       <button class="icono-boton" id="tema" title="Cambiar entre modo oscuro y claro" aria-label="Cambiar tema">
@@ -50,17 +75,17 @@
         <div class="columna">
           <div class="tarjeta">
             <div class="tarjeta-cabecera"><h2>Muestra</h2><span class="texto-tenue">PNG · 256 × 256 · ≤ 5 MB</span></div>
-            <label class="ranura" data-fase="PRE"><input type="file" accept="image/png" data-fase="PRE">
+            <label class="ranura" data-fase="PRE"><input type="file" accept="image/png" multiple data-fase="PRE">
               <div class="miniatura" data-mini="PRE">PRE</div>
               <div><div class="ranura-titulo">PRE<span>antes del contraste</span></div>
                 <div class="ranura-estado" data-estado="PRE">Arrastra o elige un PNG</div><div class="chips" data-chips="PRE"></div></div>
             </label>
-            <label class="ranura" data-fase="EARLY"><input type="file" accept="image/png" data-fase="EARLY">
+            <label class="ranura" data-fase="EARLY"><input type="file" accept="image/png" multiple data-fase="EARLY">
               <div class="miniatura" data-mini="EARLY">EARLY</div>
               <div><div class="ranura-titulo">EARLY<span>contraste temprano</span></div>
                 <div class="ranura-estado" data-estado="EARLY">Arrastra o elige un PNG</div><div class="chips" data-chips="EARLY"></div></div>
             </label>
-            <label class="ranura" data-fase="LATE"><input type="file" accept="image/png" data-fase="LATE">
+            <label class="ranura" data-fase="LATE"><input type="file" accept="image/png" multiple data-fase="LATE">
               <div class="miniatura" data-mini="LATE">LATE</div>
               <div><div class="ranura-titulo">LATE<span>contraste tardío</span></div>
                 <div class="ranura-estado" data-estado="LATE">Arrastra o elige un PNG</div><div class="chips" data-chips="LATE"></div></div>
@@ -70,6 +95,10 @@
               <button class="boton boton-secundario" id="limpiar">Limpiar</button>
             </div>
             <div class="errores" id="errores" hidden></div>
+            <label class="lote-zona" id="lote-zona"><input type="file" accept="image/png" multiple id="lote-input">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="7" width="13" height="13" rx="2"/><path d="M8 4h11a2 2 0 0 1 2 2v11"/></svg>
+              <span><b>Varias muestras a la vez</b>Suelta aquí todos los PNG: se emparejan por el nombre (…_PRE, …_EARLY, …_LATE)</span>
+            </label>
           </div>
           <div class="tarjeta">
             <div class="tarjeta-cabecera"><h2>Ejemplos</h2><span class="texto-tenue" id="ejemplos-nota"></span></div>
@@ -86,11 +115,19 @@
                 <button data-fase-visor="EARLY" aria-pressed="true">EARLY</button>
                 <button data-fase-visor="LATE" aria-pressed="false">LATE</button>
                 <button data-fase-visor="REALCE" aria-pressed="false">Realce</button>
+                <button data-fase-visor="COMPARAR" aria-pressed="false">Comparar</button>
               </div>
+              <select id="par-comparar" class="selector" hidden aria-label="Fases que se comparan">
+                <option value="PRE|EARLY">PRE ↔ EARLY</option><option value="EARLY|LATE">EARLY ↔ LATE</option><option value="PRE|LATE">PRE ↔ LATE</option>
+              </select>
               <button class="boton-play" id="play" disabled title="Ver cómo llega el contraste: PRE → EARLY → LATE">
                 <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z" fill="currentColor"/></svg>
                 <span>Secuencia DCE</span></button>
+            </div>
+            <div class="opciones-visor">
               <label class="interruptor"><input type="checkbox" id="ver-recorte" checked> Zona que mira la red</label>
+              <label class="interruptor"><input type="checkbox" id="ver-mapa"> Dónde mira (Grad-CAM)</label>
+              <label class="interruptor"><input type="checkbox" id="ver-lupa"> Lupa</label>
             </div>
             <div class="visor">
               <canvas id="visor" width="256" height="256"></canvas>
@@ -98,8 +135,13 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="13" r="4"/><path d="M7 7h3"/></svg>
                 <div>Carga una muestra o elige un ejemplo para ver sus tres fases</div></div></div>
               <span class="visor-etiqueta" id="visor-etiqueta" hidden>EARLY</span>
+              <span class="visor-etiqueta derecha" id="visor-etiqueta-2" hidden>EARLY</span>
+              <div class="cortina" id="cortina" hidden><span></span></div>
+              <canvas class="lupa" id="lupa" hidden></canvas>
             </div>
             <div class="leyenda-visor"><span>Cuadrado amarillo: los 128 × 128 píxeles centrales que analiza la red</span><span id="visor-info"></span></div>
+            <div class="leyenda-mapa" id="leyenda-mapa" hidden><span>Dónde mira la red: zonas que más han empujado la decisión</span>
+              <span class="barra-mapa"><i></i></span><span class="texto-tenue">menos → más</span></div>
           </div>
           <div class="tarjeta">
             <div class="tarjeta-cabecera"><h2>Curva de realce</h2><span class="texto-tenue">brillo medio a lo largo del contraste</span></div>
@@ -113,6 +155,15 @@
           <div class="tarjeta">
             <div class="tarjeta-cabecera"><h2>Resultado</h2><span class="texto-tenue" id="r-hora"></span></div>
             <div class="resultado-vacio" id="resultado-vacio">El resultado aparecerá aquí</div>
+            <div class="proceso" id="proceso" hidden>
+              <ol>
+                <li data-paso="0"><span class="marca-paso"></span><div><b>Lectura</b><small>tres PNG en escala de grises, como Pillow</small></div></li>
+                <li data-paso="1"><span class="marca-paso"></span><div><b>Recorte central</b><small>128 × 128 píxeles en el centro del corte</small></div></li>
+                <li data-paso="2"><span class="marca-paso"></span><div><b>15 redes</b><small>3 semillas × 5 folds</small><div class="proceso-redes" id="proceso-redes"></div></div></li>
+                <li data-paso="3"><span class="marca-paso"></span><div><b>Calibración</b><small>media de las 15 y escalado de Platt</small></div></li>
+                <li data-paso="4"><span class="marca-paso"></span><div><b>Decisión</b><small id="proceso-decision">umbral</small></div></li>
+              </ol>
+            </div>
             <div id="resultado" hidden>
               <svg class="medidor" id="g-medidor" viewBox="-40 0 400 182" role="img" aria-label="Probabilidad de pCR"></svg>
               <div class="cifra"><div class="valor" id="r-prob">0,000</div><div class="etiqueta">probabilidad de pCR (calibrada)</div></div>
@@ -141,7 +192,14 @@
         </div>
       </div>
 
-      <div class="tarjeta" style="margin-top:18px">
+      <div class="tarjeta" id="lote" hidden style="margin-top:16px">
+        <div class="tarjeta-cabecera"><h2>Varias muestras</h2><span class="texto-tenue" id="lote-resumen"></span></div>
+        <div class="lote-rejilla" id="lote-rejilla"></div>
+        <div class="errores" id="lote-errores" hidden></div>
+        <p class="texto-tenue" style="margin:10px 0 0">Pulsa una muestra para verla en el visor con su resultado.</p>
+      </div>
+
+      <div class="tarjeta" style="margin-top:16px">
         <div class="tarjeta-cabecera"><h2>Historial de la sesión</h2>
           <div class="botones" style="margin:0"><button class="boton boton-secundario" id="descargar" disabled>Descargar CSV</button>
             <button class="boton boton-secundario" id="vaciar" disabled>Vaciar</button></div></div>
@@ -155,6 +213,31 @@
     <!-- ====================================== MODELO ====================================== -->
     <section class="vista" id="vista-modelo" aria-label="Modelo">
       <div class="cifras" id="kpis"></div>
+      <div class="tarjeta" id="comparacion" style="margin-bottom:16px">
+        <div class="tarjeta-cabecera"><h2>Validación y test · ¿añade algo la imagen?</h2>
+          <div class="selector-fold" id="selector-conjunto">
+            <button data-conjunto="test" aria-pressed="true">Test · 176 pacientes</button>
+            <button data-conjunto="validacion" aria-pressed="false">Validación · 1.097</button>
+          </div></div>
+        <div class="comparacion">
+          <div>
+            <svg class="grafica" id="g-roc-comp" viewBox="0 0 320 310" role="img" aria-label="Curvas ROC de los cuatro modelos"></svg>
+            <div class="leyenda leyenda-columna" id="l-roc-comp"></div>
+          </div>
+          <div>
+            <svg class="grafica" id="g-bosque" viewBox="0 0 420 290" role="img" aria-label="AUC con intervalo de confianza en validación y test"></svg>
+            <ul class="notas" id="t-notas"></ul>
+          </div>
+          <div>
+            <h3 id="t-titulo" class="subtitulo"></h3>
+            <div class="matriz" id="t-matriz"></div>
+            <div class="metricas-umbral" id="t-metricas"></div>
+          </div>
+        </div>
+        <h3 class="subtitulo" style="margin-top:18px">AUC por cohorte</h3>
+        <svg class="grafica" id="g-cohortes-comp" viewBox="0 0 1300 190" role="img" aria-label="AUC por cohorte"></svg>
+        <div class="leyenda"><span><i style="--c:var(--m-cnn)"></i>CNN solo imagen</span><span><i style="--c:var(--m-clin)"></i>solo datos clínicos</span><span><i style="--c:var(--m-comb)"></i>imagen + datos clínicos</span></div>
+      </div>
       <div class="tarjeta" style="margin-bottom:18px">
         <div class="tarjeta-cabecera"><h2>Arquitectura</h2><span class="texto-tenue" id="arq-nota"></span></div>
         <div class="tabla-contenedor"><svg class="grafica" id="g-arquitectura" viewBox="0 0 1100 230" role="img" aria-label="Arquitectura de la red"></svg></div>
@@ -200,8 +283,9 @@
         <div class="tarjeta">
           <div class="tarjeta-cabecera"><h2>Entrenamiento</h2></div>
           <dl class="ficha" id="ficha-entrenamiento"></dl>
-          <h3 style="margin-top:18px">AUC por cohorte (validación)</h3>
-          <svg class="grafica" id="g-cohortes" viewBox="0 0 560 140" role="img" aria-label="AUC por cohorte"></svg>
+          <h3 style="margin-top:18px">¿Mira el tumor? Grad-CAM en validación</h3>
+          <svg class="grafica" id="g-gradcam" viewBox="0 0 640 160" role="img" aria-label="Parte del mapa Grad-CAM dentro de la caja del tumor"></svg>
+          <p class="texto-tenue" id="gradcam-nota" style="margin:6px 0 0"></p>
         </div>
       </div>
     </section>
@@ -249,7 +333,10 @@
           (3 semillas × 5 folds de validación cruzada) y calibra la probabilidad.</p>
         <h3 style="margin-top:22px">Limitaciones</h3>
         <ul>
-          <li>Capacidad de discriminación <b>limitada</b>: AUC ≈ 0,57 en validación. Un modelo con datos clínicos (receptores, edad, volumen) predice mejor.</li>
+          <li>Capacidad de discriminación <b>limitada</b>: AUC 0,573 en validación y 0,591 en el test (176 pacientes nuevas). Un modelo con
+            datos clínicos (receptores, edad, volumen) predice mejor (0,695 en el test), y la imagen apenas le añade (+0,010).</li>
+          <li>La red mira <b>sobre todo el tumor, pero no solo</b>: el 41 % de su mapa Grad-CAM cae en la caja del tumor, frente al 34 % de
+            un mapa uniforme.</li>
           <li>Un solo <b>corte 2D</b>: se pierde la forma tridimensional del tumor.</li>
           <li><b>Sensible al brillo</b> de la imagen: probado solo con imágenes del dataset BreastDCEDL; con imágenes de otro hospital o procesado distinto la predicción no es fiable.</li>
           <li>Datos de tres cohortes con escáneres y protocolos distintos, sin armonizar.</li>

@@ -8,26 +8,37 @@
  *   2. las 15 redes (exportadas en modo evaluacion; el recorte central de 128x128 va dentro) dan sigmoide(logit);
  *   3. media de las 15, recorte a [1e-6, 1 - 1e-6] y calibracion de Platt: p = sigmoide(a*logit(media) + b);
  *   4. pCR = 1 si p >= umbral.
- * Datos: window.DATOS (datos_web.py: metricas, validacion, curvas) y window.WEB (exportar_web.py: modelos, ejemplos).
- * MODO MAQUETA: si la pagina se abre como fichero (o con ?demo), no se cargan los modelos y las predicciones son
- * inventadas (avisado con una franja); todo lo demas usa los datos reales.
+ * Si los ONNX traen la salida "mapa" (exportar_web.py, ConMapa), se dibuja ademas DONDE MIRA LA RED: el Grad-CAM de cada
+ * red hacia la clase predicha (parte positiva del mapa con signo si pCR = 1, negativa si pCR = 0), normalizado y promediado.
+ *
+ * Datos: window.DATOS (datos_web.py: metricas, validacion, test, curvas, Grad-CAM) y window.WEB (exportar_web.py:
+ * modelos, ejemplos). MODO MAQUETA: abierta como fichero (o con ?demo) no se cargan los modelos y las predicciones (y el
+ * mapa) son inventadas, avisado con una franja; todo lo demas usa los datos reales.
  */
 
 const D = window.DATOS;
 const W = window.WEB || null;
 const DEMO = location.protocol === "file:" || new URLSearchParams(location.search).has("demo");
-const LADO = 256, RECORTE = 128, TAM_MAX = 5 * 1024 * 1024, TOLERANCIA = 1e-4;
+const LADO = 256, RECORTE = 128, INI = (LADO - RECORTE) / 2, TAM_MAX = 5 * 1024 * 1024, TOLERANCIA = 1e-4;
 const FASES = ["PRE", "EARLY", "LATE"];
 const SEMILLAS = [42, 1, 2];
 const SIN_MOVIMIENTO = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const MODELOS = ["recorte", "clinico", "combinado", "solo_cohorte"];
+const NOMBRE_MODELO = { recorte: "CNN solo imagen", clinico: "solo datos clínicos", combinado: "imagen + datos clínicos",
+                        solo_cohorte: "solo cohorte" };
+const COLOR_MODELO = { recorte: "var(--m-cnn)", clinico: "var(--m-clin)", combinado: "var(--m-comb)", solo_cohorte: "var(--m-coh)" };
+const NOMBRE_COHORTE = { duke: "Duke", spy1: "I-SPY1", spy2: "I-SPY2" };
 
 const estado = {
-  sesiones: [], checksumWeb: null, listo: false,
+  sesiones: [], checksumWeb: null, listo: false, tieneMapa: false,
   fases: null,                 // {PRE, EARLY, LATE}: Float32Array de la muestra cargada
   buffers: { PRE: null, EARLY: null, LATE: null }, nombres: { PRE: null, EARLY: null, LATE: null },
   leidas: { PRE: null, EARLY: null, LATE: null },   // Float32Array de cada fase que se ha leido bien
   ejemploActivo: null,         // indice del ejemplo cargado (o null si se subio a mano)
-  faseVisor: "EARLY", animando: null, historial: [], ultimo: null,
+  faseVisor: "EARLY", animando: null, historial: [],
+  mapa: null,                  // Grad-CAM medio de la ultima prediccion (16x16, en [0, 1])
+  cortina: 0.5, par: ["PRE", "EARLY"], arrastrando: false, puntero: null,
+  lote: [], loteActivo: null, procesando: false, conjunto: "test", portada: null,
 };
 
 class EntradaNoValida extends Error {
@@ -38,7 +49,11 @@ class EntradaNoValida extends Error {
 const $ = (id) => document.getElementById(id);
 const coma = (x, d = 3) => Number(x).toFixed(d).replace(".", ",");
 const pct = (x, d = 0) => `${(100 * x).toFixed(d).replace(".", ",")} %`;
+const conSigno = (x, d = 3) => `${x >= 0 ? "+" : "−"}${coma(Math.abs(x), d)}`;
 const sigmoide = (z) => 1 / (1 + Math.exp(-z));
+const limitar = (v, a, b) => Math.min(Math.max(v, a), b);
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+const miles = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 const NS = "http://www.w3.org/2000/svg";
 function s(etiqueta, atributos = {}, padre = null) {
   const e = document.createElementNS(NS, etiqueta);
@@ -159,7 +174,8 @@ function ponerEstado(texto, clase, progreso) {
 async function cargarModelo() {
   if (DEMO) {
     ponerEstado("Maqueta · sin modelos", "", 1);
-    estado.listo = true;
+    estado.listo = true; estado.tieneMapa = true;
+    actualizarMapaDisponible();
     actualizarBotonPredecir();
     return;
   }
@@ -175,6 +191,7 @@ async function cargarModelo() {
       buffers.push(buf);
       estado.sesiones.push(await ort.InferenceSession.create(buf, { executionProviders: ["wasm"] }));
     }
+    estado.tieneMapa = estado.sesiones.every((s_) => s_.outputNames.includes("mapa"));
     const m = D.modelo;
     const texto = new TextEncoder().encode(`${m.umbral}|${m.calibracion.a}|${m.calibracion.b}`);
     estado.checksumWeb = (await sha256Hex([...buffers, texto.buffer])).slice(0, 16);
@@ -184,6 +201,7 @@ async function cargarModelo() {
     $("verificar").disabled = false;
     const marca = `${estado.checksumWeb} <span class="${ok ? "bien" : "mal"}">${ok ? "✓" : "✗"}</span>`;
     $("cs-calc").innerHTML = marca; $("r-checksum").innerHTML = marca;
+    actualizarMapaDisponible();
     actualizarBotonPredecir();
   } catch (e) {
     console.error(e);
@@ -198,38 +216,90 @@ function hash01(f) {   // numero pseudoaleatorio estable a partir de la imagen (
   return ((h >>> 0) % 100000) / 100000;
 }
 
-async function predecirCorte(f) {
+// Grad-CAM de cada red (16x16, con signo) -> mapa medio hacia la clase predicha, en [0, 1]
+function combinarMapas(mapas, signo) {
+  const total = new Float32Array(256);
+  for (const m of mapas) {
+    let max = 0;
+    const v = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { v[i] = Math.max(signo * m[i], 0); if (v[i] > max) max = v[i]; }
+    if (max > 0) for (let i = 0; i < 256; i++) total[i] += v[i] / max;
+  }
+  let max = 0;
+  for (let i = 0; i < 256; i++) if (total[i] > max) max = total[i];
+  if (max > 0) for (let i = 0; i < 256; i++) total[i] /= max;
+  return total;
+}
+
+function mapaDeMaqueta(f) {   // solo maqueta: el realce de la zona central, suavizado, hace de "mapa"
+  const m = new Float32Array(256);
+  for (let by = 0; by < 16; by++) for (let bx = 0; bx < 16; bx++) {
+    let s_ = 0;
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+      const i = (INI + by * 8 + y) * LADO + INI + bx * 8 + x;
+      s_ += Math.max(f.EARLY[i] - f.PRE[i], 0);
+    }
+    m[by * 16 + bx] = s_;
+  }
+  const suave = new Float32Array(256);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    let s_ = 0, n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const yy = y + dy, xx = x + dx;
+      if (yy >= 0 && yy < 16 && xx >= 0 && xx < 16) { s_ += m[yy * 16 + xx]; n++; }
+    }
+    suave[y * 16 + x] = s_ / n;
+  }
+  return combinarMapas([suave], 1);
+}
+
+// alRed(i, p) se llama al terminar cada red; pausa (ms) solo para que la animacion del proceso se pueda seguir
+async function predecirCorte(f, { alRed = null, pausa = 0 } = {}) {
   const { umbral, calibracion } = D.modelo;
-  const t0 = performance.now();
-  let probs;
+  const probs = [], mapas = [];
+  let ms = 0;
   if (DEMO) {
     const base = 0.24 + 0.22 * hash01(f);
-    probs = Array.from({ length: 15 }, (_, i) => Math.min(0.95, Math.max(0.02, base + 0.05 * Math.sin(7.3 * i + 10 * base))));
-    await new Promise((r) => setTimeout(r, 180));
+    for (let i = 0; i < 15; i++) {
+      const p = limitar(base + 0.05 * Math.sin(7.3 * i + 10 * base), 0.02, 0.95);
+      probs.push(p);
+      if (alRed) alRed(i, p);
+      await esperar(pausa || 8);
+    }
   } else {
     const x = new Float32Array(3 * LADO * LADO);
     FASES.forEach((k, j) => x.set(f[k], j * LADO * LADO));     // canales: PRE, EARLY, LATE
     const tensor = new ort.Tensor("float32", x, [1, 3, LADO, LADO]);
-    probs = [];
-    for (const sesion of estado.sesiones) probs.push(sigmoide((await sesion.run({ imagen: tensor })).logit.data[0]));
+    for (let i = 0; i < estado.sesiones.length; i++) {
+      const t0 = performance.now();
+      const salida = await estado.sesiones[i].run({ imagen: tensor });
+      ms += performance.now() - t0;
+      const p = sigmoide(salida.logit.data[0]);
+      probs.push(p);
+      if (salida.mapa) mapas.push(Float32Array.from(salida.mapa.data));
+      if (alRed) alRed(i, p);
+      if (pausa) await esperar(pausa);
+    }
   }
   let m = probs.reduce((a, b) => a + b, 0) / probs.length;
-  m = Math.min(Math.max(m, 1e-6), 1 - 1e-6);
+  m = limitar(m, 1e-6, 1 - 1e-6);
   const p = sigmoide(calibracion.a * Math.log(m / (1 - m)) + calibracion.b);
-  return { probabilidad: p, clase: p >= umbral ? "pCR" : "no pCR", media: m, probs, segundos: (performance.now() - t0) / 1000 };
+  const clase = p >= umbral ? "pCR" : "no pCR";
+  const mapa = mapas.length === probs.length ? combinarMapas(mapas, clase === "pCR" ? 1 : -1) : (DEMO ? mapaDeMaqueta(f) : null);
+  return { probabilidad: p, clase, media: m, probs, mapa, segundos: ms / 1000 };
 }
 
 // ------------------------------------------------------------------------------------------------ imagenes
 const INFERNO = [[0, 0, 4], [40, 11, 84], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [250, 193, 39], [252, 255, 164]];
 function colorInferno(t) {
-  const x = Math.min(Math.max(t, 0), 1) * (INFERNO.length - 1);
+  const x = limitar(t, 0, 1) * (INFERNO.length - 1);
   const i = Math.min(Math.floor(x), INFERNO.length - 2), r = x - i;
   return INFERNO[i].map((c, k) => Math.round(c + r * (INFERNO[i + 1][k] - c)));
 }
 function pintarGris(ctx, datos) {
   const img = ctx.createImageData(LADO, LADO);
   for (let i = 0, j = 0; i < datos.length; i++, j += 4) {
-    const v = Math.round(Math.min(Math.max(datos[i], 0), 1) * 255);
+    const v = Math.round(limitar(datos[i], 0, 1) * 255);
     img.data[j] = img.data[j + 1] = img.data[j + 2] = v; img.data[j + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
@@ -244,27 +314,60 @@ function pintarRealce(ctx, pre, early) {
   }
   ctx.putImageData(img, 0, 0);
 }
+function pintarComparar(ctx) {    // izquierda: la primera fase del par; derecha: la segunda
+  const [a, b] = estado.par, A = estado.fases[a], B = estado.fases[b], corte = Math.round(estado.cortina * LADO);
+  const img = ctx.createImageData(LADO, LADO);
+  for (let y = 0; y < LADO; y++) for (let x = 0; x < LADO; x++) {
+    const i = y * LADO + x, j = 4 * i, v = Math.round(limitar(x < corte ? A[i] : B[i], 0, 1) * 255);
+    img.data[j] = img.data[j + 1] = img.data[j + 2] = v; img.data[j + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function pintarMapa(ctx, mapa) {    // el mapa de 16x16 sobre el cuadrado central, interpolado y semitransparente
+  const c = document.createElement("canvas"); c.width = c.height = 16;
+  const cc = c.getContext("2d"), img = cc.createImageData(16, 16);
+  for (let i = 0; i < 256; i++) {
+    const v = mapa[i], [r, g, b] = colorInferno(0.35 + 0.65 * v);
+    img.data[4 * i] = r; img.data[4 * i + 1] = g; img.data[4 * i + 2] = b;
+    img.data[4 * i + 3] = Math.round(215 * limitar((v - 0.1) / 0.9, 0, 1) ** 0.85);
+  }
+  cc.putImageData(img, 0, 0);
+  ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(c, INI, INI, RECORTE, RECORTE); ctx.restore();
+}
 function pintarRecorte(ctx) {
   if (!$("ver-recorte").checked) return;
-  const ini = (LADO - RECORTE) / 2;
   ctx.save(); ctx.strokeStyle = "#ffd60a"; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
-  ctx.strokeRect(ini + 0.75, ini + 0.75, RECORTE - 1.5, RECORTE - 1.5); ctx.restore();
+  ctx.strokeRect(INI + 0.75, INI + 0.75, RECORTE - 1.5, RECORTE - 1.5); ctx.restore();
 }
 function mezcla(a, b, t) { const r = new Float32Array(a.length); for (let i = 0; i < a.length; i++) r[i] = a[i] + t * (b[i] - a[i]); return r; }
 
+const DESCRIPCION_FASE = { PRE: "antes del contraste", EARLY: "contraste temprano", LATE: "contraste tardío",
+                           REALCE: "cuánto brilla más en EARLY que en PRE", COMPARAR: "arrastra la cortina para comparar" };
 function dibujarVisor(datos, etiqueta) {
   const ctx = $("visor").getContext("2d");
   if (etiqueta === "REALCE") pintarRealce(ctx, estado.fases.PRE, estado.fases.EARLY);
+  else if (etiqueta === "COMPARAR") pintarComparar(ctx);
   else pintarGris(ctx, datos || estado.fases[etiqueta]);
+  const conMapa = estado.mapa && $("ver-mapa").checked;
+  if (conMapa) pintarMapa(ctx, estado.mapa);
   pintarRecorte(ctx);
+  const comparando = etiqueta === "COMPARAR";
   $("visor-etiqueta").hidden = false;
-  $("visor-etiqueta").textContent = etiqueta === "REALCE" ? "Realce (EARLY − PRE)" : etiqueta;
+  $("visor-etiqueta").textContent = comparando ? estado.par[0] : etiqueta === "REALCE" ? "Realce (EARLY − PRE)" : etiqueta;
+  $("visor-etiqueta-2").hidden = !comparando;
+  $("visor-etiqueta-2").textContent = estado.par[1];
+  $("cortina").hidden = !comparando;
+  $("cortina").style.left = `${100 * estado.cortina}%`;
+  $("leyenda-mapa").hidden = !conMapa;
+  if (estado.puntero) dibujarLupa(estado.puntero);
 }
-const DESCRIPCION_FASE = { PRE: "antes del contraste", EARLY: "contraste temprano", LATE: "contraste tardío", REALCE: "cuánto brilla más en EARLY que en PRE" };
 function mostrarFase(fase) {
   estado.faseVisor = fase;
-  $("visor-info").textContent = estado.fases ? `${fase === "REALCE" ? "Realce" : fase}: ${DESCRIPCION_FASE[fase]}` : "";
+  $("visor-info").textContent = estado.fases ? `${fase === "REALCE" ? "Realce" : fase === "COMPARAR" ? "Comparar" : fase}: ${DESCRIPCION_FASE[fase]}` : "";
   document.querySelectorAll("[data-fase-visor]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.faseVisor === fase)));
+  $("par-comparar").hidden = fase !== "COMPARAR";
+  $("visor").parentElement.classList.toggle("comparando", fase === "COMPARAR");
   if (estado.fases) dibujarVisor(null, fase);
 }
 function animarSecuencia() {
@@ -272,6 +375,7 @@ function animarSecuencia() {
   if (estado.animando) { cancelAnimationFrame(estado.animando); estado.animando = null; mostrarFase(estado.faseVisor); return; }
   const tramos = [["PRE", "EARLY"], ["EARLY", "LATE"]], dur = 1300, pausa = 450, inicio = performance.now();
   const total = 2 * (tramos.length * (dur + pausa));
+  $("cortina").hidden = true; $("visor-etiqueta-2").hidden = true;
   const paso = (ahora) => {
     const t = (ahora - inicio) % (tramos.length * (dur + pausa));
     const k = Math.floor(t / (dur + pausa)), dentro = t - k * (dur + pausa);
@@ -289,6 +393,39 @@ function miniatura(destino, datos) {
   pintarGris(c.getContext("2d"), datos);
   destino.innerHTML = ""; destino.appendChild(c);
   return c;
+}
+
+// ---- lupa: amplia x3 lo que se ve en el visor ----
+function dibujarLupa(ev) {
+  const lupa = $("lupa"), visor = $("visor");
+  if (!$("ver-lupa").checked || !estado.fases || !ev) { lupa.hidden = true; return; }
+  const r = visor.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  if (x < 0 || y < 0 || x > r.width || y > r.height) { lupa.hidden = true; return; }
+  lupa.hidden = false;
+  const tam = lupa.offsetWidth || 150, zoom = 3, dpr = window.devicePixelRatio || 1;
+  lupa.style.left = `${x - tam / 2}px`; lupa.style.top = `${y - tam / 2}px`;
+  if (lupa.width !== Math.round(tam * dpr)) { lupa.width = lupa.height = Math.round(tam * dpr); }
+  const k = LADO / r.width, lado = (tam / zoom) * k;
+  const ctx = lupa.getContext("2d");
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, lupa.width, lupa.height);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(visor, x * k - lado / 2, y * k - lado / 2, lado, lado, 0, 0, lupa.width, lupa.height);
+}
+
+// ---- comparador: la cortina se arrastra con el raton o el dedo ----
+function moverCortina(ev) {
+  const r = $("visor").getBoundingClientRect();
+  estado.cortina = limitar((ev.clientX - r.left) / r.width, 0, 1);
+  dibujarVisor(null, "COMPARAR");
+}
+
+function actualizarMapaDisponible() {
+  const casilla = $("ver-mapa"), etiqueta = casilla.closest(".interruptor");
+  casilla.disabled = !estado.tieneMapa;
+  etiqueta.classList.toggle("desactivado", !estado.tieneMapa);
+  etiqueta.title = estado.tieneMapa
+    ? (DEMO ? "Maqueta: el mapa es de ejemplo (el realce de la zona central)" : "Grad-CAM de las 15 redes hacia la clase predicha")
+    : "Disponible cuando los modelos se vuelvan a exportar con el mapa (exportar_web.py en el PC)";
 }
 
 // ------------------------------------------------------------------------------------------------ graficas
@@ -322,7 +459,7 @@ function histograma(svg, ancho, alto, umbral, marca) {
     s("line", { x1: x(umbral), x2: x(umbral), y1: marco[2], y2: marco[3], style: "stroke:var(--texto-2);stroke-dasharray:4 3;stroke-width:1.5" }, svg);
   }
   if (marca !== undefined) {
-    const xm = x(Math.min(Math.max(marca, x0), x1));
+    const xm = x(limitar(marca, x0, x1));
     s("line", { x1: xm, x2: xm, y1: marco[2] - 2, y2: marco[3], style: "stroke:var(--texto);stroke-width:2.5" }, svg);
     s("circle", { cx: xm, cy: marco[2] + 2, r: 5, style: "fill:var(--texto)" }, svg);
     s("text", { class: "marca-texto", x: xm + (xm > ancho * 0.7 ? -8 : 8), y: marco[2] + 6, "text-anchor": xm > ancho * 0.7 ? "end" : "start", texto: "esta muestra" }, svg);
@@ -390,17 +527,17 @@ function graficaRedes(probs) {
   s("text", { class: "marca-texto", x: x(media) + 5, y: marco[3] - 2, texto: `media ${coma(media, 3)}` }, svg);
   probs.forEach((p, i) => {
     const sem = Math.floor(i / 5), fold = i % 5;
-    s("circle", { cx: x(p), cy: fila(fold) + (sem - 1) * 5, r: 4.5, style:"fill:var(--texto-2);stroke:var(--panel);stroke-width:2",
+    s("circle", { cx: x(p), cy: fila(fold) + (sem - 1) * 5, r: 4.5, style: "fill:var(--texto-2);stroke:var(--panel);stroke-width:2",
                   "data-tip": `<b>fold ${fold} · semilla ${SEMILLAS[sem]}</b><br>probabilidad ${coma(p, 3)}` }, svg);
   });
 }
 
 function graficaCinetica(f) {
   const svg = $("g-cinetica"); vaciar(svg);
-  const ini = (LADO - RECORTE) / 2, centro = new Uint8Array(LADO * LADO), tejido = new Uint8Array(LADO * LADO);
+  const centro = new Uint8Array(LADO * LADO), tejido = new Uint8Array(LADO * LADO);
   for (let fy = 0; fy < LADO; fy++) for (let fx = 0; fx < LADO; fx++) {
     const i = fy * LADO + fx;
-    if (fx >= ini && fx < ini + RECORTE && fy >= ini && fy < ini + RECORTE) centro[i] = 1;
+    if (fx >= INI && fx < INI + RECORTE && fy >= INI && fy < INI + RECORTE) centro[i] = 1;
     if (f.PRE[i] > 0.1) tejido[i] = 1;
   }
   const series = [
@@ -424,9 +561,9 @@ function graficaCinetica(f) {
   const forma = cambio > 0.05 ? "sigue subiendo" : cambio < -0.05 ? "lavado (baja tras el pico)" : "meseta";
   const g = s("g", {}, svg);
   s("text", { class: "marca-texto", x: 350, y: 40, texto: "Zona central" }, g);
-  const conSigno = (v) => { const r = Math.round(100 * v); return `${r > 0 ? "+" : ""}${r === 0 ? 0 : r} %`; };
-  s("text", { x: 350, y: 62, texto: `realce temprano: ${conSigno(realce)}` }, g);
-  s("text", { x: 350, y: 82, texto: `de EARLY a LATE: ${conSigno(cambio)}` }, g);
+  const porc = (v) => { const r = Math.round(100 * v); return `${r > 0 ? "+" : ""}${r === 0 ? 0 : r} %`; };
+  s("text", { x: 350, y: 62, texto: `realce temprano: ${porc(realce)}` }, g);
+  s("text", { x: 350, y: 82, texto: `de EARLY a LATE: ${porc(cambio)}` }, g);
   s("text", { x: 350, y: 102, texto: `forma: ${forma}` }, g);
   s("text", { x: 350, y: 130, texto: "Descriptivo, no es una" }, g);
   s("text", { x: 350, y: 146, texto: "valoración clínica." }, g);
@@ -435,7 +572,7 @@ function graficaCinetica(f) {
 
 // ------------------------------------------------------------------------------------------------ vista Predecir
 function actualizarBotonPredecir() {
-  $("predecir").disabled = !(estado.listo && estado.fases);
+  $("predecir").disabled = !(estado.listo && estado.fases) || estado.procesando;
 }
 
 function ponerChips(fase, comprobaciones) {
@@ -459,10 +596,14 @@ function cineticaVacia() {
 function prepararMuestra() {
   const ok = FASES.every((k) => estado.leidas[k]);
   estado.fases = ok ? { PRE: estado.leidas.PRE, EARLY: estado.leidas.EARLY, LATE: estado.leidas.LATE } : null;
+  estado.mapa = null;
   if (estado.animando) { cancelAnimationFrame(estado.animando); estado.animando = null; }
   $("visor-vacio").hidden = ok; $("visor-etiqueta").hidden = !ok; $("play").disabled = !ok;
   if (ok) { mostrarFase(estado.faseVisor); graficaCinetica(estado.fases); }
-  else { $("visor").getContext("2d").clearRect(0, 0, LADO, LADO); $("visor-info").textContent = ""; cineticaVacia(); }
+  else {
+    $("visor").getContext("2d").clearRect(0, 0, LADO, LADO); $("visor-info").textContent = "";
+    $("cortina").hidden = true; $("visor-etiqueta-2").hidden = true; $("leyenda-mapa").hidden = true; cineticaVacia();
+  }
   actualizarBotonPredecir();
 }
 
@@ -484,13 +625,14 @@ function ponerFichero(fase, buffer, nombre) {
   prepararMuestra();
 }
 
-function cargarFasesDirectas(fases, nombre, indice) {   // ejemplos de la maqueta (sin PNG)
+// Coloca en las ranuras unas fases ya leidas (ejemplos de la maqueta, muestras del lote)
+function cargarFasesDirectas(fases, nombres, chips, indice = null) {
   for (const k of FASES) {
-    estado.buffers[k] = null; estado.nombres[k] = `${nombre} · ${k}`; estado.leidas[k] = fases[k];
+    estado.buffers[k] = null; estado.nombres[k] = nombres[k]; estado.leidas[k] = fases[k];
     const ranura = document.querySelector(`.ranura[data-fase="${k}"]`);
     ranura.classList.remove("mal"); ranura.classList.add("cargada");
-    document.querySelector(`[data-estado="${k}"]`).textContent = `${nombre} (${k})`;
-    ponerChips(k, [{ t: "fantasma sintético", ok: true }, { t: "256×256", ok: true }]);
+    document.querySelector(`[data-estado="${k}"]`).textContent = nombres[k];
+    ponerChips(k, chips);
     miniatura(document.querySelector(`[data-mini="${k}"]`), fases[k]);
   }
   document.querySelectorAll('.ranura input[type="file"]').forEach((i) => { i.value = ""; });
@@ -504,26 +646,60 @@ function mostrarErrores(lista) {
   caja.innerHTML = lista.length ? `<ul>${lista.map((e) => `<li>${escapar(e)}</li>`).join("")}</ul>` : "";
 }
 
+// ---- el proceso, paso a paso, mientras se predice ----
+function procesoIniciar() {
+  $("resultado").hidden = true; $("resultado-vacio").hidden = true; $("proceso").hidden = false;
+  document.querySelectorAll("#proceso [data-paso]").forEach((li) => li.classList.remove("activo", "hecho"));
+  $("proceso-redes").innerHTML = Array.from({ length: 15 }, (_, i) =>
+    `<i data-red="${i}" title="fold ${i % 5} · semilla ${SEMILLAS[Math.floor(i / 5)]}"></i>`).join("");
+  $("proceso-decision").textContent = `umbral ${coma(D.modelo.umbral, 3)}`;
+}
+function procesoMarcar(i, clase) {
+  const li = document.querySelector(`#proceso [data-paso="${i}"]`);
+  li.classList.remove("activo", "hecho"); li.classList.add(clase);
+}
+async function procesoPaso(i, ms) { procesoMarcar(i, "activo"); if (ms) await esperar(ms); procesoMarcar(i, "hecho"); }
+function procesoRed(i, p) {
+  const punto = document.querySelector(`#proceso-redes [data-red="${i}"]`);
+  if (punto) { punto.classList.add("hecha"); punto.title += ` · ${coma(p, 3)}`; }
+}
+
 async function predecir() {
   mostrarErrores([]);
   const fases = estado.fases;
-  if (!fases) return;
+  if (!fases || estado.procesando) return;
+  estado.procesando = true;
   const boton = $("predecir");
   boton.classList.add("calculando"); boton.disabled = true;
+  const lento = !SIN_MOVIMIENTO;
   try {
-    const r = await predecirCorte(fases);
+    procesoIniciar();
+    await procesoPaso(0, lento ? 220 : 0);
+    await procesoPaso(1, lento ? 220 : 0);
+    procesoMarcar(2, "activo");
+    const r = await predecirCorte(fases, { alRed: procesoRed, pausa: lento ? 45 : 0 });
+    procesoMarcar(2, "hecho");
+    await procesoPaso(3, lento ? 200 : 0);
+    $("proceso-decision").textContent = `${r.clase === "pCR" ? "pCR = 1" : "pCR = 0"} (${coma(r.probabilidad, 3)} frente a ${coma(D.modelo.umbral, 3)})`;
+    await procesoPaso(4, lento ? 320 : 0);
+    $("proceso").hidden = true;
+    estado.mapa = r.mapa;
     mostrarResultado(r, avisos(fases));
     anadirHistorial(r, fases);
+    if (estado.mapa && estado.tieneMapa && !$("ver-mapa").dataset.tocada) $("ver-mapa").checked = true;
+    if (estado.fases) dibujarVisor(null, estado.faseVisor);
   } catch (e) {
-    console.error(e); mostrarErrores([`No se ha podido calcular la predicción (${e.message}).`]);
+    console.error(e); $("proceso").hidden = true; $("resultado-vacio").hidden = false;
+    mostrarErrores([`No se ha podido calcular la predicción (${e.message}).`]);
   } finally {
+    estado.procesando = false;
     boton.classList.remove("calculando"); actualizarBotonPredecir();
   }
 }
 
 // Antes de la primera prediccion: el contexto (sin marca) y una nota en la tarjeta de las 15 redes
 function resultadoInicial() {
-  $("resultado").hidden = true; $("resultado-vacio").hidden = false; $("r-hora").textContent = "";
+  $("resultado").hidden = true; $("proceso").hidden = true; $("resultado-vacio").hidden = false; $("r-hora").textContent = "";
   histograma($("g-contexto"), 360, 170, D.modelo.umbral);
   $("r-contexto").innerHTML = `Así se reparten las probabilidades de las pacientes de validación (el ${pct(PREVALENCIA)} tuvo pCR). ` +
                               "Al predecir, una línea marcará dónde cae la muestra.";
@@ -537,7 +713,7 @@ function resultadoInicial() {
 
 function mostrarResultado(r, listaAvisos) {
   const u = D.modelo.umbral;
-  $("resultado-vacio").hidden = true; $("resultado").hidden = false;
+  $("resultado-vacio").hidden = true; $("proceso").hidden = true; $("resultado").hidden = false;
   medidor(r.probabilidad, u);
   contarHasta($("r-prob"), r.probabilidad);
   const pcr = r.clase === "pCR";
@@ -556,10 +732,10 @@ function mostrarResultado(r, listaAvisos) {
   $("r-tiempo").textContent = DEMO ? "— (maqueta)" : `${coma(r.segundos * 1000, 0)} ms · 15 redes`;
 }
 
-function anadirHistorial(r, fases) {
+function anadirHistorial(r, fases, nombreDado = null) {
   const n = estado.historial.length + 1, hora = new Date().toLocaleTimeString("es-ES");
-  const nombre = estado.ejemploActivo !== null && !DEMO ? W.ejemplos[estado.ejemploActivo].sample_id
-    : (estado.nombres.EARLY || "muestra").replace(/_EARLY\.png$/i, "").replace(/ · EARLY$/, "");
+  const nombre = nombreDado || (estado.ejemploActivo !== null && !DEMO ? W.ejemplos[estado.ejemploActivo].sample_id
+    : (estado.nombres.EARLY || "muestra").replace(/[_\-\s.]?EARLY\.png$/i, "").replace(/ · EARLY$/, ""));
   const fila = { n, hora, nombre, probabilidad: r.probabilidad, clase: r.clase, ms: r.segundos * 1000, checksum: DEMO ? "maqueta" : estado.checksumWeb };
   estado.historial.push(fila);
   const tbody = $("historial");
@@ -590,6 +766,98 @@ function limpiar() {
   document.querySelectorAll('.ranura input[type="file"]').forEach((i) => { i.value = ""; });
   mostrarErrores([]);
   resultadoInicial();
+  document.querySelectorAll(".lote-item").forEach((b) => b.classList.remove("activa"));
+}
+
+// ---- varias muestras: la fase se reconoce por el nombre del fichero (…_PRE.png, …_EARLY.png, …_LATE.png) ----
+function faseDelNombre(nombre) {
+  const base = nombre.replace(/\.[^.]+$/, "");
+  const m = base.match(/(^|[_\-\s.])(PRE|EARLY|LATE)(?=$|[_\-\s.])/i);
+  if (!m) return null;
+  const clave = (base.slice(0, m.index) + base.slice(m.index + m[0].length)).replace(/^[_\-\s.]+|[_\-\s.]+$/g, "") || "muestra";
+  return { fase: m[2].toUpperCase(), clave };
+}
+
+function agrupar(ficheros) {
+  const grupos = new Map(), errores = [];
+  for (const f of ficheros) {
+    const d = faseDelNombre(f.name);
+    if (!d) { errores.push(`${f.name}: no se reconoce la fase en el nombre (debe acabar en _PRE, _EARLY o _LATE).`); continue; }
+    if (!grupos.has(d.clave)) grupos.set(d.clave, {});
+    const g = grupos.get(d.clave);
+    if (g[d.fase]) errores.push(`${d.clave}: hay dos ficheros ${d.fase}; se usa el último.`);
+    g[d.fase] = f;
+  }
+  return { grupos: [...grupos].sort((a, b) => a[0].localeCompare(b[0], "es", { numeric: true })), errores };
+}
+
+// Varios ficheros soltados de golpe: si son las tres fases de una muestra van a las ranuras; si son mas, al lote
+async function repartirFicheros(lista) {
+  const ficheros = [...lista];
+  const { grupos, errores } = agrupar(ficheros);
+  if (grupos.length === 1 && !errores.length && FASES.every((k) => grupos[0][1][k])) {
+    const g = grupos[0][1];
+    for (const k of FASES) ponerFichero(k, await g[k].arrayBuffer(), g[k].name);
+    return;
+  }
+  await procesarLote(ficheros);
+}
+
+async function procesarLote(ficheros) {
+  if (!estado.listo) { mostrarErrores(["El modelo aún se está cargando: espera a que ponga «Modelo listo»."]); return; }
+  const { grupos, errores } = agrupar(ficheros);
+  const tarjeta = $("lote"), rejilla = $("lote-rejilla");
+  tarjeta.hidden = false; rejilla.innerHTML = ""; estado.lote = []; estado.loteActivo = null;
+  tarjeta.scrollIntoView({ behavior: SIN_MOVIMIENTO ? "auto" : "smooth", block: "nearest" });
+  let hechas = 0;
+  for (const [clave, g] of grupos) {
+    $("lote-resumen").textContent = `Procesando ${++hechas} de ${grupos.length}…`;
+    const faltan = FASES.filter((k) => !g[k]);
+    if (faltan.length) { errores.push(`${clave}: falta ${faltan.join(" y ")}.`); continue; }
+    try {
+      const fases = {};
+      for (const k of FASES) fases[k] = leerFase(await g[k].arrayBuffer(), `${clave} · ${k}`).x;
+      const r = await predecirCorte(fases);
+      const item = { clave, fases, r, avisos: avisos(fases), nombres: Object.fromEntries(FASES.map((k) => [k, g[k].name])) };
+      estado.lote.push(item);
+      anadirHistorial(r, fases, clave);
+      pintarItemLote(item, estado.lote.length - 1);
+    } catch (e) { errores.push(e instanceof EntradaNoValida ? e.message : `${clave}: ${e.message}`); }
+  }
+  const n = estado.lote.length, unos = estado.lote.filter((q) => q.r.clase === "pCR").length;
+  $("lote-resumen").textContent = n ? `${n} muestra${n === 1 ? "" : "s"} · ${unos} con pCR = 1 · ${n - unos} con pCR = 0` : "Ninguna muestra completa";
+  const caja = $("lote-errores");
+  caja.hidden = !errores.length;
+  caja.innerHTML = errores.length ? `<ul>${errores.map((e) => `<li>${escapar(e)}</li>`).join("")}</ul>` : "";
+  if (n) abrirDelLote(0, false);
+}
+
+function pintarItemLote(item, i) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "lote-item"; b.style.setProperty("--i", i);
+  const c = document.createElement("canvas"); c.width = c.height = LADO;
+  const ctx = c.getContext("2d"); pintarGris(ctx, item.fases.EARLY);
+  if (item.r.mapa) pintarMapa(ctx, item.r.mapa);
+  const pcr = item.r.clase === "pCR";
+  b.append(c);
+  b.insertAdjacentHTML("beforeend", `<span class="lote-nombre">${escapar(item.clave)}</span>
+    <span class="lote-dato"><b>${coma(item.r.probabilidad, 3)}</b><span class="punto-clase" style="--c:var(${pcr ? "--pcr" : "--nopcr"})">${pcr ? "pCR = 1" : "pCR = 0"}</span></span>
+    ${item.avisos.length ? `<span class="lote-aviso" title="${escapar(item.avisos.join(" "))}">⚠ ${item.avisos.length} aviso${item.avisos.length > 1 ? "s" : ""}</span>` : ""}`);
+  b.addEventListener("click", () => abrirDelLote(i, true));
+  $("lote-rejilla").append(b);
+}
+
+function abrirDelLote(i, desplazar) {
+  const item = estado.lote[i];
+  if (!item) return;
+  estado.loteActivo = i;
+  document.querySelectorAll(".lote-item").forEach((b, j) => b.classList.toggle("activa", j === i));
+  cargarFasesDirectas(item.fases, item.nombres, [{ t: "PNG", ok: true }, { t: "256×256", ok: true }, { t: "del lote", ok: true }]);
+  estado.mapa = item.r.mapa;
+  if (estado.mapa && estado.tieneMapa && !$("ver-mapa").dataset.tocada) $("ver-mapa").checked = true;
+  mostrarResultado(item.r, item.avisos);
+  dibujarVisor(null, estado.faseVisor);
+  if (desplazar) document.querySelector(".trabajo").scrollIntoView({ behavior: SIN_MOVIMIENTO ? "auto" : "smooth", block: "start" });
 }
 
 // ---- ejemplos ----
@@ -610,7 +878,7 @@ function fantasma(semilla) {   // corte sintetico (solo maqueta): mama, tejido f
       if (d < 1.15) { const borde = Math.max(0, 1 - Math.max(0, d - 0.85) / 0.3); pre += 0.04 * borde; early += 0.5 * borde; late += (lavado ? 0.36 : 0.56) * borde; }
     }
     if (corazon) { pre = Math.max(pre, 0.22); early = Math.max(early, 0.62); late = Math.max(late, 0.5); }
-    f.PRE[i] = Math.min(1, Math.max(0, pre + ruido())); f.EARLY[i] = Math.min(1, Math.max(0, early + ruido())); f.LATE[i] = Math.min(1, Math.max(0, late + ruido()));
+    f.PRE[i] = limitar(pre + ruido(), 0, 1); f.EARLY[i] = limitar(early + ruido(), 0, 1); f.LATE[i] = limitar(late + ruido(), 0, 1);
   }
   return f;
 }
@@ -626,7 +894,8 @@ function montarGaleria() {
       b.className = "ejemplo"; b.type = "button";
       const c = document.createElement("canvas"); c.width = c.height = LADO; pintarGris(c.getContext("2d"), f.EARLY);
       b.append(c); b.insertAdjacentHTML("beforeend", `<span><b>Fantasma ${i + 1}</b><i>sintético</i></span>`);
-      b.addEventListener("click", () => cargarFasesDirectas(f, `Fantasma ${i + 1}`, i));
+      const nombres = Object.fromEntries(FASES.map((k) => [k, `Fantasma ${i + 1} (${k})`]));
+      b.addEventListener("click", () => cargarFasesDirectas(f, nombres, [{ t: "fantasma sintético", ok: true }, { t: "256×256", ok: true }], i));
       g.append(b);
     }
     return;
@@ -650,10 +919,77 @@ function montarGaleria() {
   });
 }
 
+// ------------------------------------------------------------------------------------------------ portada
+function animarPortada(fases) {
+  const canvas = $("portada-canvas"), ctx = canvas.getContext("2d");
+  const etiquetas = document.querySelectorAll("[data-pf]");
+  const marcar = (k) => etiquetas.forEach((e) => e.classList.toggle("activa", e.dataset.pf === k));
+  const cuadro = (datos) => { pintarGris(ctx, datos); ctx.save(); ctx.strokeStyle = "rgba(255,214,10,.55)"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2; ctx.strokeRect(INI, INI, RECORTE, RECORTE); ctx.restore(); };
+  if (SIN_MOVIMIENTO) { cuadro(fases.EARLY); marcar("EARLY"); return; }
+  // PRE -> EARLY -> LATE y vuelta a PRE, con pausas en cada fase
+  const tramos = [["PRE", "EARLY", 1500], ["EARLY", "EARLY", 900], ["EARLY", "LATE", 1500], ["LATE", "LATE", 900], ["LATE", "PRE", 1100], ["PRE", "PRE", 700]];
+  const ciclo = tramos.reduce((t, q) => t + q[2], 0), inicio = performance.now();
+  const paso = (ahora) => {
+    if ($("portada").hidden) { estado.portada = null; return; }
+    let t = (ahora - inicio) % ciclo, k = 0;
+    while (t > tramos[k][2]) { t -= tramos[k][2]; k++; }
+    const [a, b, dur] = tramos[k], u = t / dur, suave = u * u * (3 - 2 * u);
+    cuadro(a === b ? fases[a] : mezcla(fases[a], fases[b], suave));
+    marcar(a === b ? a : suave < 0.5 ? a : b);
+    estado.portada = requestAnimationFrame(paso);
+  };
+  estado.portada = requestAnimationFrame(paso);
+}
+
+async function fasesDePortada() {
+  if (DEMO || !W || !W.ejemplos.length) return fantasma(1000);
+  try {
+    const e = W.ejemplos[0], f = {};
+    for (const k of FASES) f[k] = leerFase(await bajar(e.rutas[k]), k).x;
+    return f;
+  } catch (err) { return fantasma(1000); }
+}
+
+function cifrasPortada() {
+  const t = D.comparacion && D.comparacion.test, v = D.modelo.metricas_validacion;
+  const cifras = [
+    [t ? t.modelos.recorte.auc : v.auc, 3, t ? "AUC en el test" : "AUC en validación", t ? `${t.pacientes_n} pacientes nuevas` : ""],
+    [v.auc, 3, "AUC en validación", "1.097 pacientes"],
+    [15, 0, "redes", "3 semillas × 5 folds"],
+    [D.modelo.entrenamiento.parametros, 0, "parámetros por red", "entrenadas desde cero"],
+  ];
+  $("portada-cifras").innerHTML = cifras.map(([, , k, sub], i) =>
+    `<div><b data-cifra="${i}">0</b><span>${k}</span><small>${sub}</small></div>`).join("");
+  cifras.forEach(([valor, d], i) => {
+    const el = document.querySelector(`[data-cifra="${i}"]`);
+    setTimeout(() => animar(1100, (k) => { el.textContent = d ? coma(valor * k, d) : miles(Math.round(valor * k)); }), 350 + i * 120);
+  });
+}
+
+async function abrirPortada() {
+  const p = $("portada");
+  p.hidden = false;
+  requestAnimationFrame(() => p.classList.add("visible"));
+  document.body.classList.add("sin-desplazar");
+  cifrasPortada();
+  if (estado.portada) cancelAnimationFrame(estado.portada);
+  animarPortada(await fasesDePortada());
+  setTimeout(() => $("portada-empezar").focus(), 50);
+}
+
+function cerrarPortada(vista) {
+  const p = $("portada");
+  p.classList.remove("visible");
+  document.body.classList.remove("sin-desplazar");
+  setTimeout(() => { p.hidden = true; if (estado.portada) { cancelAnimationFrame(estado.portada); estado.portada = null; } }, SIN_MOVIMIENTO ? 0 : 420);
+  try { sessionStorage.setItem("portada", "vista"); } catch (e) {}
+  if (vista) cambiarVista(vista);
+}
+
 // ------------------------------------------------------------------------------------------------ vista Modelo
 function aucMannWhitney(pares) {
   const orden = pares.map(([p, y]) => [p, y]).sort((a, b) => a[0] - b[0]);
-  let rango = 0, i = 0, sumaPos = 0, nPos = 0;
+  let i = 0, sumaPos = 0, nPos = 0;
   while (i < orden.length) {
     let j = i; while (j + 1 < orden.length && orden[j + 1][0] === orden[i][0]) j++;
     const medio = (i + j) / 2 + 1;
@@ -675,13 +1011,13 @@ function metricasUmbral(u) {
   return { vp, fn, vn, fp, sens, esp, prec, vpn, f1eq: (f1p + f1n) / 2, acc: div(vp + vn, vp + fn + vn + fp) };
 }
 
-function curvaRoc() {
-  const pares = D.validacion.pacientes, umbrales = [...new Set(pares.map(([p]) => p))].sort((a, b) => b - a);
-  const nPos = pares.filter(([, y]) => y).length, nNeg = pares.length - nPos, puntos = [[0, 0]];
-  for (const u of umbrales) {
-    let vp = 0, fp = 0;
-    for (const [p, y] of pares) if (p >= u) { if (y) vp++; else fp++; }
-    puntos.push([fp / nNeg, vp / nPos]);
+function curvaRocDe(pares) {     // pares [puntuacion, y] -> puntos [1 - especificidad, sensibilidad]
+  const orden = [...pares].sort((a, b) => b[0] - a[0]);
+  const nPos = orden.filter(([, y]) => y).length, nNeg = orden.length - nPos, puntos = [[0, 0]];
+  let vp = 0, fp = 0;
+  for (let i = 0; i < orden.length; i++) {
+    if (orden[i][1]) vp++; else fp++;
+    if (i === orden.length - 1 || orden[i + 1][0] !== orden[i][0]) puntos.push([fp / nNeg, vp / nPos]);
   }
   return puntos;
 }
@@ -699,12 +1035,16 @@ function dibujarRoc(u) {
   s("text", { class: "marca-texto", x: x(0.55), y: y(0.12), texto: `AUC ${coma(D.modelo.metricas_validacion.auc, 3)}` }, svg);
 }
 
+function matrizHtml(vn, fp, fn, vp) {
+  return `<div></div><div class="cab">predicción<br>pCR = 0</div><div class="cab">predicción<br>pCR = 1</div>
+    <div class="cab">real<br>pCR = 0</div><div class="celda acierto"><b>${vn}</b>verdaderos negativos</div><div class="celda"><b>${fp}</b>falsos positivos</div>
+    <div class="cab">real<br>pCR = 1</div><div class="celda"><b>${fn}</b>falsos negativos</div><div class="celda acierto"><b>${vp}</b>verdaderos positivos</div>`;
+}
+
 function actualizarUmbral(u) {
   $("u-valor").textContent = coma(u, 3);
   const m = metricasUmbral(u);
-  $("u-matriz").innerHTML = `<div></div><div class="cab">predicción<br>pCR = 0</div><div class="cab">predicción<br>pCR = 1</div>
-    <div class="cab">real<br>pCR = 0</div><div class="celda acierto"><b>${m.vn}</b>verdaderos negativos</div><div class="celda"><b>${m.fp}</b>falsos positivos</div>
-    <div class="cab">real<br>pCR = 1</div><div class="celda"><b>${m.fn}</b>falsos negativos</div><div class="celda acierto"><b>${m.vp}</b>verdaderos positivos</div>`;
+  $("u-matriz").innerHTML = matrizHtml(m.vn, m.fp, m.fn, m.vp);
   const tarjeta = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
   $("u-metricas").innerHTML = tarjeta("sensibilidad", pct(m.sens)) + tarjeta("especificidad", pct(m.esp)) + tarjeta("precisión", pct(m.prec)) +
                               tarjeta("VPN", pct(m.vpn)) + tarjeta("F1 equilibrada", coma(m.f1eq, 2)) + tarjeta("accuracy", pct(m.acc));
@@ -761,7 +1101,7 @@ function dibujarArquitectura() {
     { n: "Bloque 1", f: "16 × 64 × 64", c: 16, l: 64, p: 464, d: "conv 3×3 · BN · ReLU · pool" },
     { n: "Bloque 2", f: "32 × 32 × 32", c: 32, l: 32, p: 4672, d: "conv 3×3 · BN · ReLU · pool" },
     { n: "Bloque 3", f: "64 × 16 × 16", c: 64, l: 16, p: 18560, d: "conv 3×3 · BN · ReLU · pool" },
-    { n: "Bloque 4", f: "128 × 8 × 8", c: 128, l: 8, p: 73984, d: "conv 3×3 · BN · ReLU · pool" },
+    { n: "Bloque 4", f: "128 × 8 × 8", c: 128, l: 8, p: 73984, d: "conv 3×3 · BN · ReLU · pool (de aquí sale el mapa Grad-CAM)" },
     { n: "Media global", f: "128", c: 128, l: 1, p: 0, d: "un número por mapa" },
     { n: "Densa", f: "64", c: 64, l: 1, p: 8256, d: "ReLU · dropout 0,5" },
     { n: "Salida", f: "1", c: 1, l: 1, p: 65, d: "sigmoide → probabilidad" },
@@ -770,11 +1110,12 @@ function dibujarArquitectura() {
   capas.forEach((q, i) => {
     const cx = paso * i + paso / 2, alto = 24 + 110 * Math.sqrt(q.l / 256), ancho = 10 + 46 * Math.sqrt(q.c / 128);
     const y0 = 95 - alto / 2;
-    s("rect", { x: cx - ancho / 2, y: y0, width: ancho, height: alto, rx: 3,
-                style: q.p ? "fill:var(--acento);fill-opacity:.12;stroke:var(--acento);stroke-opacity:.5"
-                           : "fill:var(--texto-3);fill-opacity:.06;stroke:var(--texto-3);stroke-opacity:.6;stroke-dasharray:3 3",
+    const r = s("rect", { x: cx - ancho / 2, y: y0, width: ancho, height: alto, rx: 3, class: "capa", style: `--i:${i};` +
+                (q.p ? "fill:var(--acento);fill-opacity:.12;stroke:var(--acento);stroke-opacity:.5"
+                     : "fill:var(--texto-3);fill-opacity:.06;stroke:var(--texto-3);stroke-opacity:.6;stroke-dasharray:3 3"),
                 "data-tip": `<b>${q.n}</b><br>${q.f}<br>${q.d}${q.p ? `<br>${q.p.toLocaleString("es-ES")} parámetros` : ""}` }, svg);
-    if (i < capas.length - 1) s("path", { d: `M${cx + ancho / 2 + 10} 95 l${paso - ancho - 24} 0`, style: "stroke:var(--borde-fuerte);stroke-width:1.5;marker-end:url(#flecha)" }, svg);
+    r.style.animationDelay = `${i * 70}ms`;
+    if (i < capas.length - 1) s("path", { d: `M${cx + ancho / 2 + 10} 95 l${paso - ancho - 24} 0`, class: "flujo", style: "stroke:var(--borde-fuerte);stroke-width:1.5;marker-end:url(#flecha)" }, svg);
     s("text", { class: "marca-texto", x: cx, y: 178, "text-anchor": "middle", texto: q.n }, svg);
     s("text", { x: cx, y: 194, "text-anchor": "middle", texto: q.f }, svg);
     s("text", { x: cx, y: 210, "text-anchor": "middle", style: "fill:var(--texto-3)", texto: q.p ? `${q.p.toLocaleString("es-ES")} p.` : "sin parámetros" }, svg);
@@ -784,35 +1125,136 @@ function dibujarArquitectura() {
   $("arq-nota").textContent = `${D.modelo.entrenamiento.parametros.toLocaleString("es-ES")} parámetros · pasa el ratón por cada capa`;
 }
 
-function dibujarCohortes() {
-  const svg = $("g-cohortes"); vaciar(svg);
-  const nombres = { spy2: "I-SPY2", duke: "Duke", spy1: "I-SPY1" };
-  const filas = Object.keys(nombres).map((k) => {
-    const pares = D.validacion.pacientes.filter((q) => q[3] === k).map(([p, y]) => [p, y]);
-    return { k, n: pares.length, pcr: pares.filter(([, y]) => y).length, auc: aucMannWhitney(pares) };
+// ---- validacion y test de los cuatro modelos ----
+function dibujarRocComparada(conj) {
+  const svg = $("g-roc-comp"); vaciar(svg);
+  const c = D.comparacion[conj];
+  const marco = [40, 306, 10, 270], x = escala(0, 1, marco[0], marco[1]), y = escala(0, 1, marco[3], marco[2]);
+  ejes(svg, { x, y, xt: [0, 0.5, 1], yt: [0, 0.5, 1], fx: (v) => coma(v, 1), fy: (v) => coma(v, 1), xl: "1 − especificidad", yl: "sensibilidad", marco });
+  s("line", { x1: x(0), y1: y(0), x2: x(1), y2: y(1), style: "stroke:var(--texto-3);stroke-dasharray:2 3;opacity:.7" }, svg);
+  [...MODELOS].reverse().forEach((n) => {
+    const j = MODELOS.indexOf(n), puntos = curvaRocDe(c.filas.map((f) => [f[j], f[4]]));
+    const discontinua = n === "solo_cohorte";
+    const linea = s("polyline", { points: puntos.map(([a, b]) => `${x(a)},${y(b)}`).join(" "), class: discontinua ? "" : "trazo",
+      style: `fill:none;stroke:${COLOR_MODELO[n]};stroke-width:${n === "recorte" ? 2.8 : 1.8}${discontinua ? ";stroke-dasharray:5 4" : ""}` }, svg);
+    if (!discontinua) linea.setAttribute("pathLength", "1");   // para animar el trazado de 0 a 1
   });
-  const marco = [70, 500, 6, 104], x = escala(0.4, 0.75, marco[0], marco[1]);
+  if (conj === "test" || conj === "validacion") {
+    const u = c.con_el_umbral, xs = 1 - u.especificidad, ys = u.sensibilidad;
+    s("circle", { cx: x(xs), cy: y(ys), r: 6, style: "fill:var(--m-cnn);stroke:var(--panel);stroke-width:2.5",
+                  "data-tip": `<b>CNN con el umbral ${coma(c.umbral, 3)}</b><br>sensibilidad ${pct(u.sensibilidad)} · especificidad ${pct(u.especificidad)}` }, svg);
+  }
+  $("l-roc-comp").innerHTML = MODELOS.map((n) => {
+    const m = c.modelos[n];
+    return `<span><i class="${n === "solo_cohorte" ? "discontinua" : "linea"}" style="--c:${COLOR_MODELO[n]}"></i>${NOMBRE_MODELO[n]} <b>${coma(m.auc, 3)}</b></span>`;
+  }).join("");
+}
+
+function dibujarBosque(conj) {    // AUC con su IC95 en validacion y en test, por modelo
+  const svg = $("g-bosque"); vaciar(svg);
+  const V = D.comparacion.validacion, T = D.comparacion.test;
+  const marco = [128, 404, 22, 250], x = escala(0.4, 0.85, marco[0], marco[1]);
   const ge = s("g", { class: "eje" }, svg), gr = s("g", { class: "rejilla" }, svg);
-  for (const v of [0.4, 0.5, 0.6, 0.7]) { s("line", { x1: x(v), x2: x(v), y1: marco[2], y2: marco[3] }, gr); s("text", { x: x(v), y: marco[3] + 16, "text-anchor": "middle", texto: coma(v, 1) }, ge); }
+  for (const v of [0.4, 0.5, 0.6, 0.7, 0.8]) { s("line", { x1: x(v), x2: x(v), y1: marco[2], y2: marco[3] }, gr); s("text", { x: x(v), y: marco[3] + 16, "text-anchor": "middle", texto: coma(v, 1) }, ge); }
   s("line", { x1: x(0.5), x2: x(0.5), y1: marco[2], y2: marco[3], style: "stroke:var(--texto-3);stroke-dasharray:4 3" }, svg);
-  filas.forEach((f, i) => {
-    const y = marco[2] + 8 + i * 30;
-    s("text", { x: marco[0] - 8, y: y + 12, "text-anchor": "end", texto: nombres[f.k] }, ge);
-    s("rect", { x: x(0.4), y, width: Math.max(2, x(Math.min(f.auc, 0.75)) - x(0.4)), height: 18, rx: 2, style: "fill:var(--texto-2);opacity:.55",
-                "data-tip": `<b>${nombres[f.k]}</b><br>${f.n} pacientes · ${f.pcr} con pCR (${pct(f.pcr / f.n)})<br>AUC ${coma(f.auc, 3)}` }, svg);
-    s("text", { class: "marca-texto", x: x(Math.min(Math.max(f.auc, 0.4), 0.75)) + 6, y: y + 13, texto: coma(f.auc, 3) }, svg);
+  s("text", { class: "titulo-eje", x: (marco[0] + marco[1]) / 2, y: marco[3] + 32, "text-anchor": "middle", texto: "AUC por paciente (barras: IC95)" }, svg);
+  s("text", { x: marco[0], y: 12, texto: "○ validación (1.097)   ● test (176)" }, svg);
+  const alto = (marco[3] - marco[2]) / MODELOS.length;
+  MODELOS.forEach((n, i) => {
+    const yc = marco[2] + alto * (i + 0.5);
+    if (i) s("line", { x1: 8, x2: marco[1], y1: marco[2] + alto * i, y2: marco[2] + alto * i, style: "stroke:var(--borde)" }, svg);
+    s("text", { class: n === "recorte" ? "marca-texto" : "", x: 8, y: yc + 4, texto: NOMBRE_MODELO[n] }, svg);
+    [[V, -9, "validacion"], [T, 9, "test"]].forEach(([c, dy, nombre]) => {
+      const m = c.modelos[n], yy = yc + dy, activo = nombre === conj;
+      s("line", { x1: x(limitar(m.auc_ic95[0], 0.4, 0.85)), x2: x(limitar(m.auc_ic95[1], 0.4, 0.85)), y1: yy, y2: yy,
+                  style: `stroke:${COLOR_MODELO[n]};stroke-width:${activo ? 2.4 : 1.6};opacity:${activo ? 1 : 0.55}` }, svg);
+      s("circle", { cx: x(m.auc), cy: yy, r: activo ? 5.5 : 4.5,
+                    style: nombre === "test" ? `fill:${COLOR_MODELO[n]};stroke:var(--panel);stroke-width:1.5;opacity:${activo ? 1 : 0.6}`
+                                             : `fill:var(--panel);stroke:${COLOR_MODELO[n]};stroke-width:2;opacity:${activo ? 1 : 0.6}`,
+                    "data-tip": `<b>${NOMBRE_MODELO[n]}</b> · ${nombre}<br>AUC ${coma(m.auc, 3)} (IC95 ${coma(m.auc_ic95[0], 2)}–${coma(m.auc_ic95[1], 2)})<br>AP ${coma(m.ap, 3)} · Brier ${coma(m.brier, 4)}` }, svg);
+    });
   });
 }
 
+function dibujarCohortesComparadas(conj) {
+  const svg = $("g-cohortes-comp"); vaciar(svg);
+  const c = D.comparacion[conj], cohortes = ["duke", "spy1", "spy2"], n3 = ["recorte", "clinico", "combinado"];
+  const marco = [40, 1290, 14, 140], y = escala(0.2, 1, marco[3], marco[2]);
+  const ge = s("g", { class: "eje" }, svg), gr = s("g", { class: "rejilla" }, svg);
+  for (const v of [0.2, 0.5, 0.8, 1]) { s("line", { x1: marco[0], x2: marco[1], y1: y(v), y2: y(v) }, gr); s("text", { x: marco[0] - 6, y: y(v) + 4, "text-anchor": "end", texto: coma(v, 1) }, ge); }
+  s("line", { x1: marco[0], x2: marco[1], y1: y(0.5), y2: y(0.5), style: "stroke:var(--texto-3);stroke-dasharray:4 3" }, svg);
+  const grupo = (marco[1] - marco[0]) / cohortes.length, ancho = 64;
+  cohortes.forEach((k, i) => {
+    const d = c.cohortes[k], centro = marco[0] + grupo * (i + 0.5);
+    s("text", { class: "marca-texto", x: centro, y: marco[3] + 18, "text-anchor": "middle", texto: NOMBRE_COHORTE[k] }, svg);
+    s("text", { x: centro, y: marco[3] + 34, "text-anchor": "middle", texto: `${d.pacientes} pacientes · ${d.pcr} pCR` }, svg);
+    n3.forEach((n, j) => {
+      const m = d[n], xb = centro + (j - 1) * (ancho + 10) - ancho / 2, auc = limitar(m.auc, 0.2, 1);
+      s("rect", { x: xb, y: y(auc), width: ancho, height: Math.max(1, y(0.2) - y(auc)), rx: 2, class: "barra-crece",
+                  style: `fill:${COLOR_MODELO[n]};opacity:.85;--i:${i * 3 + j}`,
+                  "data-tip": `<b>${NOMBRE_COHORTE[k]}</b> · ${NOMBRE_MODELO[n]}<br>AUC ${coma(m.auc, 3)} (IC95 ${coma(m.auc_ic95[0], 2)}–${coma(m.auc_ic95[1], 2)})` }, svg);
+      s("text", { x: xb + ancho / 2, y: y(auc) - 4, "text-anchor": "middle", texto: coma(m.auc, 2) }, svg);
+    });
+  });
+}
+
+function pintarComparacion(conj) {
+  estado.conjunto = conj;
+  document.querySelectorAll("#selector-conjunto button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.conjunto === conj)));
+  const c = D.comparacion[conj];
+  dibujarRocComparada(conj);
+  dibujarBosque(conj);
+  dibujarCohortesComparadas(conj);
+  const u = c.con_el_umbral;
+  $("t-matriz").innerHTML = matrizHtml(u.VN, u.FP, u.FN, u.VP);
+  const tarjeta = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+  $("t-metricas").innerHTML = tarjeta("sensibilidad", pct(u.sensibilidad)) + tarjeta("especificidad", pct(u.especificidad)) +
+    tarjeta("precisión", pct(u.precision)) + tarjeta("precisión media", coma(u.precision_media, 2)) +
+    tarjeta("recall medio", coma(u.recall_medio, 2)) + tarjeta("F1 media", coma(u.f1_equilibrada, 2));
+  $("t-titulo").textContent = `CNN con el umbral ${coma(c.umbral, 3)} · ${conj === "test" ? "test" : "validación"} (${miles(c.pacientes_n)} pacientes)`;
+  const dif = (k) => c.diferencias[k], frase = (k) => {
+    const d = dif(k), excluye = d.ic95[0] > 0 || d.ic95[1] < 0;
+    return `<b>${conSigno(d.diferencia)}</b> (IC95 ${conSigno(d.ic95[0])} a ${conSigno(d.ic95[1])}${excluye ? ", significativo" : ", no significativo"})`;
+  };
+  $("t-notas").innerHTML = `<li>La imagen <b>añade</b> a los datos clínicos: ${frase("imagen + clinico - clinico")}.</li>
+    <li>La CNN frente a <b>solo cohorte</b> (reconocer el hospital): ${frase("imagen - solo cohorte")}.</li>
+    <li>La CNN frente a los <b>datos clínicos</b>: ${frase("imagen - clinico")}.</li>`;
+}
+
+function dibujarGradcam() {
+  const svg = $("g-gradcam"); vaciar(svg);
+  const g = D.gradcam;
+  if (!g) { $("gradcam-nota").textContent = "Sin datos (ejecuta mapas_gradcam.py)."; return; }
+  const filas = [["todas", "Todas"], ["duke", "Duke"], ["spy1", "I-SPY1"], ["spy2", "I-SPY2"]];
+  const marco = [72, 600, 8, 128], x = escala(0, 0.6, marco[0], marco[1]), alto = (marco[3] - marco[2]) / filas.length;
+  const ge = s("g", { class: "eje" }, svg), gr = s("g", { class: "rejilla" }, svg);
+  for (const v of [0, 0.2, 0.4, 0.6]) { s("line", { x1: x(v), x2: x(v), y1: marco[2], y2: marco[3] }, gr); s("text", { x: x(v), y: marco[3] + 15, "text-anchor": "middle", texto: pct(v) }, ge); }
+  filas.forEach(([k, nombre], i) => {
+    const d = g[k], y0 = marco[2] + alto * i + 4;
+    s("text", { class: k === "todas" ? "marca-texto" : "", x: marco[0] - 8, y: y0 + 14, "text-anchor": "end", texto: nombre }, svg);
+    s("rect", { x: x(0), y: y0, width: x(d.parte_mapa_media) - x(0), height: 10, rx: 2, class: "barra-crece-h", style: `fill:var(--m-cnn);--i:${i}`,
+                "data-tip": `<b>${nombre}</b> (${d.pacientes} pacientes)<br>mapa dentro de la caja del tumor: ${pct(d.parte_mapa_media)}<br>con un mapa uniforme: ${pct(d.parte_uniforme_media)} (×${coma(d.cociente, 2)})<br>máximo dentro de la caja: ${pct(d.maximo_dentro)}` }, svg);
+    s("rect", { x: x(0), y: y0 + 12, width: x(d.parte_uniforme_media) - x(0), height: 6, rx: 2, style: "fill:var(--texto-3);opacity:.6" }, svg);
+    s("text", { x: x(d.parte_mapa_media) + 6, y: y0 + 9, texto: `×${coma(d.cociente, 2)}` }, svg);
+  });
+  const t = g.todas;
+  $("gradcam-nota").innerHTML = `El <b>${pct(t.parte_mapa_media)}</b> del mapa cae dentro de la caja del tumor, frente al ${pct(t.parte_uniforme_media)} de un mapa uniforme (barra gris); el punto más alto, dentro en el ${pct(t.maximo_dentro)} de las ${miles(t.pacientes)} pacientes. La red prefiere el tumor, pero mira también el tejido de alrededor.`;
+}
+
 function montarModelo() {
-  const m = D.modelo, v = m.metricas_validacion, e = m.entrenamiento;
-  const kpi = (k, val, sub) => `<div class="kpi"><div class="k">${k}</div><div class="v">${val}</div><div class="s">${sub}</div></div>`;
-  $("kpis").innerHTML = kpi("AUC", coma(v.auc), `IC95 ${coma(v.auc_ic95[0], 2)}–${coma(v.auc_ic95[1], 2)}`) +
-    kpi("Precisión media", coma(v.ap), `azar ${coma(PREVALENCIA, 2)}`) + kpi("Brier", coma(v.brier, 4), `referencia ${coma(v.brier_referencia, 4)}`) +
+  const m = D.modelo, v = m.metricas_validacion, e = m.entrenamiento, T = D.comparacion && D.comparacion.test;
+  const kpi = (k, val, sub, destacado) => `<div class="kpi${destacado ? " destacado" : ""}"><div class="k">${k}</div><div class="v">${val}</div><div class="s">${sub}</div></div>`;
+  $("kpis").innerHTML = (T ? kpi("AUC test", coma(T.modelos.recorte.auc), `IC95 ${coma(T.modelos.recorte.auc_ic95[0], 2)}–${coma(T.modelos.recorte.auc_ic95[1], 2)} · ${T.pacientes_n} pacientes`, true) : "") +
+    kpi("AUC validación", coma(v.auc), `IC95 ${coma(v.auc_ic95[0], 2)}–${coma(v.auc_ic95[1], 2)} · 1.097 pacientes`) +
+    (T ? kpi("F1 media test", coma(T.con_el_umbral.f1_equilibrada, 2), `precisión ${coma(T.con_el_umbral.precision_media, 2)} · recall ${coma(T.con_el_umbral.recall_medio, 2)}`) : "") +
     kpi("Umbral", coma(m.umbral), "máxima F1 equilibrada") + kpi("Parámetros", e.parametros.toLocaleString("es-ES"), "por red") +
     kpi("Redes", String(m.redes.length), "3 semillas × 5 folds");
   dibujarArquitectura();
-  ROC = curvaRoc();
+  if (D.comparacion && D.comparacion.test && D.comparacion.validacion) {
+    document.querySelectorAll("#selector-conjunto button").forEach((b) => b.addEventListener("click", () => pintarComparacion(b.dataset.conjunto)));
+    pintarComparacion("test");
+  } else $("comparacion").hidden = true;
+  ROC = curvaRocDe(D.validacion.pacientes.map(([p, y]) => [p, y]));
   const des = $("u-deslizador");
   des.value = String(m.umbral);
   des.addEventListener("input", () => actualizarUmbral(Number(des.value)));
@@ -833,7 +1275,7 @@ function montarModelo() {
     fila("Épocas elegidas", `${Math.min(...ep)} a ${Math.max(...ep)} (media ${coma(mediaDe(ep), 1)})`) + fila("Semillas", e.semillas.join(", ")) +
     fila("Calibración", `Platt · a = ${coma(m.calibracion.a, 3)}, b = ${coma(m.calibracion.b, 3)}`) +
     fila("Entrenado con", `${e.dispositivo_entrenamiento} · ${coma(e.segundos_por_epoca, 1)} s/época`) + fila("PyTorch", e.version_torch);
-  dibujarCohortes();
+  dibujarGradcam();
 }
 
 // ------------------------------------------------------------------------------------------------ vista Verificacion
@@ -841,7 +1283,8 @@ function montarVerificacion() {
   const fila = (k, val) => `<dt>${k}</dt><dd class="mono">${val}</dd>`;
   $("ficha-checksum").innerHTML = fila("Checksum PyTorch", D.modelo.checksum_pytorch) +
     fila("Checksum web esperado", W ? W.checksum_web : "—") + fila("Checksum web calculado", '<span id="cs-calc">—</span>') +
-    fila("ONNX frente a PyTorch", W ? `${W.onnx_frente_a_pytorch.toExponential(1)} (logit)` : "—");
+    fila("ONNX frente a PyTorch", W ? `${W.onnx_frente_a_pytorch.toExponential(1)} (logit)` : "—") +
+    (W && W.mapa_frente_a_gradcam !== undefined ? fila("Mapa frente a Grad-CAM", `${W.mapa_frente_a_gradcam.toExponential(1)} (relativa)`) : "");
   if (DEMO) {
     $("sello").querySelector("h3").textContent = "No disponible en la maqueta";
     $("sello").querySelector(".texto-suave").textContent = "La verificación necesita los modelos: funciona en la página publicada.";
@@ -888,30 +1331,65 @@ function iniciar() {
     if (claro) document.documentElement.dataset.theme = "light"; else delete document.documentElement.dataset.theme;
     try { localStorage.setItem("tema", claro ? "light" : ""); } catch (e) {}
   });
+  // ranuras: un fichero va a su fase; varios a la vez se reparten por el nombre (o van al lote)
   document.querySelectorAll('.ranura input[type="file"]').forEach((input) => {
     const fase = input.dataset.fase, ranura = input.closest(".ranura");
-    input.addEventListener("change", async () => { const f = input.files[0]; if (!f) { ponerFichero(fase, null, null); return; } ponerFichero(fase, await f.arrayBuffer(), f.name); });
+    input.addEventListener("change", async () => {
+      const lista = input.files;
+      if (!lista.length) { ponerFichero(fase, null, null); return; }
+      if (lista.length > 1) { await repartirFicheros(lista); input.value = ""; return; }
+      ponerFichero(fase, await lista[0].arrayBuffer(), lista[0].name);
+    });
     ["dragenter", "dragover"].forEach((t) => input.addEventListener(t, () => ranura.classList.add("encima")));
     ["dragleave", "drop"].forEach((t) => input.addEventListener(t, () => ranura.classList.remove("encima")));
   });
+  const zona = $("lote-zona"), loteInput = $("lote-input");
+  loteInput.addEventListener("change", async () => { if (loteInput.files.length) await repartirFicheros(loteInput.files); loteInput.value = ""; });
+  ["dragenter", "dragover"].forEach((t) => loteInput.addEventListener(t, () => zona.classList.add("encima")));
+  ["dragleave", "drop"].forEach((t) => loteInput.addEventListener(t, () => zona.classList.remove("encima")));
   $("predecir").addEventListener("click", predecir);
   $("limpiar").addEventListener("click", limpiar);
+  // visor
   document.querySelectorAll("[data-fase-visor]").forEach((b) => b.addEventListener("click", () => { if (estado.animando) { cancelAnimationFrame(estado.animando); estado.animando = null; } mostrarFase(b.dataset.faseVisor); }));
+  $("par-comparar").addEventListener("change", () => { estado.par = $("par-comparar").value.split("|"); if (estado.fases) dibujarVisor(null, "COMPARAR"); });
   $("play").addEventListener("click", animarSecuencia);
   $("ver-recorte").addEventListener("change", () => { if (estado.fases) mostrarFase(estado.faseVisor); });
+  $("ver-mapa").addEventListener("change", () => { $("ver-mapa").dataset.tocada = "1"; if (estado.fases) dibujarVisor(null, estado.faseVisor); });
+  $("ver-lupa").addEventListener("change", () => { if (!$("ver-lupa").checked) $("lupa").hidden = true; });
+  const marcoVisor = $("visor").parentElement;
+  marcoVisor.addEventListener("pointerdown", (ev) => {
+    if (estado.faseVisor !== "COMPARAR" || !estado.fases) return;
+    estado.arrastrando = true; marcoVisor.setPointerCapture(ev.pointerId); moverCortina(ev);
+  });
+  marcoVisor.addEventListener("pointermove", (ev) => {
+    estado.puntero = { clientX: ev.clientX, clientY: ev.clientY };
+    if (estado.arrastrando) moverCortina(ev); else dibujarLupa(estado.puntero);
+  });
+  ["pointerup", "pointercancel"].forEach((t) => marcoVisor.addEventListener(t, () => { estado.arrastrando = false; }));
+  marcoVisor.addEventListener("pointerleave", () => { estado.puntero = null; $("lupa").hidden = true; });
+  // historial y verificacion
   $("descargar").addEventListener("click", descargarHistorial);
   $("vaciar").addEventListener("click", () => { estado.historial = []; $("historial").innerHTML = '<tr><td colspan="8" class="texto-tenue">Aún no hay predicciones en esta sesión.</td></tr>'; $("descargar").disabled = true; $("vaciar").disabled = true; });
   $("verificar").addEventListener("click", verificar);
+  // portada
+  $("portada-empezar").addEventListener("click", () => cerrarPortada("predecir"));
+  $("portada-modelo").addEventListener("click", () => cerrarPortada("modelo"));
+  $("abrir-portada").addEventListener("click", abrirPortada);
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("portada").hidden) cerrarPortada(null); });
   $("r-umbral").textContent = `${coma(D.modelo.umbral, 3)} (equilibrado)`;
   $("r-dispositivo").textContent = DEMO ? "maqueta (sin modelos)" : "navegador · WebAssembly";
   $("r-checksum").textContent = DEMO ? "— (maqueta)" : "calculando…";
   $("r-checksum-pt").textContent = D.modelo.checksum_pytorch;
+  actualizarMapaDisponible();
   cineticaVacia();
   resultadoInicial();
   montarGaleria();
   montarModelo();
   montarVerificacion();
   cargarModelo();
+  let vista = null;
+  try { vista = sessionStorage.getItem("portada"); } catch (e) {}
+  if (!vista && !inicial && !new URLSearchParams(location.search).has("sinportada")) abrirPortada();
 }
 
 iniciar();
