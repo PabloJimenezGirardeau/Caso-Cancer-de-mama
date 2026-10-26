@@ -411,6 +411,7 @@ tbody tr:hover td { background: var(--acento-suave); }
 .portada-visual { margin: 0; display: grid; justify-items: center; gap: 14px; }
 .visor-portada { width: min(100%, 460px); min-width: 0; margin: 0; }
 .portada-curva { max-width: 460px; }
+.portada-curva-titulo { width: min(100%, 460px); margin: 6px 0 -10px; font-size: 14px; color: var(--texto-2); }
 .portada-visual figcaption { max-width: 460px; font-size: 14px; color: var(--texto-3); text-align: center; }
 
 /* ---- pantallas medianas: el informe pasa debajo, en tres columnas ---- */
@@ -449,7 +450,7 @@ tbody tr:hover td { background: var(--acento-suave); }
   .portada { place-items: start center; padding: 28px 18px; }
   .portada-contenido { grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .portada-visual { order: -1; }
-  .visor-portada, .portada-curva { width: min(100%, 300px); }
+  .visor-portada, .portada-curva, .portada-curva-titulo { width: min(100%, 300px); }
   .portada-entrada { font-size: 16px; }
   .pie-estado { padding: 0 12px; }
   .lote-rejilla { grid-template-columns: repeat(2, minmax(0, 1fr)); }
