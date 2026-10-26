@@ -10,8 +10,6 @@
  *   4. pCR = 1 si p >= umbral.
  * Si los ONNX traen la salida "mapa" (exportar_web.py, ConMapa), se dibuja ademas DONDE MIRA LA RED: el Grad-CAM de cada
  * red hacia la clase predicha (parte positiva del mapa con signo si pCR = 1, negativa si pCR = 0), normalizado y promediado.
- * El MAPA CINETICO (pestana Cinetica) es descriptivo y no lo usa el modelo: cada pixel que realza se colorea segun lo que
- * hace el contraste tras el pico (persistente, meseta o lavado), como en los programas de CAD de resonancia de mama.
  *
  * Datos: window.DATOS (datos_web.py: metricas, validacion, test, curvas, Grad-CAM) y window.WEB (exportar_web.py:
  * modelos, ejemplos). MODO MAQUETA: abierta como fichero (o con ?demo) no se cargan los modelos y las predicciones (y el
@@ -31,8 +29,6 @@ const NOMBRE_MODELO = { recorte: "CNN solo imagen", clinico: "solo datos clínic
                         solo_cohorte: "solo cohorte" };
 const COLOR_MODELO = { recorte: "var(--m-cnn)", clinico: "var(--m-clin)", combinado: "var(--m-comb)", solo_cohorte: "var(--m-coh)" };
 const NOMBRE_COHORTE = { duke: "Duke", spy1: "I-SPY1", spy2: "I-SPY2" };
-// mapa cinetico: realce inicial minimo (50 %) y margen de la meseta (+-10 %) entre EARLY y LATE
-const CINETICA = { realce: 0.5, meseta: 0.1, colores: [null, [62, 123, 250], [242, 177, 52], [229, 72, 77]] };
 
 const estado = {
   sesiones: [], checksumWeb: null, listo: false, tieneMapa: false,
@@ -42,7 +38,6 @@ const estado = {
   ejemploActivo: null,         // indice del ejemplo cargado (o null si se subio a mano)
   faseVisor: "EARLY", animando: null, historial: [],
   mapa: null,                  // Grad-CAM medio de la ultima prediccion (16x16, en [0, 1])
-  cinetica: null,              // clase cinetica de cada pixel de la muestra cargada
   cortina: 0.5, par: ["PRE", "EARLY"], arrastrando: false, puntero: null,
   lote: [], loteActivo: null, procesando: false, conjunto: "test", portada: null,
 };
@@ -300,60 +295,6 @@ async function predecirCorte(f, { alRed = null, pausa = 0 } = {}) {
   return { probabilidad: p, clase, media: m, probs, mapa, segundos: ms / 1000 };
 }
 
-// ------------------------------------------------------------------------------------------------ mapa cinetico
-function suavizar3(x) {    // media 3x3: quita el ruido de pixel antes de dividir intensidades
-  const r = new Float32Array(x.length);
-  for (let y = 0; y < LADO; y++) for (let xx = 0; xx < LADO; xx++) {
-    let s_ = 0, n = 0;
-    for (let dy = -1; dy <= 1; dy++) {
-      const yy = y + dy; if (yy < 0 || yy >= LADO) continue;
-      for (let dx = -1; dx <= 1; dx++) { const xq = xx + dx; if (xq < 0 || xq >= LADO) continue; s_ += x[yy * LADO + xq]; n++; }
-    }
-    r[y * LADO + xx] = s_ / n;
-  }
-  return r;
-}
-
-// Clase de cada pixel que realza: 1 persistente (sigue subiendo), 2 meseta, 3 lavado (baja tras el pico)
-function calcularCinetica(f) {
-  const pre = suavizar3(f.PRE), early = suavizar3(f.EARLY), late = suavizar3(f.LATE);
-  const clase = new Uint8Array(LADO * LADO), cuenta = [0, 0, 0, 0];
-  let tejido = 0;
-  for (let i = 0; i < clase.length; i++) {
-    if (pre[i] < 0.04 && early[i] < 0.08) continue;              // fondo
-    if (MASCARA_CENTRO[i]) tejido++;
-    const subida = early[i] - pre[i];
-    if (subida < 0.04 || subida / Math.max(pre[i], 0.04) < CINETICA.realce) continue;
-    const tardio = (late[i] - early[i]) / Math.max(early[i], 0.04);
-    clase[i] = tardio > CINETICA.meseta ? 1 : tardio < -CINETICA.meseta ? 3 : 2;
-    if (MASCARA_CENTRO[i]) cuenta[clase[i]]++;
-  }
-  return { clase, cuenta, tejido };
-}
-
-function pintarCinetica(ctx) {
-  const { clase } = estado.cinetica, base = estado.fases.EARLY, img = ctx.createImageData(LADO, LADO);
-  for (let i = 0, j = 0; i < clase.length; i++, j += 4) {
-    const g = limitar(base[i], 0, 1) * 255 * 0.5, c = CINETICA.colores[clase[i]];
-    img.data[j] = c ? Math.round(g * 0.2 + c[0] * 0.8) : g;
-    img.data[j + 1] = c ? Math.round(g * 0.2 + c[1] * 0.8) : g;
-    img.data[j + 2] = c ? Math.round(g * 0.2 + c[2] * 0.8) : g;
-    img.data[j + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-}
-
-function leyendaCinetica() {
-  const { cuenta, tejido } = estado.cinetica, realzan = cuenta[1] + cuenta[2] + cuenta[3];
-  const parte = (k) => pct(realzan ? cuenta[k] / realzan : 0);
-  const frase = realzan
-    ? `En la zona de interés realza con fuerza el ${pct(realzan / Math.max(tejido, 1))} del tejido: ${parte(1)} persistente, ${parte(2)} en meseta y ${parte(3)} con lavado.`
-    : "En la zona de interés no hay tejido que realce con fuerza.";
-  return `<span><i style="--c:var(--cin-persistente)"></i>Persistente, sigue subiendo</span>
-    <span><i style="--c:var(--cin-meseta)"></i>Meseta</span><span><i style="--c:var(--cin-lavado)"></i>Lavado, baja tras el pico</span>
-    <p>${frase}</p><p class="nota">Descriptivo: se calcula sobre los PNG del conjunto de datos y el modelo no lo usa. No es una valoración clínica.</p>`;
-}
-
 // ------------------------------------------------------------------------------------------------ imagenes
 const INFERNO = [[0, 0, 4], [40, 11, 84], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [250, 193, 39], [252, 255, 164]];
 function colorInferno(t) {
@@ -415,8 +356,8 @@ function nombreMuestra() {
 }
 
 const DESCRIPCION = { PRE: "Antes del contraste", EARLY: "Contraste temprano", LATE: "Contraste tardío", REALCE: "EARLY menos PRE",
-                      CINETICA: "Tras el pico del contraste", COMPARAR: "" };
-const NOMBRE_VISTA = { REALCE: "Realce", CINETICA: "Cinética" };
+                      COMPARAR: "" };
+const NOMBRE_VISTA = { REALCE: "Realce" };
 // Anotaciones de las esquinas del visor, como en una estacion de radiologia
 function ponerAnotaciones(etiqueta, conMapa, titulo = null) {
   if (etiqueta === "COMPARAR") {
@@ -437,16 +378,14 @@ function quitarAnotaciones() { ["ov-tl", "ov-tr", "ov-bl", "ov-br"].forEach((k) 
 function dibujarVisor(datos, etiqueta, titulo = null) {
   const ctx = $("visor").getContext("2d");
   if (etiqueta === "REALCE") pintarRealce(ctx, estado.fases.PRE, estado.fases.EARLY);
-  else if (etiqueta === "CINETICA") pintarCinetica(ctx);
   else if (etiqueta === "COMPARAR") pintarComparar(ctx);
   else pintarGris(ctx, datos || estado.fases[etiqueta]);
-  const conMapa = !!(estado.mapa && $("ver-mapa").checked && etiqueta !== "CINETICA");
+  const conMapa = !!(estado.mapa && $("ver-mapa").checked);
   if (conMapa) pintarMapa(ctx, estado.mapa);
   pintarRecorte(ctx);
   ponerAnotaciones(etiqueta, conMapa, titulo);
   const leyenda = $("leyenda-visor");
-  if (etiqueta === "CINETICA") leyenda.innerHTML = leyendaCinetica();
-  else if (conMapa) leyenda.innerHTML = '<span>Dónde mira la red: las zonas que más han empujado la decisión</span><span><span class="barra-mapa"></span> de menos a más</span>';
+  if (conMapa) leyenda.innerHTML = '<span>Dónde mira la red: las zonas que más han empujado la decisión</span><span><span class="barra-mapa"></span> de menos a más</span>';
   else leyenda.innerHTML = etiqueta === "COMPARAR" ? "<span>Arrastra sobre la imagen para mover la cortina.</span>" : "";
   $("cortina").hidden = etiqueta !== "COMPARAR";
   $("cortina").style.left = `${100 * estado.cortina}%`;
@@ -673,7 +612,6 @@ function prepararMuestra() {
   const ok = FASES.every((k) => estado.leidas[k]);
   estado.fases = ok ? { PRE: estado.leidas.PRE, EARLY: estado.leidas.EARLY, LATE: estado.leidas.LATE } : null;
   estado.mapa = null;
-  estado.cinetica = ok ? calcularCinetica(estado.fases) : null;
   if (estado.animando) { cancelAnimationFrame(estado.animando); estado.animando = null; }
   $("visor-vacio").hidden = ok; $("play").disabled = !ok;
   if (ok) { mostrarFase(estado.faseVisor); graficaCinetica(estado.fases); }
@@ -1000,7 +938,7 @@ function montarGaleria() {
 // ------------------------------------------------------------------------------------------------ portada
 function curvaPortada(serie) {   // brillo de la zona de interes en las tres fases, con un punto que sigue a la animacion
   const svg = $("portada-curva"); vaciar(svg);
-  const marco = [30, 410, 14, 86], ymax = Math.max(...serie) * 1.18 || 1;
+  const marco = [44, 424, 14, 86], ymax = Math.max(...serie) * 1.18 || 1;
   const x = (k) => marco[0] + k * (marco[1] - marco[0]) / 2, y = escala(0, ymax, marco[3], marco[2]);
   const ge = s("g", { class: "eje" }, svg);
   s("line", { x1: marco[0] - 20, x2: marco[1] + 10, y1: marco[3], y2: marco[3] }, ge);
@@ -1015,61 +953,27 @@ function curvaPortada(serie) {   // brillo de la zona de interes en las tres fas
   };
 }
 
-// La unica animacion que no pide nadie, en una sola secuencia: el corte se adquiere (barrido), llega el contraste
-// (PRE, EARLY, LATE) y aparece el mapa cinetico en color sobre el tumor; despues vuelve a empezar sin el barrido.
 function animarPortada(fases, nombre) {
-  const ctx = $("portada-canvas").getContext("2d");
+  const canvas = $("portada-canvas"), ctx = canvas.getContext("2d");
   const mover = curvaPortada(FASES.map((k) => mediaDe(fases[k], MASCARA_CENTRO)));
-  const leyenda = $("portada-leyenda"), cin = calcularCinetica(fases);
   const indice = { PRE: 0, EARLY: 1, LATE: 2 };
-  const pre = document.createElement("canvas"); pre.width = pre.height = LADO; pintarGris(pre.getContext("2d"), fases.PRE);
-  const zona = () => { ctx.save(); ctx.strokeStyle = ANOTACION; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2; ctx.strokeRect(INI + 0.6, INI + 0.6, RECORTE - 1.2, RECORTE - 1.2); ctx.restore(); };
-  const rotulo = (titulo, sub) => {
-    $("pov-fase").innerHTML = `<b>${titulo}</b><br>${sub}<br>${escapar(nombre)}<br><span class="anot">Zona de interés 128 × 128</span>`;
+  $("pov-br").innerHTML = `${escapar(nombre)}<br>Un corte`;
+  const cuadro = (datos, etiqueta) => {
+    pintarGris(ctx, datos);
+    ctx.save(); ctx.strokeStyle = ANOTACION; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2; ctx.strokeRect(INI + 0.6, INI + 0.6, RECORTE - 1.2, RECORTE - 1.2); ctx.restore();
+    $("pov-tl").innerHTML = `<b>${etiqueta}</b><br>${DESCRIPCION[etiqueta] || "Llegada del contraste"}`;
   };
-  const cinetica = (k) => {   // LATE en gris, apagado, y el color cinetico encima con intensidad k
-    const img = ctx.createImageData(LADO, LADO), base = fases.LATE;
-    for (let i = 0, j = 0; i < base.length; i++, j += 4) {
-      const g = limitar(base[i], 0, 1) * 255, c = CINETICA.colores[cin.clase[i]];
-      if (c) { const m = 0.85 * k; img.data[j] = g + (c[0] - g) * m; img.data[j + 1] = g + (c[1] - g) * m; img.data[j + 2] = g + (c[2] - g) * m; }
-      else img.data[j] = img.data[j + 1] = img.data[j + 2] = g * (1 - 0.45 * k);
-      img.data[j + 3] = 255;
-    }
-    ctx.putImageData(img, 0, 0);
-  };
-  if (SIN_MOVIMIENTO) { pintarGris(ctx, fases.EARLY); zona(); rotulo("EARLY", DESCRIPCION.EARLY); mover(1); leyenda.style.opacity = 0; return; }
-  const BARRIDO = 1700;
-  const tramos = [["PRE", "PRE", 600], ["PRE", "EARLY", 1500], ["EARLY", "EARLY", 800], ["EARLY", "LATE", 1400], ["LATE", "LATE", 500],
-                  ["entra", 900], ["cinetica", 2000], ["sale", 800], ["LATE", "PRE", 900]];
-  const dur = (q) => q[q.length - 1];
-  const ciclo = tramos.reduce((t, q) => t + dur(q), 0), inicio = performance.now();
+  if (SIN_MOVIMIENTO) { cuadro(fases.EARLY, "EARLY"); mover(1); return; }
+  // la unica animacion que no pide nadie: PRE -> EARLY -> LATE y vuelta, con pausas en cada fase
+  const tramos = [["PRE", "PRE", 900], ["PRE", "EARLY", 1500], ["EARLY", "EARLY", 1000], ["EARLY", "LATE", 1500], ["LATE", "LATE", 1100], ["LATE", "PRE", 900]];
+  const ciclo = tramos.reduce((t, q) => t + q[2], 0), inicio = performance.now();
   const paso = (ahora) => {
     if ($("portada").hidden) { estado.portada = null; return; }
-    let t = ahora - inicio;
-    if (t < BARRIDO) {            // adquisicion: una linea recorre el corte de arriba abajo y lo va revelando
-      const u = t / BARRIDO, y = Math.round(LADO * (u * u * (3 - 2 * u)));
-      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, LADO, LADO);
-      if (y > 0) ctx.drawImage(pre, 0, 0, LADO, y, 0, 0, LADO, y);
-      const brillo = ctx.createLinearGradient(0, y - 30, 0, y);
-      brillo.addColorStop(0, "rgba(255, 210, 63, 0)"); brillo.addColorStop(1, "rgba(255, 210, 63, .32)");
-      ctx.fillStyle = brillo; ctx.fillRect(0, y - 30, LADO, 30);
-      ctx.fillStyle = "rgba(255, 244, 210, .95)"; ctx.fillRect(0, y - 1, LADO, 1.5);
-      rotulo("PRE", "Adquiriendo el corte"); mover(0); leyenda.style.opacity = 0;
-      estado.portada = requestAnimationFrame(paso); return;
-    }
-    t = (t - BARRIDO) % ciclo;
-    let k = 0;
-    while (t > dur(tramos[k])) { t -= dur(tramos[k]); k++; }
-    const q = tramos[k], u = t / dur(q), suave = u * u * (3 - 2 * u);
-    if (q.length === 2) {         // el mapa cinetico entra, se queda y sale
-      const fuerza = q[0] === "entra" ? suave : q[0] === "sale" ? 1 - suave : 1;
-      cinetica(fuerza); zona(); rotulo("Cinética", "Qué hace el contraste tras el pico"); mover(2); leyenda.style.opacity = fuerza;
-    } else {
-      const [a, b] = q;
-      pintarGris(ctx, a === b ? fases[a] : mezcla(fases[a], fases[b], suave)); zona();
-      rotulo(a === b ? a : `${a} → ${b}`, a === b ? DESCRIPCION[a] : "Llegada del contraste");
-      mover(a === b ? indice[a] : indice[a] + (indice[b] - indice[a]) * suave); leyenda.style.opacity = 0;
-    }
+    let t = (ahora - inicio) % ciclo, k = 0;
+    while (t > tramos[k][2]) { t -= tramos[k][2]; k++; }
+    const [a, b, dur] = tramos[k], u = t / dur, suave = u * u * (3 - 2 * u);
+    cuadro(a === b ? fases[a] : mezcla(fases[a], fases[b], suave), a === b ? a : `${a} → ${b}`);
+    mover(a === b ? indice[a] : indice[a] + (indice[b] - indice[a]) * suave);
     estado.portada = requestAnimationFrame(paso);
   };
   estado.portada = requestAnimationFrame(paso);

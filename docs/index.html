@@ -16,19 +16,6 @@
 <body>
   <!-- ================================================= PORTADA ================================================= -->
   <div class="portada" id="portada" hidden role="dialog" aria-modal="true" aria-label="Presentación" tabindex="-1">
-    <figure class="portada-visual" aria-hidden="true">
-      <canvas id="portada-canvas" width="256" height="256"></canvas>
-      <div class="ov ov-tr" id="pov-fase"></div>
-      <div class="portada-lectura">
-        <span class="portada-lectura-titulo">Brillo de la zona de interés</span>
-        <svg class="grafica portada-curva" id="portada-curva" viewBox="0 0 440 120"></svg>
-        <div class="portada-leyenda" id="portada-leyenda">
-          <span><i style="--c:var(--cin-persistente)"></i>persistente</span>
-          <span><i style="--c:var(--cin-meseta)"></i>meseta</span>
-          <span><i style="--c:var(--cin-lavado)"></i>lavado</span>
-        </div>
-      </div>
-    </figure>
     <div class="portada-contenido">
       <div class="portada-texto">
         <h1>¿Responderá a la quimioterapia?</h1>
@@ -41,6 +28,17 @@
         </div>
         <p class="portada-nota">Trabajo académico con el conjunto de datos BreastDCEDL. Uso exclusivamente educativo, sin validez clínica.</p>
       </div>
+      <figure class="portada-visual">
+        <div class="visor visor-portada">
+          <canvas id="portada-canvas" width="256" height="256"></canvas>
+          <div class="ov ov-tl" id="pov-tl"></div>
+          <div class="ov ov-tr">256 × 256</div>
+          <div class="ov ov-bl">Zona de interés<br>128 × 128</div>
+          <div class="ov ov-br" id="pov-br"></div>
+        </div>
+        <svg class="grafica portada-curva" id="portada-curva" viewBox="0 0 440 120" role="img" aria-label="Brillo de la zona de interés en las tres fases"></svg>
+        <figcaption>El contraste llega al tumor: antes de inyectarlo (PRE), poco después (EARLY) y un rato después (LATE).</figcaption>
+      </figure>
     </div>
   </div>
 
@@ -113,7 +111,6 @@
               <button data-fase-visor="EARLY" aria-pressed="true">EARLY</button>
               <button data-fase-visor="LATE" aria-pressed="false">LATE</button>
               <button data-fase-visor="REALCE" aria-pressed="false">Realce</button>
-              <button data-fase-visor="CINETICA" aria-pressed="false">Cinética</button>
               <button data-fase-visor="COMPARAR" aria-pressed="false">Comparar</button>
             </div>
             <select id="par-comparar" class="selector" hidden aria-label="Fases que se comparan">
@@ -340,11 +337,6 @@
           del contraste (PRE), poco después (EARLY) y un rato después (LATE). Mira los 128 × 128 píxeles centrales, donde suele estar el
           tumor. El modelo final promedia quince redes, tres semillas por cada uno de los cinco folds de validación cruzada, y calibra la
           probabilidad.</p>
-        <h2>El mapa cinético</h2>
-        <p>La pestaña Cinética colorea cada píxel que realza según lo que hace el contraste después del pico: azul si sigue subiendo
-          (persistente), ámbar si se mantiene (meseta) y rojo si baja (lavado). Es la forma de mirar la cinética que usan los programas de
-          ayuda al diagnóstico de resonancia de mama. Aquí es descriptiva: se calcula sobre los PNG del conjunto de datos, que no
-          conservan la intensidad original, y el modelo no la usa.</p>
         <h2>Limitaciones</h2>
         <ul>
           <li>Capacidad de discriminación limitada: AUC 0,573 en validación y 0,591 en el test, con 176 pacientes nuevas. Un modelo con
