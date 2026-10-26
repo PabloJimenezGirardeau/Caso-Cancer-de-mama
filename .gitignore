@@ -217,10 +217,13 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Datos
+# Datos (las imagenes y metadatos nunca van al repositorio)
 test/
 train/
 metadata/
+dataset/
+# ...pero los resultados del test si: la regla test/ de arriba tambien tapaba figuras/test/
+!figuras/test/
 
 # Apuntes de clase (c) del profesor, no redistribuir en el repo publico
 CNN/
