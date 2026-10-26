@@ -625,7 +625,7 @@ function montarGaleria() {
       const f = fantasma(1000 + i * 77), b = document.createElement("button");
       b.className = "ejemplo"; b.type = "button";
       const c = document.createElement("canvas"); c.width = c.height = LADO; pintarGris(c.getContext("2d"), f.EARLY);
-      b.append(c); b.insertAdjacentHTML("beforeend", `<span><b>Fantasma ${i + 1}</b> · sintético</span>`);
+      b.append(c); b.insertAdjacentHTML("beforeend", `<span><b>Fantasma ${i + 1}</b><i>sintético</i></span>`);
       b.addEventListener("click", () => cargarFasesDirectas(f, `Fantasma ${i + 1}`, i));
       g.append(b);
     }
@@ -635,7 +635,7 @@ function montarGaleria() {
   $("ejemplos-nota").textContent = "pacientes de entrenamiento";
   W.ejemplos.forEach((e, i) => {
     const b = document.createElement("button"); b.className = "ejemplo"; b.type = "button";
-    b.innerHTML = `<img src="${e.rutas.EARLY}" alt="" loading="lazy"><span><b>pCR real = ${e.pCR}</b> · ${e.patient_id}</span>`;
+    b.innerHTML = `<img src="${e.rutas.EARLY}" alt="" loading="lazy"><span><b>pCR real = ${e.pCR}</b><i>${e.patient_id}</i></span>`;
     b.title = `${e.sample_id} (paciente de entrenamiento: la mayoría de las redes la vieron)`;
     b.addEventListener("click", async () => {
       mostrarErrores([]);
@@ -848,6 +848,7 @@ function montarVerificacion() {
   }
 }
 
+const etiquetaClase = (c) => (c === "pCR" ? "pCR = 1" : "pCR = 0");
 async function verificar() {
   const tabla = $("t-verificacion"); $("verificar").disabled = true;
   const sello = $("sello"); sello.className = "sello"; sello.querySelector(".icono").textContent = "…"; sello.querySelector("h3").textContent = "Verificando…";
@@ -857,7 +858,7 @@ async function verificar() {
       const f = {}; for (const k of FASES) f[k] = leerFase(await bajar(e.rutas[k]), k).x;
       const r = await predecirCorte(f), dif = Math.abs(r.probabilidad - e.probabilidad_python), bien = dif < TOLERANCIA && r.clase === e.clase_python;
       peor = Math.max(peor, dif); ok = ok && bien;
-      filas.push(`<tr><td>${e.sample_id}</td><td class="num">${e.probabilidad_python.toFixed(6)}</td><td class="num">${r.probabilidad.toFixed(6)}</td><td class="num">${dif.toExponential(1)}</td><td>${e.clase_python === r.clase ? r.clase : `${e.clase_python} / ${r.clase}`}</td><td class="${bien ? "bien" : "mal"}">${bien ? "✓" : "✗"}</td></tr>`);
+      filas.push(`<tr><td>${e.sample_id}</td><td class="num">${e.probabilidad_python.toFixed(6)}</td><td class="num">${r.probabilidad.toFixed(6)}</td><td class="num">${dif.toExponential(1)}</td><td>${e.clase_python === r.clase ? etiquetaClase(r.clase) : `${etiquetaClase(e.clase_python)} / ${etiquetaClase(r.clase)}`}</td><td class="${bien ? "bien" : "mal"}">${bien ? "✓" : "✗"}</td></tr>`);
     } catch (err) { ok = false; filas.push(`<tr><td>${e.sample_id}</td><td colspan="5" class="mal">${err.message}</td></tr>`); }
   }
   tabla.hidden = false;
@@ -902,7 +903,7 @@ function iniciar() {
   $("vaciar").addEventListener("click", () => { estado.historial = []; $("historial").innerHTML = '<tr><td colspan="8" class="texto-tenue">Aún no hay predicciones en esta sesión.</td></tr>'; $("descargar").disabled = true; $("vaciar").disabled = true; });
   $("verificar").addEventListener("click", verificar);
   $("r-umbral").textContent = `${coma(D.modelo.umbral, 3)} (equilibrado)`;
-  $("r-dispositivo").textContent = DEMO ? "maqueta (sin modelos)" : "tu navegador · WebAssembly (CPU)";
+  $("r-dispositivo").textContent = DEMO ? "maqueta (sin modelos)" : "navegador · WebAssembly";
   $("r-checksum").textContent = DEMO ? "— (maqueta)" : "calculando…";
   $("r-checksum-pt").textContent = D.modelo.checksum_pytorch;
   cineticaVacia();
