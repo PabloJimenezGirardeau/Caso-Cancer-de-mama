@@ -1025,6 +1025,22 @@ imagen + clínico frente a clínico: Duke 0,731 / 0,739, I-SPY1 0,805 / 0,784, I
    cuando en validación daba 0,62; en Duke va mejor que el modelo clínico. Muestras muy pequeñas; coherente con la sensibilidad al
    brillo y al escáner ya documentada. No se toca nada después del test.
 
+### Dónde mira el modelo final: Grad-CAM (2026-10-26, `mapas_gradcam.py`, `figuras/mapas/`)
+
+Descriptivo, después del test (no se decide nada con esto). Grad-CAM sobre la ReLU del último bloque (128 @ 16×16 sobre el
+cuadrado central), hacia la clase predicha, normalizado a [0, 1] y promediado entre redes.
+
+- **Validación** (1.097 pacientes, corte central, cada una con las 3 redes de su fold; 1.091 con caja del tumor utilizable): parte
+  del mapa dentro de la caja **41 %**, frente a **34 %** con un mapa uniforme (×1,20); el mapa se concentra más que uniforme en el
+  **69 %** de las pacientes; el máximo del mapa cae dentro de la caja en el **62 %**. Por cohorte: Duke ×1,46 (83 % de pacientes por
+  encima), I-SPY1 ×1,21 (70 %), I-SPY2 ×1,16 (65 %). El mapa medio se concentra en el centro del cuadrado, donde suele estar el tumor.
+- **Lectura:** la red prefiere la zona del tumor, pero buena parte de la evidencia viene del tejido de alrededor: coherente con una
+  señal débil y con la dependencia del brillo general ya documentada.
+- **Los cuatro casos del test** (`gradcam_casos_test.png`): en el falso negativo y el verdadero negativo el mapa cae sobre el tumor
+  (grande y muy realzado); en el verdadero positivo y el falso positivo, sobre el tejido de alrededor. En el verdadero positivo el
+  tumor queda en el borde del cuadrado central (límite del recorte fijo: ~7 % de los tumores tienen el centro fuera) y el mapa no lo
+  mira (3 % dentro de la caja): acierta sin mirar el tumor. Solo cuatro casos: ilustrativo, no concluyente.
+
 ## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
 
 - La línea de validación usaba la entropía de la proporción de pCR de la **propia validación**, que el modelo no puede conocer. La
