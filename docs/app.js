@@ -991,7 +991,7 @@ async function fasesDePortada() {
 async function abrirPortada() {
   const p = $("portada"), T = D.comparacion && D.comparacion.test, v = D.modelo.metricas_validacion;
   $("portada-resultado").textContent = T
-    ? `En el test, con ${T.pacientes_n} pacientes que el modelo no había visto, separa las que responden de las que no con un AUC de ${coma(T.modelos.recorte.auc, 3)}. En validación, con 1.097, fue de ${coma(v.auc, 3)}.`
+    ? `En el test, con ${T.pacientes_n} pacientes que el modelo no había visto, separa las que responden de las que no con un AUC de ${coma(T.modelos.recorte.auc, 3)} (${coma(v.auc, 3)} en validación, con 1.097 pacientes).`
     : `En validación, con 1.097 pacientes, separa las que responden de las que no con un AUC de ${coma(v.auc, 3)}.`;
   p.hidden = false;
   requestAnimationFrame(() => p.classList.add("visible"));
