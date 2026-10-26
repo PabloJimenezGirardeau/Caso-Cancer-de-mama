@@ -994,6 +994,37 @@ Fijado por el usuario antes de ejecutar `python evaluar_test.py --test` (una sol
 apenas añade. Peso de la CNN en la regresión: +0,23 (por desviación típica), frente a −1,35 de HR y +0,88 de HER2. Por cohorte,
 imagen + clínico frente a clínico: Duke 0,731 / 0,739, I-SPY1 0,805 / 0,784, I-SPY2 0,690 / 0,689.
 
+### RESULTADO DEL TEST (2026-10-26, una sola vez; `figuras/test/`)
+
+176 pacientes (1.758 cortes, 53 pCR, 30 %); comprobación de fuga superada; checksum del modelo 19c0ffd39e140ce7 (el de la app).
+
+| Modelo | AUC test (IC95) | AUC validación | AP test | Brier test (ref. 0,2105) |
+|---|---|---|---|---|
+| **CNN solo imagen (principal)** | **0,591 (0,497-0,681)** | 0,573 | 0,373 (azar 0,301) | 0,2075 |
+| solo datos clínicos | 0,695 (0,603-0,778) | 0,704 | 0,484 | 0,1906 |
+| imagen + datos clínicos | 0,705 (0,618-0,785) | 0,710 | 0,496 | 0,1887 |
+| solo cohorte (referencia) | 0,544 (0,462-0,621) | 0,523 | 0,321 | 0,2098 |
+
+- **CNN con el umbral 0,316:** VP 16, FN 37, VN 93, FP 30 → sensibilidad 30 % (20-44 %), especificidad 76 % (67-82 %), precisión
+  35 % (23-49 %), VPN 72 % (63-79 %), accuracy 62 %; **media de las dos clases: precisión 0,53, recall 0,53, F1 0,53** (el profesor
+  esperaba 0,50-0,55). Un solo corte (como en la app): AUC 0,583, sensibilidad 35 %, especificidad 75 %.
+- **Umbral de desescalar (0,361):** 0 de 53 pCR detectadas (especificidad 97 %): inservible; confirma la elección del equilibrado.
+- **Diferencias de AUC (bootstrap emparejado):** imagen − solo cohorte +0,047 (IC95 −0,056 a +0,145; en validación +0,050 con el
+  intervalo por encima de 0); imagen − clínico −0,104 (−0,231 a +0,028); (imagen + clínico) − clínico +0,010 (−0,010 a +0,031).
+- **Por cohorte (CNN / clínico / imagen + clínico):** Duke (42 pac., 9 pCR) 0,734 / 0,492 / 0,532; I-SPY1 (35 pac., 12 pCR)
+  **0,290 (IC95 0,11-0,48)** / 0,830 / 0,797; I-SPY2 (99 pac., 32 pCR) 0,634 / 0,749 / 0,754.
+
+**Lectura:**
+1. **Sin sobreajuste a la validación:** el AUC del test (0,591) es incluso algo mayor que el de validación (0,573); la elección de
+   modelo, calibración y umbral con la validación no infló las cifras.
+2. **Señal débil y difícil de demostrar con 176 pacientes:** el intervalo del test roza el 0,5 (±0,09). La evidencia de que la CNN
+   supera al azar y a "solo cohorte" es la de validación (1.097 pacientes); el test la confirma en magnitud, no en significación.
+3. **La imagen apenas añade a los datos clínicos** (+0,010 en test, +0,006 en validación): con el subtipo, la edad y el volumen
+   delante, la CNN aporta poco; sin ellos (como en la defensa, que solo da el PNG) es lo único disponible y supera al azar.
+4. **Limitación por cohorte:** en las 35 pacientes de I-SPY1 del test la CNN ordena al revés (0,29, intervalo por debajo de 0,5),
+   cuando en validación daba 0,62; en Duke va mejor que el modelo clínico. Muestras muy pequeñas; coherente con la sensibilidad al
+   brillo y al escáner ya documentada. No se toca nada después del test.
+
 ## Referencia "sin mirar la imagen" corregida y el modelo final frente a ella (2026-10-22)
 
 - La línea de validación usaba la entropía de la proporción de pCR de la **propia validación**, que el modelo no puede conocer. La
