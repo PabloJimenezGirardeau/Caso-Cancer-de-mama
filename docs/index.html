@@ -4,50 +4,51 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Predicción de pCR</title>
-  <meta name="description" content="CNN propia, entrenada desde cero, que estima la respuesta patológica completa (pCR) a partir de un corte de resonancia DCE pretratamiento. Uso educativo.">
+  <meta name="description" content="Una CNN entrenada desde cero estima la respuesta patológica completa (pCR) a partir de un corte de resonancia DCE de mama tomado antes del tratamiento. Uso educativo.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;500&family=Atkinson+Hyperlegible+Next:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="estilos.css">
   <script>
     try { const t = localStorage.getItem("tema"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
   </script>
 </head>
 <body>
-  <div class="portada" id="portada" hidden role="dialog" aria-label="Presentación">
+  <!-- ================================================= PORTADA ================================================= -->
+  <div class="portada" id="portada" hidden role="dialog" aria-modal="true" aria-label="Presentación" tabindex="-1">
     <div class="portada-contenido">
       <div class="portada-texto">
-        <span class="portada-etiqueta">Trabajo académico · BreastDCEDL</span>
         <h1>¿Responderá a la quimioterapia?</h1>
-        <p>Una red convolucional <b>entrenada desde cero</b> estima la probabilidad de <b>respuesta patológica completa (pCR)</b>
-          a partir de un solo corte de resonancia DCE antes del tratamiento. Todo se calcula aquí, en tu navegador.</p>
-        <div class="portada-cifras" id="portada-cifras"></div>
+        <p class="portada-entrada">Una red convolucional entrenada desde cero mira un solo corte de resonancia de mama, tomado antes
+          del tratamiento, y estima la probabilidad de respuesta patológica completa (pCR). Todo se calcula en tu navegador.</p>
+        <p class="portada-resultado" id="portada-resultado"></p>
         <div class="portada-botones">
           <button class="boton boton-principal" id="portada-empezar">Empezar</button>
           <button class="boton boton-secundario" id="portada-modelo">Ver el modelo y el test</button>
         </div>
-        <p class="portada-nota">Uso exclusivamente educativo · sin validez clínica</p>
+        <p class="portada-nota">Trabajo académico con el conjunto de datos BreastDCEDL. Uso exclusivamente educativo, sin validez clínica.</p>
       </div>
-      <div class="portada-visual">
-        <div class="portada-marco"><canvas id="portada-canvas" width="256" height="256"></canvas></div>
-        <div class="portada-fases"><span data-pf="PRE">PRE</span><span data-pf="EARLY">EARLY</span><span data-pf="LATE">LATE</span></div>
-        <div class="portada-pie">Así llega el contraste al tumor · el cuadrado es la zona que mira la red</div>
-      </div>
+      <figure class="portada-visual">
+        <div class="visor visor-portada">
+          <canvas id="portada-canvas" width="256" height="256"></canvas>
+          <div class="ov ov-tl" id="pov-tl"></div>
+          <div class="ov ov-tr">256 × 256</div>
+          <div class="ov ov-bl">Zona de interés<br>128 × 128</div>
+          <div class="ov ov-br" id="pov-br"></div>
+        </div>
+        <svg class="grafica portada-curva" id="portada-curva" viewBox="0 0 440 120" role="img" aria-label="Brillo de la zona de interés en las tres fases"></svg>
+        <figcaption>El contraste llega al tumor: antes de inyectarlo (PRE), poco después (EARLY) y un rato después (LATE).</figcaption>
+      </figure>
     </div>
   </div>
 
-  <div class="franja franja-demo" id="franja-demo" hidden>
-    <span class="insignia">Maqueta</span>Datos de validación y curvas reales; <strong>predicciones inventadas</strong> (sin cargar los
-    modelos). Publicada en GitHub Pages usa el modelo de verdad.
-  </div>
-  <div class="franja franja-educativa" role="note">
-    <strong>Uso exclusivamente educativo.</strong> Sin validez clínica: no debe usarse para tomar decisiones sobre pacientes.
-  </div>
+  <div class="franja-demo" id="franja-demo" hidden>Maqueta: los datos de validación y test son reales, pero las predicciones son
+    inventadas porque la página está abierta sin los modelos. Publicada en GitHub Pages usa el modelo de verdad.</div>
 
   <header class="barra">
     <div class="marca">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="2.5" width="19" height="19" rx="4"/><circle cx="12" cy="13" r="4.6"/><circle cx="12" cy="13" r="1.4" fill="currentColor" stroke="none"/><path d="M6.5 6.8h3" stroke-linecap="round"/></svg>
-      <div>pCR · BreastDCEDL<small>CNN desde cero · resonancia DCE</small></div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="4.4"/><path d="M3 7.5h3M18 16.5h3"/></svg>
+      <span>pCR en resonancia DCE</span>
     </div>
     <nav class="menu" aria-label="Vistas">
       <button data-vista="predecir" aria-current="page">Predecir</button>
@@ -57,168 +58,169 @@
     </nav>
     <div class="barra-derecha">
       <button class="icono-boton" id="abrir-portada" title="Ver la portada" aria-label="Ver la portada">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg>
       </button>
-      <span class="pastilla" id="estado"><span class="luz"></span><span id="estado-texto">Cargando…</span>
-        <span class="progreso"><i id="estado-progreso"></i></span></span>
-      <button class="icono-boton" id="tema" title="Cambiar entre modo oscuro y claro" aria-label="Cambiar tema">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <button class="icono-boton" id="tema" title="Cambiar entre consola oscura y negatoscopio" aria-label="Cambiar tema">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
       </button>
     </div>
   </header>
 
   <main>
-    <!-- ====================================== PREDECIR ====================================== -->
+    <!-- ================================================= PREDECIR ================================================= -->
     <section class="vista activa" id="vista-predecir" aria-label="Predecir">
-      <div class="trabajo">
-        <!-- columna izquierda: muestra -->
-        <div class="columna">
-          <div class="tarjeta">
-            <div class="tarjeta-cabecera"><h2>Muestra</h2><span class="texto-tenue">PNG · 256 × 256 · ≤ 5 MB</span></div>
-            <label class="ranura" data-fase="PRE"><input type="file" accept="image/png" multiple data-fase="PRE">
-              <div class="miniatura" data-mini="PRE">PRE</div>
-              <div><div class="ranura-titulo">PRE<span>antes del contraste</span></div>
-                <div class="ranura-estado" data-estado="PRE">Arrastra o elige un PNG</div><div class="chips" data-chips="PRE"></div></div>
-            </label>
-            <label class="ranura" data-fase="EARLY"><input type="file" accept="image/png" multiple data-fase="EARLY">
-              <div class="miniatura" data-mini="EARLY">EARLY</div>
-              <div><div class="ranura-titulo">EARLY<span>contraste temprano</span></div>
-                <div class="ranura-estado" data-estado="EARLY">Arrastra o elige un PNG</div><div class="chips" data-chips="EARLY"></div></div>
-            </label>
-            <label class="ranura" data-fase="LATE"><input type="file" accept="image/png" multiple data-fase="LATE">
-              <div class="miniatura" data-mini="LATE">LATE</div>
-              <div><div class="ranura-titulo">LATE<span>contraste tardío</span></div>
-                <div class="ranura-estado" data-estado="LATE">Arrastra o elige un PNG</div><div class="chips" data-chips="LATE"></div></div>
-            </label>
-            <div class="botones">
-              <button class="boton boton-principal" id="predecir" disabled>Predecir</button>
-              <button class="boton boton-secundario" id="limpiar">Limpiar</button>
+      <div class="puesto">
+        <!-- muestra -->
+        <aside class="panel panel-muestra">
+          <h2>Muestra</h2>
+          <p class="ayuda">Las tres fases del mismo corte, en PNG de 256 × 256 píxeles.</p>
+          <label class="ranura" data-fase="PRE"><input type="file" accept="image/png" multiple data-fase="PRE">
+            <div class="miniatura" data-mini="PRE">PRE</div>
+            <div><div class="ranura-titulo">PRE <span>antes del contraste</span></div>
+              <div class="ranura-estado" data-estado="PRE">Arrastra o elige un PNG</div><div class="chips" data-chips="PRE"></div></div>
+          </label>
+          <label class="ranura" data-fase="EARLY"><input type="file" accept="image/png" multiple data-fase="EARLY">
+            <div class="miniatura" data-mini="EARLY">EARLY</div>
+            <div><div class="ranura-titulo">EARLY <span>contraste temprano</span></div>
+              <div class="ranura-estado" data-estado="EARLY">Arrastra o elige un PNG</div><div class="chips" data-chips="EARLY"></div></div>
+          </label>
+          <label class="ranura" data-fase="LATE"><input type="file" accept="image/png" multiple data-fase="LATE">
+            <div class="miniatura" data-mini="LATE">LATE</div>
+            <div><div class="ranura-titulo">LATE <span>contraste tardío</span></div>
+              <div class="ranura-estado" data-estado="LATE">Arrastra o elige un PNG</div><div class="chips" data-chips="LATE"></div></div>
+          </label>
+          <div class="botones">
+            <button class="boton boton-principal" id="predecir" disabled>Predecir</button>
+            <button class="boton boton-secundario" id="limpiar">Limpiar</button>
+          </div>
+          <div class="errores" id="errores" hidden></div>
+          <label class="lote-zona" id="lote-zona"><input type="file" accept="image/png" multiple id="lote-input">
+            <b>Varias muestras a la vez</b>
+            <span>Suelta aquí todos los PNG. Se emparejan por el nombre: cada muestra con sus ficheros _PRE, _EARLY y _LATE.</span>
+          </label>
+          <h2 class="separado">Ejemplos</h2>
+          <p class="ayuda" id="ejemplos-nota"></p>
+          <div class="galeria" id="galeria"></div>
+        </aside>
+
+        <!-- visor -->
+        <div class="panel panel-visor">
+          <div class="herramientas">
+            <div class="pestanas" role="group" aria-label="Qué se muestra en el visor">
+              <button data-fase-visor="PRE" aria-pressed="false">PRE</button>
+              <button data-fase-visor="EARLY" aria-pressed="true">EARLY</button>
+              <button data-fase-visor="LATE" aria-pressed="false">LATE</button>
+              <button data-fase-visor="REALCE" aria-pressed="false">Realce</button>
+              <button data-fase-visor="CINETICA" aria-pressed="false">Cinética</button>
+              <button data-fase-visor="COMPARAR" aria-pressed="false">Comparar</button>
             </div>
-            <div class="errores" id="errores" hidden></div>
-            <label class="lote-zona" id="lote-zona"><input type="file" accept="image/png" multiple id="lote-input">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="7" width="13" height="13" rx="2"/><path d="M8 4h11a2 2 0 0 1 2 2v11"/></svg>
-              <span><b>Varias muestras a la vez</b>Suelta aquí todos los PNG: se emparejan por el nombre (…_PRE, …_EARLY, …_LATE)</span>
-            </label>
+            <select id="par-comparar" class="selector" hidden aria-label="Fases que se comparan">
+              <option value="PRE|EARLY">PRE con EARLY</option><option value="EARLY|LATE">EARLY con LATE</option><option value="PRE|LATE">PRE con LATE</option>
+            </select>
+            <button class="boton-herramienta" id="play" disabled title="Reproduce la llegada del contraste: PRE, EARLY y LATE">
+              <svg width="11" height="11" viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z" fill="currentColor"/></svg> Secuencia</button>
           </div>
-          <div class="tarjeta">
-            <div class="tarjeta-cabecera"><h2>Ejemplos</h2><span class="texto-tenue" id="ejemplos-nota"></span></div>
-            <div class="galeria" id="galeria"></div>
+          <div class="opciones-visor">
+            <label class="interruptor"><input type="checkbox" id="ver-recorte" checked> Zona de interés</label>
+            <label class="interruptor"><input type="checkbox" id="ver-mapa"> Dónde mira la red</label>
+            <label class="interruptor"><input type="checkbox" id="ver-lupa"> Lupa</label>
           </div>
+          <div class="visor" id="marco-visor">
+            <canvas id="visor" width="256" height="256"></canvas>
+            <div class="visor-vacio" id="visor-vacio">Carga las tres fases de un corte, o elige un ejemplo, para verlo aquí.</div>
+            <div class="ov ov-tl" id="ov-tl"></div>
+            <div class="ov ov-tr" id="ov-tr"></div>
+            <div class="ov ov-bl" id="ov-bl"></div>
+            <div class="ov ov-br" id="ov-br"></div>
+            <div class="cortina" id="cortina" hidden><span></span></div>
+            <canvas class="lupa" id="lupa" hidden></canvas>
+          </div>
+          <div class="leyenda-visor" id="leyenda-visor"></div>
+          <h2 class="separado">Curva de realce</h2>
+          <p class="ayuda">Brillo medio de la zona de interés y de todo el tejido en las tres fases.</p>
+          <svg class="grafica" id="g-cinetica" viewBox="0 0 520 190" role="img" aria-label="Curva de realce"></svg>
+          <div class="leyenda" id="l-cinetica"></div>
         </div>
 
-        <!-- columna central: visor -->
-        <div class="columna">
-          <div class="tarjeta">
-            <div class="controles-visor">
-              <div class="pestanas" role="group" aria-label="Fase">
-                <button data-fase-visor="PRE" aria-pressed="false">PRE</button>
-                <button data-fase-visor="EARLY" aria-pressed="true">EARLY</button>
-                <button data-fase-visor="LATE" aria-pressed="false">LATE</button>
-                <button data-fase-visor="REALCE" aria-pressed="false">Realce</button>
-                <button data-fase-visor="COMPARAR" aria-pressed="false">Comparar</button>
-              </div>
-              <select id="par-comparar" class="selector" hidden aria-label="Fases que se comparan">
-                <option value="PRE|EARLY">PRE ↔ EARLY</option><option value="EARLY|LATE">EARLY ↔ LATE</option><option value="PRE|LATE">PRE ↔ LATE</option>
-              </select>
-              <button class="boton-play" id="play" disabled title="Ver cómo llega el contraste: PRE → EARLY → LATE">
-                <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z" fill="currentColor"/></svg>
-                <span>Secuencia DCE</span></button>
-            </div>
-            <div class="opciones-visor">
-              <label class="interruptor"><input type="checkbox" id="ver-recorte" checked> Zona que mira la red</label>
-              <label class="interruptor"><input type="checkbox" id="ver-mapa"> Dónde mira (Grad-CAM)</label>
-              <label class="interruptor"><input type="checkbox" id="ver-lupa"> Lupa</label>
-            </div>
-            <div class="visor">
-              <canvas id="visor" width="256" height="256"></canvas>
-              <div class="visor-vacio" id="visor-vacio"><div>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="13" r="4"/><path d="M7 7h3"/></svg>
-                <div>Carga una muestra o elige un ejemplo para ver sus tres fases</div></div></div>
-              <span class="visor-etiqueta" id="visor-etiqueta" hidden>EARLY</span>
-              <span class="visor-etiqueta derecha" id="visor-etiqueta-2" hidden>EARLY</span>
-              <div class="cortina" id="cortina" hidden><span></span></div>
-              <canvas class="lupa" id="lupa" hidden></canvas>
-            </div>
-            <div class="leyenda-visor"><span>Cuadrado amarillo: los 128 × 128 píxeles centrales que analiza la red</span><span id="visor-info"></span></div>
-            <div class="leyenda-mapa" id="leyenda-mapa" hidden><span>Dónde mira la red: zonas que más han empujado la decisión</span>
-              <span class="barra-mapa"><i></i></span><span class="texto-tenue">menos → más</span></div>
+        <!-- informe -->
+        <aside class="panel panel-informe">
+          <div class="informe-cabecera"><h2>Informe</h2><span class="ayuda" id="r-hora"></span></div>
+          <p class="resultado-vacio" id="resultado-vacio">Carga las tres fases de un corte, o elige un ejemplo, y pulsa Predecir.</p>
+          <div class="proceso" id="proceso" hidden>
+            <ol>
+              <li data-paso="0"><span class="marca-paso"></span><div><b>Lectura</b><small>Tres PNG en escala de grises, como en Python</small></div></li>
+              <li data-paso="1"><span class="marca-paso"></span><div><b>Recorte</b><small>Los 128 × 128 píxeles centrales</small></div></li>
+              <li data-paso="2"><span class="marca-paso"></span><div><b>Quince redes</b><small>Tres semillas por cada uno de los cinco folds</small><div class="proceso-redes" id="proceso-redes"></div></div></li>
+              <li data-paso="3"><span class="marca-paso"></span><div><b>Calibración</b><small>Media de las quince y escalado de Platt</small></div></li>
+              <li data-paso="4"><span class="marca-paso"></span><div><b>Decisión</b><small id="proceso-decision">Umbral</small></div></li>
+            </ol>
           </div>
-          <div class="tarjeta">
-            <div class="tarjeta-cabecera"><h2>Curva de realce</h2><span class="texto-tenue">brillo medio a lo largo del contraste</span></div>
-            <svg class="grafica" id="g-cinetica" viewBox="0 0 520 190" role="img" aria-label="Curva de realce"></svg>
-            <div class="leyenda" id="l-cinetica"></div>
+          <div id="resultado" hidden>
+            <div class="cifra"><span class="cifra-etiqueta">Probabilidad de pCR</span><span class="valor" id="r-prob">0,000</span></div>
+            <svg class="escala" id="g-medidor" viewBox="0 0 360 58" role="img" aria-label="Probabilidad frente al umbral"></svg>
+            <h3>Impresión</h3>
+            <p class="impresion"><span id="r-clase"></span> <span id="r-frase"></span></p>
+            <ul class="avisos" id="r-avisos"></ul>
           </div>
-        </div>
-
-        <!-- columna derecha: resultado -->
-        <div class="columna">
-          <div class="tarjeta">
-            <div class="tarjeta-cabecera"><h2>Resultado</h2><span class="texto-tenue" id="r-hora"></span></div>
-            <div class="resultado-vacio" id="resultado-vacio">El resultado aparecerá aquí</div>
-            <div class="proceso" id="proceso" hidden>
-              <ol>
-                <li data-paso="0"><span class="marca-paso"></span><div><b>Lectura</b><small>tres PNG en escala de grises, como Pillow</small></div></li>
-                <li data-paso="1"><span class="marca-paso"></span><div><b>Recorte central</b><small>128 × 128 píxeles en el centro del corte</small></div></li>
-                <li data-paso="2"><span class="marca-paso"></span><div><b>15 redes</b><small>3 semillas × 5 folds</small><div class="proceso-redes" id="proceso-redes"></div></div></li>
-                <li data-paso="3"><span class="marca-paso"></span><div><b>Calibración</b><small>media de las 15 y escalado de Platt</small></div></li>
-                <li data-paso="4"><span class="marca-paso"></span><div><b>Decisión</b><small id="proceso-decision">umbral</small></div></li>
-              </ol>
-            </div>
-            <div id="resultado" hidden>
-              <svg class="medidor" id="g-medidor" viewBox="-40 0 400 182" role="img" aria-label="Probabilidad de pCR"></svg>
-              <div class="cifra"><div class="valor" id="r-prob">0,000</div><div class="etiqueta">probabilidad de pCR (calibrada)</div></div>
-              <div class="clase"><span id="r-clase"></span></div>
-              <p class="frase" id="r-frase"></p>
-              <ul class="avisos" id="r-avisos"></ul>
-            </div>
-          </div>
-          <div class="tarjeta">
-            <div class="tarjeta-cabecera"><h2>En contexto</h2><span class="texto-tenue">1.097 pacientes de validación</span></div>
-            <svg class="grafica" id="g-contexto" viewBox="0 0 360 170" role="img" aria-label="Distribución de probabilidades en validación"></svg>
+          <section class="informe-seccion">
+            <h3>Contexto</h3>
+            <svg class="grafica" id="g-contexto" viewBox="0 0 360 170" role="img" aria-label="Probabilidades de las pacientes de validación"></svg>
             <div class="leyenda"><span><i style="--c:var(--nopcr)"></i>pCR = 0</span><span><i style="--c:var(--pcr)"></i>pCR = 1</span><span><i class="discontinua" style="--c:var(--texto-3)"></i>umbral</span></div>
-            <p class="texto-tenue" id="r-contexto" style="margin:8px 0 0"></p>
-          </div>
-          <div class="tarjeta">
-            <div class="tarjeta-cabecera"><h2>Las 15 redes</h2><span class="texto-tenue">sin calibrar · 3 semillas × 5 folds</span></div>
+            <p class="ayuda" id="r-contexto"></p>
+          </section>
+          <section class="informe-seccion">
+            <h3>Las quince redes</h3>
             <svg class="grafica" id="g-redes" viewBox="0 0 360 150" role="img" aria-label="Probabilidad de cada red"></svg>
-            <dl class="ficha" style="margin-top:12px">
+            <p class="ayuda">Probabilidad de cada red antes de calibrar. Si están juntas, las redes coinciden.</p>
+          </section>
+          <details class="informe-seccion detalles">
+            <summary>Detalles técnicos</summary>
+            <dl class="ficha">
               <dt>Umbral</dt><dd id="r-umbral">—</dd>
-              <dt>Dispositivo</dt><dd id="r-dispositivo">—</dd>
-              <dt>Tiempo de respuesta</dt><dd id="r-tiempo">—</dd>
-              <dt>Checksum (web)</dt><dd class="mono" id="r-checksum">—</dd>
-              <dt>Checksum (PyTorch)</dt><dd class="mono" id="r-checksum-pt">—</dd>
+              <dt>Dónde se calcula</dt><dd id="r-dispositivo">—</dd>
+              <dt>Tiempo de cálculo</dt><dd id="r-tiempo">—</dd>
+              <dt>Checksum web</dt><dd class="mono" id="r-checksum">—</dd>
+              <dt>Checksum PyTorch</dt><dd class="mono" id="r-checksum-pt">—</dd>
             </dl>
-          </div>
-        </div>
+          </details>
+        </aside>
       </div>
 
-      <div class="tarjeta" id="lote" hidden style="margin-top:16px">
-        <div class="tarjeta-cabecera"><h2>Varias muestras</h2><span class="texto-tenue" id="lote-resumen"></span></div>
+      <section class="panel tira" id="lote" hidden>
+        <div class="tira-cabecera"><h2>Varias muestras</h2><span class="ayuda" id="lote-resumen"></span></div>
         <div class="lote-rejilla" id="lote-rejilla"></div>
         <div class="errores" id="lote-errores" hidden></div>
-        <p class="texto-tenue" style="margin:10px 0 0">Pulsa una muestra para verla en el visor con su resultado.</p>
-      </div>
+        <p class="ayuda">Pulsa una muestra para verla en el visor con su informe.</p>
+      </section>
 
-      <div class="tarjeta" style="margin-top:16px">
-        <div class="tarjeta-cabecera"><h2>Historial de la sesión</h2>
-          <div class="botones" style="margin:0"><button class="boton boton-secundario" id="descargar" disabled>Descargar CSV</button>
+      <section class="panel tira">
+        <div class="tira-cabecera"><h2>Historial de la sesión</h2>
+          <div class="botones botones-tira"><button class="boton boton-secundario" id="descargar" disabled>Descargar CSV</button>
             <button class="boton boton-secundario" id="vaciar" disabled>Vaciar</button></div></div>
         <div class="tabla-contenedor">
-          <table><thead><tr><th>#</th><th>Hora</th><th></th><th>Muestra</th><th>Probabilidad</th><th>Clase</th><th>Tiempo</th><th>Checksum</th></tr></thead>
-            <tbody id="historial"><tr><td colspan="8" class="texto-tenue">Aún no hay predicciones en esta sesión.</td></tr></tbody></table>
+          <table><thead><tr><th>Nº</th><th>Hora</th><th></th><th>Muestra</th><th>Probabilidad</th><th>Clase</th><th>Tiempo</th><th>Checksum</th></tr></thead>
+            <tbody id="historial"><tr><td colspan="8" class="vacio">Aún no hay predicciones en esta sesión.</td></tr></tbody></table>
         </div>
-      </div>
+      </section>
     </section>
 
-    <!-- ====================================== MODELO ====================================== -->
+    <!-- ================================================= MODELO ================================================= -->
     <section class="vista" id="vista-modelo" aria-label="Modelo">
-      <div class="cifras" id="kpis"></div>
-      <div class="tarjeta" id="comparacion" style="margin-bottom:16px">
-        <div class="tarjeta-cabecera"><h2>Validación y test · ¿añade algo la imagen?</h2>
-          <div class="selector-fold" id="selector-conjunto">
-            <button data-conjunto="test" aria-pressed="true">Test · 176 pacientes</button>
-            <button data-conjunto="validacion" aria-pressed="false">Validación · 1.097</button>
-          </div></div>
+      <header class="cabecera-vista">
+        <h1>El modelo, en validación y en el test</h1>
+        <p class="resumen" id="kpis"></p>
+      </header>
+
+      <section class="bloque" id="comparacion">
+        <div class="bloque-cabecera">
+          <h2>¿Añade algo la imagen?</h2>
+          <div class="segmentos" id="selector-conjunto" role="group" aria-label="Conjunto de pacientes">
+            <button data-conjunto="test" aria-pressed="true">Test, 176 pacientes</button>
+            <button data-conjunto="validacion" aria-pressed="false">Validación, 1.097</button>
+          </div>
+        </div>
+        <p class="bloque-texto">Cuatro modelos sobre las mismas pacientes: la CNN solo con la imagen, una regresión solo con los datos
+          clínicos, la combinación de ambas y una referencia que solo sabe de qué hospital viene cada paciente.</p>
         <div class="comparacion">
           <div>
             <svg class="grafica" id="g-roc-comp" viewBox="0 0 320 310" role="img" aria-label="Curvas ROC de los cuatro modelos"></svg>
@@ -229,28 +231,30 @@
             <ul class="notas" id="t-notas"></ul>
           </div>
           <div>
-            <h3 id="t-titulo" class="subtitulo"></h3>
+            <h3 id="t-titulo"></h3>
             <div class="matriz" id="t-matriz"></div>
             <div class="metricas-umbral" id="t-metricas"></div>
           </div>
         </div>
-        <h3 class="subtitulo" style="margin-top:18px">AUC por cohorte</h3>
+        <h3 class="separado">AUC por cohorte</h3>
         <svg class="grafica" id="g-cohortes-comp" viewBox="0 0 1300 190" role="img" aria-label="AUC por cohorte"></svg>
-        <div class="leyenda"><span><i style="--c:var(--m-cnn)"></i>CNN solo imagen</span><span><i style="--c:var(--m-clin)"></i>solo datos clínicos</span><span><i style="--c:var(--m-comb)"></i>imagen + datos clínicos</span></div>
-      </div>
-      <div class="tarjeta" style="margin-bottom:18px">
-        <div class="tarjeta-cabecera"><h2>Arquitectura</h2><span class="texto-tenue" id="arq-nota"></span></div>
+        <div class="leyenda"><span><i style="--c:var(--m-cnn)"></i>CNN solo imagen</span><span><i style="--c:var(--m-clin)"></i>solo datos clínicos</span><span><i style="--c:var(--m-comb)"></i>imagen y datos clínicos</span></div>
+      </section>
+
+      <section class="bloque">
+        <div class="bloque-cabecera"><h2>Arquitectura</h2><span class="ayuda" id="arq-nota"></span></div>
         <div class="tabla-contenedor"><svg class="grafica" id="g-arquitectura" viewBox="0 0 1100 230" role="img" aria-label="Arquitectura de la red"></svg></div>
-      </div>
-      <div class="dos">
-        <div class="tarjeta">
-          <div class="tarjeta-cabecera"><h2>Umbral interactivo</h2><span class="texto-tenue">validación cruzada, por paciente</span></div>
+      </section>
+
+      <section class="bloque dos">
+        <div>
+          <div class="bloque-cabecera"><h2>Umbral</h2><span class="ayuda">validación, por paciente</span></div>
           <div class="deslizador">
-            <div class="deslizador-cabecera"><span class="texto-suave">Umbral</span><b id="u-valor">0,316</b></div>
-            <input type="range" id="u-deslizador" min="0.08" max="0.55" step="0.001" value="0.316" aria-label="Umbral">
-            <div class="atajos"><button data-umbral="eq">Equilibrado (el elegido)</button><button data-umbral="des">Desescalar · especificidad ≥ 95 %</button><button data-umbral="0.5">0,5 por defecto</button></div>
+            <div class="deslizador-cabecera"><label for="u-deslizador">Mueve el umbral</label><b id="u-valor">0,316</b></div>
+            <input type="range" id="u-deslizador" min="0.08" max="0.55" step="0.001" value="0.316">
+            <div class="atajos"><button data-umbral="eq">Equilibrado, el elegido</button><button data-umbral="des">Desescalar, especificidad ≥ 95 %</button><button data-umbral="0.5">0,5 por defecto</button></div>
           </div>
-          <div class="dos" style="margin:0;grid-template-columns:1fr 1fr">
+          <div class="dos dos-interno">
             <svg class="grafica" id="g-roc" viewBox="0 0 300 300" role="img" aria-label="Curva ROC"></svg>
             <div>
               <div class="matriz" id="u-matriz"></div>
@@ -258,96 +262,108 @@
             </div>
           </div>
         </div>
-        <div class="columna">
-          <div class="tarjeta">
-            <div class="tarjeta-cabecera"><h2>Distribución y umbral</h2></div>
-            <svg class="grafica" id="g-distribucion" viewBox="0 0 440 190" role="img" aria-label="Distribución por clase"></svg>
-            <div class="leyenda"><span><i style="--c:var(--nopcr)"></i>pCR = 0</span><span><i style="--c:var(--pcr)"></i>pCR = 1</span></div>
-          </div>
-          <div class="tarjeta">
-            <div class="tarjeta-cabecera"><h2>Calibración</h2><span class="texto-tenue">10 grupos por probabilidad</span></div>
-            <svg class="grafica" id="g-calibracion" viewBox="0 0 440 210" role="img" aria-label="Calibración"></svg>
-          </div>
+        <div>
+          <div class="bloque-cabecera"><h2>Distribución</h2></div>
+          <svg class="grafica" id="g-distribucion" viewBox="0 0 440 190" role="img" aria-label="Distribución por clase"></svg>
+          <div class="leyenda"><span><i style="--c:var(--nopcr)"></i>pCR = 0</span><span><i style="--c:var(--pcr)"></i>pCR = 1</span></div>
+          <div class="bloque-cabecera separado"><h2>Calibración</h2><span class="ayuda">diez grupos por probabilidad</span></div>
+          <svg class="grafica" id="g-calibracion" viewBox="0 0 440 210" role="img" aria-label="Calibración"></svg>
         </div>
-      </div>
-      <div class="dos">
-        <div class="tarjeta">
-          <div class="tarjeta-cabecera"><h2>Curvas de entrenamiento</h2>
-            <div class="selector-fold" id="selector-fold"></div></div>
-          <div class="dos" style="margin:0;grid-template-columns:1fr 1fr">
+      </section>
+
+      <section class="bloque dos">
+        <div>
+          <div class="bloque-cabecera"><h2>Curvas de entrenamiento</h2><div class="segmentos" id="selector-fold"></div></div>
+          <div class="dos dos-interno">
             <svg class="grafica" id="g-perdida" viewBox="0 0 340 220" role="img" aria-label="Pérdida por época"></svg>
             <svg class="grafica" id="g-auc" viewBox="0 0 340 220" role="img" aria-label="AUC por época"></svg>
           </div>
-          <div class="leyenda"><span><i class="linea" style="--c:var(--nopcr)"></i>entrenamiento (medido como validación)</span><span><i class="linea" style="--c:var(--pcr)"></i>validación</span><span><i class="discontinua" style="--c:var(--texto-3)"></i>sin mirar la imagen / azar</span><span><i class="vertical" style="--c:var(--texto)"></i>época elegida</span></div>
+          <div class="leyenda"><span><i class="linea" style="--c:var(--nopcr)"></i>entrenamiento, medido como validación</span><span><i class="linea" style="--c:var(--pcr)"></i>validación</span><span><i class="discontinua" style="--c:var(--texto-3)"></i>sin mirar la imagen o azar</span><span><i class="vertical" style="--c:var(--texto)"></i>época elegida</span></div>
         </div>
-        <div class="tarjeta">
-          <div class="tarjeta-cabecera"><h2>Entrenamiento</h2></div>
+        <div>
+          <div class="bloque-cabecera"><h2>Entrenamiento</h2></div>
           <dl class="ficha" id="ficha-entrenamiento"></dl>
-          <h3 style="margin-top:18px">¿Mira el tumor? Grad-CAM en validación</h3>
+          <div class="bloque-cabecera separado"><h2>¿Mira el tumor?</h2><span class="ayuda">Grad-CAM en validación</span></div>
           <svg class="grafica" id="g-gradcam" viewBox="0 0 640 160" role="img" aria-label="Parte del mapa Grad-CAM dentro de la caja del tumor"></svg>
-          <p class="texto-tenue" id="gradcam-nota" style="margin:6px 0 0"></p>
+          <p class="ayuda" id="gradcam-nota"></p>
         </div>
-      </div>
+      </section>
     </section>
 
-    <!-- ====================================== VERIFICACION ====================================== -->
+    <!-- ================================================= VERIFICACION ================================================= -->
     <section class="vista" id="vista-verificacion" aria-label="Verificación">
-      <div class="dos">
-        <div class="tarjeta">
-          <div class="tarjeta-cabecera"><h2>¿Da lo mismo que Python?</h2></div>
+      <header class="cabecera-vista">
+        <h1>¿Da lo mismo que Python?</h1>
+        <p class="resumen">La página pasa los cortes de ejemplo por el mismo cálculo que el programa de Python del proyecto y compara las
+          probabilidades. Si coinciden, lo que ves aquí es el modelo evaluado.</p>
+      </header>
+      <section class="bloque dos">
+        <div>
           <div class="sello" id="sello"><div class="icono">?</div><div><h3>Sin verificar</h3>
-            <div class="texto-suave">Pasa los cortes de ejemplo por esta página y compara su probabilidad con la que calculó el pipeline de Python (<code>predecir.py</code>).</div></div></div>
-          <button class="boton boton-principal" id="verificar" disabled style="width:auto">Verificar con los ejemplos</button>
-          <div class="tabla-contenedor" style="margin-top:14px"><table id="t-verificacion" hidden></table></div>
+            <p class="texto-suave">Pulsa el botón para comprobarlo con los doce cortes de ejemplo.</p></div></div>
+          <button class="boton boton-principal boton-ancho-auto" id="verificar" disabled>Verificar con los ejemplos</button>
+          <div class="tabla-contenedor"><table id="t-verificacion" hidden></table></div>
         </div>
-        <div class="tarjeta">
-          <div class="tarjeta-cabecera"><h2>El pipeline, paso a paso</h2></div>
+        <div>
+          <h2>El cálculo, paso a paso</h2>
           <ol class="pasos">
-            <li><b>Lectura.</b> Cada fase es un PNG de 256 × 256; se convierte a escala de grises de 8 bits con la misma fórmula que Pillow y se divide entre 255. Sin redimensionar ni normalizar.</li>
-            <li><b>Apilado.</b> Las tres fases forman la entrada en el orden del entrenamiento: PRE, EARLY, LATE.</li>
-            <li><b>15 redes.</b> Cada red (en modo evaluación, sin gradientes) recorta el cuadrado central de 128 × 128 y da una probabilidad.</li>
-            <li><b>Calibración.</b> Media de las 15 probabilidades y escalado de Platt con los parámetros de validación.</li>
-            <li><b>Decisión.</b> pCR = 1 si la probabilidad calibrada supera el umbral.</li>
+            <li><b>Lectura.</b> Cada fase es un PNG de 256 × 256 que se pasa a escala de grises de 8 bits con la misma fórmula que Pillow y se divide entre 255. Sin redimensionar ni normalizar.</li>
+            <li><b>Apilado.</b> Las tres fases forman la entrada en el orden del entrenamiento: PRE, EARLY y LATE.</li>
+            <li><b>Quince redes.</b> Cada red, en modo evaluación, recorta los 128 × 128 píxeles centrales y da una probabilidad.</li>
+            <li><b>Calibración.</b> Media de las quince probabilidades y escalado de Platt con los parámetros de validación.</li>
+            <li><b>Decisión.</b> pCR = 1 si la probabilidad calibrada llega al umbral.</li>
           </ol>
-          <dl class="ficha" style="margin-top:16px" id="ficha-checksum"></dl>
-          <p class="texto-tenue" style="margin-top:12px">Las imágenes se leen como datos en tu navegador: no se suben a ningún servidor y nunca se ejecuta nada de lo que se carga.</p>
+          <dl class="ficha ficha-separada" id="ficha-checksum"></dl>
+          <p class="ayuda">Las imágenes se leen como datos en tu navegador: no se suben a ningún servidor y no se ejecuta nada de lo que cargas.</p>
         </div>
-      </div>
+      </section>
     </section>
 
-    <!-- ====================================== ACERCA DE ====================================== -->
+    <!-- ================================================= ACERCA DE ================================================= -->
     <section class="vista" id="vista-acerca" aria-label="Acerca de">
-      <div class="tarjeta prosa">
-        <h3>¿Qué es la pCR?</h3>
-        <p>La <b>respuesta patológica completa</b> es que, tras la quimioterapia previa a la cirugía, el patólogo no encuentre
-          tumor invasivo en la mama ni en los ganglios. Saberlo de antemano ayudaría a ajustar el tratamiento.</p>
-        <div class="linea-tiempo">
-          <div><b>Resonancia</b><span>antes del tratamiento (lo que ve el modelo)</span></div>
-          <div><b>Quimioterapia</b><span>neoadyuvante, antes de operar</span></div>
-          <div><b>Cirugía</b><span>se extirpa el tejido</span></div>
-          <div><b>Anatomía patológica</b><span>¿queda tumor? pCR = 0 o 1</span></div>
-        </div>
-        <h3 style="margin-top:22px">Cómo funciona</h3>
-        <p>Una red convolucional propia, entrenada desde cero (sin modelos preentrenados) con las tres fases de la resonancia
-          DCE: antes del contraste (PRE), poco después (EARLY) y un rato después (LATE). El modelo final promedia 15 redes
-          (3 semillas × 5 folds de validación cruzada) y calibra la probabilidad.</p>
-        <h3 style="margin-top:22px">Limitaciones</h3>
+      <article class="prosa">
+        <h1>Sobre este trabajo</h1>
+        <h2>Qué es la pCR</h2>
+        <p>La respuesta patológica completa es que, tras la quimioterapia previa a la cirugía, el patólogo no encuentre tumor invasivo
+          en la mama ni en los ganglios. Saberlo antes ayudaría a ajustar el tratamiento.</p>
+        <ol class="linea-tiempo">
+          <li><b>Resonancia</b><span>Antes del tratamiento. Es lo que ve el modelo.</span></li>
+          <li><b>Quimioterapia</b><span>Neoadyuvante, antes de operar.</span></li>
+          <li><b>Cirugía</b><span>Se extirpa el tejido.</span></li>
+          <li><b>Anatomía patológica</b><span>¿Queda tumor? pCR = 0 o pCR = 1.</span></li>
+        </ol>
+        <h2>Cómo funciona</h2>
+        <p>Una red convolucional propia, entrenada desde cero, sin modelos preentrenados, con las tres fases de la resonancia DCE: antes
+          del contraste (PRE), poco después (EARLY) y un rato después (LATE). Mira los 128 × 128 píxeles centrales, donde suele estar el
+          tumor. El modelo final promedia quince redes, tres semillas por cada uno de los cinco folds de validación cruzada, y calibra la
+          probabilidad.</p>
+        <h2>El mapa cinético</h2>
+        <p>La pestaña Cinética colorea cada píxel que realza según lo que hace el contraste después del pico: azul si sigue subiendo
+          (persistente), ámbar si se mantiene (meseta) y rojo si baja (lavado). Es la forma de mirar la cinética que usan los programas de
+          ayuda al diagnóstico de resonancia de mama. Aquí es descriptiva: se calcula sobre los PNG del conjunto de datos, que no
+          conservan la intensidad original, y el modelo no la usa.</p>
+        <h2>Limitaciones</h2>
         <ul>
-          <li>Capacidad de discriminación <b>limitada</b>: AUC 0,573 en validación y 0,591 en el test (176 pacientes nuevas). Un modelo con
-            datos clínicos (receptores, edad, volumen) predice mejor (0,695 en el test), y la imagen apenas le añade (+0,010).</li>
-          <li>La red mira <b>sobre todo el tumor, pero no solo</b>: el 41 % de su mapa Grad-CAM cae en la caja del tumor, frente al 34 % de
-            un mapa uniforme.</li>
-          <li>Un solo <b>corte 2D</b>: se pierde la forma tridimensional del tumor.</li>
-          <li><b>Sensible al brillo</b> de la imagen: probado solo con imágenes del dataset BreastDCEDL; con imágenes de otro hospital o procesado distinto la predicción no es fiable.</li>
+          <li>Capacidad de discriminación limitada: AUC 0,573 en validación y 0,591 en el test, con 176 pacientes nuevas. Un modelo con
+            datos clínicos (receptores, edad y volumen) predice mejor, 0,695 en el test, y la imagen apenas le añade (+0,010).</li>
+          <li>La red mira sobre todo el tumor, pero no solo: el 41 % de su mapa Grad-CAM cae en la caja del tumor, frente al 34 % de un
+            mapa uniforme.</li>
+          <li>Un solo corte 2D: se pierde la forma tridimensional del tumor.</li>
+          <li>Sensible al brillo de la imagen. Solo se ha probado con imágenes del conjunto BreastDCEDL; con imágenes de otro hospital o
+            de otro procesado, la predicción no es fiable.</li>
           <li>Datos de tres cohortes con escáneres y protocolos distintos, sin armonizar.</li>
         </ul>
-        <h3 style="margin-top:22px">Uso</h3>
-        <p><b>Exclusivamente educativo.</b> Sin validez clínica. Datos: BreastDCEDL (Fridman et al.).</p>
-      </div>
+        <h2>Uso</h2>
+        <p>Exclusivamente educativo, sin validez clínica. Datos: BreastDCEDL (Fridman y colaboradores).</p>
+      </article>
     </section>
   </main>
 
-  <footer class="pie">Trabajo académico · CNN entrenada desde cero en PyTorch, ejecutada en el navegador con ONNX Runtime · sin validez clínica.</footer>
+  <footer class="pie-estado">
+    <span>Uso exclusivamente educativo, sin validez clínica.</span>
+    <span class="pastilla" id="estado"><span class="luz"></span><span id="estado-texto">Cargando…</span>
+      <span class="progreso"><i id="estado-progreso"></i></span></span>
+  </footer>
   <div class="descuadre" id="descuadre" role="tooltip"></div>
 
   <script src="datos/datos.js"></script>
