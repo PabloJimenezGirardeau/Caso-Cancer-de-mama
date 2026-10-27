@@ -1,14 +1,14 @@
-# Dependencias del proyecto (Python 3.12 o posterior).
-# PyTorch se instala según el hardware: https://pytorch.org/get-started/locally/
-# (el modelo final se entrenó con torch 2.9.1 sobre una GPU AMD con ROCm; también funciona con CUDA o en CPU).
-torch>=2.4
-numpy>=2.0
-pandas>=2.2
-scikit-learn>=1.5
-matplotlib>=3.9
-pillow>=10.4
-requests>=2.32          # descargar_datos.py
+# Dependencias del proyecto: las versiones exactas con las que se entrenó y evaluó el modelo final (Python 3.14).
+# PyTorch se instala según el hardware (https://pytorch.org/get-started/locally/): el modelo se entrenó con la versión
+# 2.9.1 para GPU AMD (ROCm 6.4, "torch==2.9.1+rocm6.4"); la misma versión para CUDA o CPU da resultados equivalentes.
+torch==2.9.1
+numpy==2.5.3
+pandas==3.0.6
+scikit-learn==1.9.1
+matplotlib==3.11.2
+pillow==12.3.0
+requests==2.34.2        # descargar_datos.py
 
 # Solo para exportar los modelos a la app web (exportar_web.py)
-onnx>=1.17
-onnxruntime>=1.19
+onnx==1.23.2
+onnxruntime==1.31.0
