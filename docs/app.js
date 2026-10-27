@@ -328,10 +328,13 @@ function pintarGris(ctx, datos) {
   }
   ctx.putImageData(img, 0, 0);
 }
+// Realce = EARLY - PRE (la operacion que, segun la guia, hace visible el tumor). El color se escala con el percentil 99:
+// si se escalara con el pixel mas brillante (a veces un vaso o el borde de la mama), casi toda la imagen saldria negra.
 function pintarRealce(ctx, pre, early) {
   const img = ctx.createImageData(LADO, LADO), r = new Float32Array(pre.length);
-  let max = 1e-3;
-  for (let i = 0; i < pre.length; i++) { r[i] = Math.max(early[i] - pre[i], 0); if (r[i] > max) max = r[i]; }
+  for (let i = 0; i < pre.length; i++) r[i] = Math.max(early[i] - pre[i], 0);
+  const positivos = Array.from(r).filter((v) => v > 0.01).sort((a, b) => a - b);
+  const max = Math.max(positivos.length ? positivos[Math.floor(0.99 * (positivos.length - 1))] : 0, 1e-3);
   for (let i = 0, j = 0; i < r.length; i++, j += 4) {
     const [a, b, c] = colorInferno(r[i] / max);
     img.data[j] = a; img.data[j + 1] = b; img.data[j + 2] = c; img.data[j + 3] = 255;
@@ -402,9 +405,12 @@ function dibujarVisor(datos, etiqueta, titulo = null) {
   if (conMapa) pintarMapa(ctx, estado.mapa);
   pintarRecorte(ctx);
   ponerAnotaciones(etiqueta, conMapa, titulo);
-  const leyenda = $("leyenda-visor");
-  if (conMapa) leyenda.innerHTML = '<span>Dónde mira la red: las zonas que más han empujado la decisión</span><span><span class="barra-mapa"></span> de menos a más</span>';
-  else leyenda.innerHTML = etiqueta === "COMPARAR" ? "<span>Arrastra sobre la imagen para mover la cortina.</span>" : "";
+  const partes = [];
+  if (etiqueta === "REALCE") partes.push('<span><span class="barra-realce"></span> Realce: cuánto más brilla cada punto en EARLY que en PRE (oscuro, nada; claro, mucho). Lo que capta el contraste, como el tumor, se ilumina.</span>');
+  if (etiqueta === "COMPARAR") partes.push("<span>Arrastra sobre la imagen para mover la cortina.</span>");
+  if (conMapa) partes.push('<span><span class="barra-mapa"></span> Dónde mira la red: las zonas que más han empujado la decisión, de menos a más.</span>');
+  else if (estado.fases && estado.tieneMapa && !estado.mapa && etiqueta !== "COMPARAR") partes.push('<span class="nota">Pulsa Predecir para ver también dónde mira la red.</span>');
+  $("leyenda-visor").innerHTML = partes.join("");
   $("cortina").hidden = etiqueta !== "COMPARAR";
   const imagen = rectanguloImagen(), cortina = $("cortina");
   cortina.style.left = `${imagen.x + estado.cortina * imagen.lado}px`;
@@ -481,13 +487,20 @@ function moverCortina(ev) {
   dibujarVisor(null, "COMPARAR");
 }
 
+// La casilla del mapa solo está activa cuando hay un mapa de la muestra que se ve, es decir, después de predecir
 function actualizarMapaDisponible() {
-  const casilla = $("ver-mapa"), etiqueta = casilla.closest(".interruptor");
-  casilla.disabled = !estado.tieneMapa;
-  etiqueta.classList.toggle("desactivado", !estado.tieneMapa);
-  etiqueta.title = estado.tieneMapa
-    ? (DEMO ? "Maqueta: el mapa es de ejemplo (el realce de la zona de interés)" : "Grad-CAM de las 15 redes hacia la clase predicha")
-    : "Disponible cuando los modelos se vuelvan a exportar con el mapa (exportar_web.py en el PC)";
+  const casilla = $("ver-mapa"), etiqueta = casilla.closest(".interruptor"), hay = !!(estado.tieneMapa && estado.mapa);
+  casilla.disabled = !hay;
+  if (!hay) casilla.checked = false;
+  etiqueta.classList.toggle("desactivado", !hay);
+  etiqueta.title = !estado.tieneMapa ? "Disponible cuando los modelos se exporten con el mapa (exportar_web.py en el PC)"
+    : !estado.mapa ? "Se activa al predecir: el mapa sale de la predicción"
+    : (DEMO ? "Maqueta: el mapa es de ejemplo (el realce de la zona de interés)" : "Grad-CAM de las 15 redes hacia la clase predicha");
+}
+// Tras predecir, el mapa se muestra solo, salvo que se haya quitado a mano después de una predicción
+function activarMapa() {
+  actualizarMapaDisponible();
+  if (estado.mapa && estado.tieneMapa && !$("ver-mapa").dataset.quitado) $("ver-mapa").checked = true;
 }
 
 // ------------------------------------------------------------------------------------------------ graficas
@@ -657,6 +670,7 @@ function prepararMuestra() {
   const ok = FASES.every((k) => estado.leidas[k]);
   estado.fases = ok ? { PRE: estado.leidas.PRE, EARLY: estado.leidas.EARLY, LATE: estado.leidas.LATE } : null;
   estado.mapa = null;
+  actualizarMapaDisponible();
   if (estado.animando) pararSecuencia();
   $("visor-vacio").hidden = ok; $("play").disabled = !ok;
   resultadoInicial();
@@ -754,7 +768,7 @@ async function predecir() {
     estado.mapa = r.mapa;
     mostrarResultado(r, fases);
     anadirHistorial(r, fases);
-    if (estado.mapa && estado.tieneMapa && !$("ver-mapa").dataset.tocada) $("ver-mapa").checked = true;
+    activarMapa();
     if (estado.fases) dibujarVisor(null, estado.faseVisor);
   } catch (e) {
     console.error(e); procesoReposo(); $("resultado-vacio").hidden = false;
@@ -934,7 +948,7 @@ function abrirDelLote(i, desplazar) {
   cargarFasesDirectas(item.fases, item.nombres, [{ t: "PNG", ok: true }, { t: "256 × 256", ok: true }]);
   estado.loteActivo = i;
   estado.mapa = item.r.mapa;
-  if (estado.mapa && estado.tieneMapa && !$("ver-mapa").dataset.tocada) $("ver-mapa").checked = true;
+  activarMapa();
   mostrarResultado(item.r, item.fases);
   dibujarVisor(null, estado.faseVisor);
   if (desplazar) document.querySelector(".puesto").scrollIntoView({ behavior: SIN_MOVIMIENTO ? "auto" : "smooth", block: "start" });
@@ -1430,7 +1444,10 @@ function iniciar() {
   $("par-comparar").addEventListener("change", () => { estado.par = $("par-comparar").value.split("|"); if (estado.fases) dibujarVisor(null, "COMPARAR"); });
   $("play").addEventListener("click", animarSecuencia);
   $("ver-recorte").addEventListener("change", () => { if (estado.fases) mostrarFase(estado.faseVisor); });
-  $("ver-mapa").addEventListener("change", () => { $("ver-mapa").dataset.tocada = "1"; if (estado.fases) dibujarVisor(null, estado.faseVisor); });
+  $("ver-mapa").addEventListener("change", () => {
+    if ($("ver-mapa").checked) delete $("ver-mapa").dataset.quitado; else $("ver-mapa").dataset.quitado = "1";
+    if (estado.fases) dibujarVisor(null, estado.faseVisor);
+  });
   $("ver-lupa").addEventListener("change", () => { if (!$("ver-lupa").checked) $("lupa").hidden = true; });
   const marcoVisor = $("marco-visor");
   marcoVisor.addEventListener("pointerdown", (ev) => {
