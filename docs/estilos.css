@@ -185,7 +185,7 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .ejemplo:hover, .ejemplo:focus-visible { border-color: var(--anotacion-texto); }
 
 /* visor */
-.panel-visor { padding-top: 16px; }
+.panel-visor { padding-top: 16px; display: flex; flex-direction: column; }
 .herramientas { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .pestanas, .segmentos { display: flex; border: 1px solid var(--linea); border-radius: var(--radio); overflow: hidden; scrollbar-width: none; }
 .pestanas button, .segmentos button {
@@ -208,8 +208,10 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .interruptor input { accent-color: var(--anotacion); width: 15px; height: 15px; margin: 0; }
 .interruptor.desactivado { opacity: .45; cursor: not-allowed; }
 
-.visor { position: relative; width: min(100%, calc(100vh - 230px)); min-width: min(100%, 300px); aspect-ratio: 1; margin: 0 auto; background: #000; overflow: hidden; }
-.visor canvas { width: 100%; height: 100%; display: block; }
+/* la ventana del visor llena el alto de la fila; la imagen, cuadrada, se dibuja lo mas grande posible y centrada, y las
+   anotaciones quedan en las esquinas de la ventana */
+.visor { position: relative; flex: 1 1 auto; width: 100%; min-height: 440px; background: #000; overflow: hidden; }
+.visor > canvas:not(.lupa) { position: absolute; inset: 0; width: 100%; height: 100%; display: block; object-fit: contain; }
 .visor.comparando { cursor: ew-resize; touch-action: none; }
 .visor-vacio { position: absolute; inset: 0; display: grid; place-items: center; padding: 40px; color: #8892a0; text-align: center; font-size: 14px; }
 .ov {
@@ -222,7 +224,7 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .ov-tr { top: 10px; right: 12px; text-align: right; }
 .ov-bl { bottom: 10px; left: 12px; }
 .ov-br { bottom: 10px; right: 12px; text-align: right; }
-.cortina { position: absolute; z-index: 3; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; pointer-events: none; box-shadow: 0 0 10px rgba(0, 0, 0, .7); }
+.cortina { position: absolute; z-index: 3; top: 0; height: 100%; width: 2px; margin-left: -1px; background: #fff; pointer-events: none; box-shadow: 0 0 10px rgba(0, 0, 0, .7); }
 .cortina span { position: absolute; top: 50%; left: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: rgba(0, 0, 0, .75); border: 2px solid #fff; }
 .cortina span::before, .cortina span::after { content: ""; position: absolute; top: 50%; margin-top: -4px; border: 4px solid transparent; }
 .cortina span::before { left: 3px; border-right-color: #fff; }
@@ -422,7 +424,7 @@ tbody tr:hover td { background: var(--acento-suave); }
 .portada-botones .boton { flex: 0 0 auto; padding: 12px 22px; font-size: 16px; }
 .portada-nota { margin: 24px 0 0; font-size: 12px; color: var(--texto-3); }
 .portada-visual { margin: 0; display: grid; justify-items: center; gap: 14px; }
-.visor-portada { width: min(100%, 460px); min-width: 0; margin: 0; }
+.visor-portada { flex: none; width: min(100%, 460px); min-height: 0; aspect-ratio: 1; margin: 0; }
 .portada-curva { max-width: 460px; }
 .portada-curva-titulo { width: min(100%, 460px); margin: 6px 0 -10px; font-size: 14px; color: var(--texto-2); }
 .portada-visual figcaption { max-width: 460px; font-size: 14px; color: var(--texto-3); text-align: center; }
@@ -450,7 +452,7 @@ tbody tr:hover td { background: var(--acento-suave); }
   .datos-tecnicos > .separado-corto { margin-top: 18px; }
   .fila-analisis { grid-template-columns: minmax(0, 1fr); }
   .fila-analisis > .panel + .panel { border-left: 0; border-top: 1px solid var(--linea); }
-  .visor { width: 100%; min-width: 0; }
+  .visor { flex: none; aspect-ratio: 1; min-height: 0; }
   .boton-herramienta { margin-left: 0; }
   .ov { font-size: 10px; }
   .visor:not(.visor-portada) .ov-tr { display: none; }

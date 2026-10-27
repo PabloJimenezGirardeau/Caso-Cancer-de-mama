@@ -388,7 +388,9 @@ function dibujarVisor(datos, etiqueta, titulo = null) {
   if (conMapa) leyenda.innerHTML = '<span>Dónde mira la red: las zonas que más han empujado la decisión</span><span><span class="barra-mapa"></span> de menos a más</span>';
   else leyenda.innerHTML = etiqueta === "COMPARAR" ? "<span>Arrastra sobre la imagen para mover la cortina.</span>" : "";
   $("cortina").hidden = etiqueta !== "COMPARAR";
-  $("cortina").style.left = `${100 * estado.cortina}%`;
+  const imagen = rectanguloImagen(), cortina = $("cortina");
+  cortina.style.left = `${imagen.x + estado.cortina * imagen.lado}px`;
+  cortina.style.top = `${imagen.y}px`; cortina.style.height = `${imagen.lado}px`;
   if (estado.puntero) dibujarLupa(estado.puntero);
 }
 function mostrarFase(fase) {
@@ -422,27 +424,35 @@ function miniatura(destino, datos) {
   return c;
 }
 
+// La imagen se dibuja cuadrada y centrada dentro de la ventana del visor, que puede ser mas alta o mas ancha que ella:
+// su posicion (dentro de la ventana) y su lado en pantalla
+function rectanguloImagen() {
+  const caja = $("visor").getBoundingClientRect(), lado = Math.min(caja.width, caja.height);
+  return { caja, x: (caja.width - lado) / 2, y: (caja.height - lado) / 2, lado };
+}
+
 // ---- lupa: amplia x3 lo que se ve en el visor ----
 function dibujarLupa(ev) {
   const lupa = $("lupa"), visor = $("visor");
   if (!$("ver-lupa").checked || !estado.fases || !ev) { lupa.hidden = true; return; }
-  const r = visor.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
-  if (x < 0 || y < 0 || x > r.width || y > r.height) { lupa.hidden = true; return; }
+  const { caja, x: ox, y: oy, lado: ladoImagen } = rectanguloImagen();
+  const x = ev.clientX - caja.left, y = ev.clientY - caja.top, ix = x - ox, iy = y - oy;
+  if (ix < 0 || iy < 0 || ix > ladoImagen || iy > ladoImagen) { lupa.hidden = true; return; }
   lupa.hidden = false;
   const tam = lupa.offsetWidth || 150, zoom = 3, dpr = window.devicePixelRatio || 1;
   lupa.style.left = `${x - tam / 2}px`; lupa.style.top = `${y - tam / 2}px`;
   if (lupa.width !== Math.round(tam * dpr)) { lupa.width = lupa.height = Math.round(tam * dpr); }
-  const k = LADO / r.width, lado = (tam / zoom) * k;
+  const k = LADO / ladoImagen, lado = (tam / zoom) * k;
   const ctx = lupa.getContext("2d");
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, lupa.width, lupa.height);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(visor, x * k - lado / 2, y * k - lado / 2, lado, lado, 0, 0, lupa.width, lupa.height);
+  ctx.drawImage(visor, ix * k - lado / 2, iy * k - lado / 2, lado, lado, 0, 0, lupa.width, lupa.height);
 }
 
 // ---- comparador: la cortina se arrastra con el raton o el dedo ----
 function moverCortina(ev) {
-  const r = $("visor").getBoundingClientRect();
-  estado.cortina = limitar((ev.clientX - r.left) / r.width, 0, 1);
+  const { caja, x, lado } = rectanguloImagen();
+  estado.cortina = limitar((ev.clientX - caja.left - x) / lado, 0, 1);
   dibujarVisor(null, "COMPARAR");
 }
 
@@ -1386,6 +1396,7 @@ function iniciar() {
   });
   ["pointerup", "pointercancel"].forEach((t) => marcoVisor.addEventListener(t, () => { estado.arrastrando = false; }));
   marcoVisor.addEventListener("pointerleave", () => { estado.puntero = null; $("lupa").hidden = true; });
+  window.addEventListener("resize", () => { if (estado.fases && estado.faseVisor === "COMPARAR") dibujarVisor(null, "COMPARAR"); });
   // historial y verificacion
   $("descargar").addEventListener("click", descargarHistorial);
   $("vaciar").addEventListener("click", () => { estado.historial = []; $("historial").innerHTML = '<tr><td colspan="8" class="vacio">Aún no hay predicciones en esta sesión.</td></tr>'; $("descargar").disabled = true; $("vaciar").disabled = true; });
