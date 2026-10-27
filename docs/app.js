@@ -146,6 +146,24 @@ function desviacion(arr) {
   return Math.sqrt(s_ / arr.length);
 }
 
+// Control de calidad para el informe: las comprobaciones de predecir.avisos, también cuando pasan
+function controlCalidad(f) {
+  const tejido = new Uint8Array(f.PRE.length);
+  let n = 0;
+  for (let i = 0; i < f.PRE.length; i++) if (f.PRE[i] > 0.1) { tejido[i] = 1; n++; }
+  const lista = [{ ok: true, texto: "Tres PNG de 256 × 256 en escala de grises, sin valores no finitos" }];
+  if (n < 100) lista.push({ ok: false, texto: "La imagen PRE es casi toda negra: ¿es un corte de resonancia de mama?" });
+  else if (mediaDe(f.EARLY, tejido) <= mediaDe(f.PRE, tejido)) {
+    lista.push({ ok: false, texto: "En el tejido, EARLY no es más brillante que PRE: ¿están las fases en el orden correcto?" });
+  } else lista.push({ ok: true, texto: "En el tejido, EARLY es más brillante que PRE, como en todas las pacientes del conjunto" });
+  const uniformes = FASES.filter((k) => desviacion(f[k]) < 1e-3), blancas = FASES.filter((k) => mediaDe(f[k]) > 0.8);
+  lista.push(uniformes.length ? { ok: false, texto: `La fase ${uniformes.join(" y ")} es una imagen prácticamente uniforme` }
+                              : { ok: true, texto: "Ninguna fase es una imagen uniforme" });
+  lista.push(blancas.length ? { ok: false, texto: `La fase ${blancas.join(" y ")} es casi toda blanca: la predicción no es fiable` }
+                            : { ok: true, texto: "Ninguna fase está saturada en blanco" });
+  return lista;
+}
+
 // Los mismos avisos que predecir.avisos
 function avisos(f) {
   const lista = [], tejido = new Uint8Array(f.PRE.length);
@@ -400,20 +418,27 @@ function mostrarFase(fase) {
   $("marco-visor").classList.toggle("comparando", fase === "COMPARAR");
   if (estado.fases) dibujarVisor(null, fase);
 }
+function pararSecuencia() {
+  if (estado.animando) cancelAnimationFrame(estado.animando);
+  estado.animando = null;
+  $("play").classList.remove("activo");
+}
 function animarSecuencia() {
   if (!estado.fases) return;
-  if (estado.animando) { cancelAnimationFrame(estado.animando); estado.animando = null; mostrarFase(estado.faseVisor); return; }
+  if (estado.animando) { pararSecuencia(); mostrarFase(estado.faseVisor); return; }
   const tramos = [["PRE", "EARLY"], ["EARLY", "LATE"]], dur = 1300, pausa = 450, inicio = performance.now();
   const total = 2 * (tramos.length * (dur + pausa));
-  const paso = (ahora) => {
-    const t = (ahora - inicio) % (tramos.length * (dur + pausa));
+  $("play").classList.add("activo");
+  const paso = () => {
+    const ahora = performance.now();
+    const t = Math.max(0, ahora - inicio) % (tramos.length * (dur + pausa));
     const k = Math.floor(t / (dur + pausa)), dentro = t - k * (dur + pausa);
     const [a, b] = tramos[k];
     const u = Math.min(dentro / dur, 1), suave = u * u * (3 - 2 * u);
     const titulo = suave < 0.02 ? a : suave > 0.98 ? b : `${a} → ${b}`;
     dibujarVisor(mezcla(estado.fases[a], estado.fases[b], suave), suave < 0.5 ? a : b, titulo);
     if (ahora - inicio < total) estado.animando = requestAnimationFrame(paso);
-    else { estado.animando = null; mostrarFase("LATE"); }
+    else { estado.animando = null; $("play").classList.remove("activo"); mostrarFase("LATE"); }
   };
   estado.animando = requestAnimationFrame(paso);
 }
@@ -503,18 +528,28 @@ function histograma(svg, ancho, alto, umbral, marca) {
   }
 }
 
-// Escala de probabilidad, como un rango de referencia en un informe: azul hasta el umbral, naranja despues
+// Escala de probabilidad, como un rango de referencia en un informe: barra de 0 a 1 (azul hasta el umbral, naranja
+// después) y, encima, cómo se reparten las 1.097 pacientes de validación; la marca blanca es la muestra
 function medidor(p, u) {
   const svg = $("g-medidor"); vaciar(svg);
-  const x0 = 8, x1 = 352, yb = 30, x = escala(0, 1, x0, x1);
+  const x0 = 8, x1 = 352, yb = 56, x = escala(0, 1, x0, x1), w = 0.02, nb = Math.round(1 / w);
+  const bins = Array.from({ length: nb }, () => [0, 0]);
+  for (const [q, y] of D.validacion.pacientes) bins[Math.min(nb - 1, Math.floor(q / w))][y]++;
+  const max = Math.max(...bins.map(([a, b]) => a + b)), h = escala(0, max, 0, 34);
+  bins.forEach(([n0, n1], k) => {
+    const xa = x(k * w) + 0.5, wa = x(w) - x(0) - 1;
+    if (n0) s("rect", { x: xa, width: wa, y: yb - 8 - h(n0), height: h(n0), style: "fill:var(--nopcr);opacity:.55" }, svg);
+    if (n1) s("rect", { x: xa, width: wa, y: yb - 8 - h(n0 + n1), height: h(n1), style: "fill:var(--pcr);opacity:.55" }, svg);
+  });
   s("line", { x1: x0, x2: x(u), y1: yb, y2: yb, style: "stroke:var(--nopcr);stroke-width:6;stroke-linecap:round" }, svg);
   s("line", { x1: x(u), x2: x1, y1: yb, y2: yb, style: "stroke:var(--pcr);stroke-width:6;stroke-linecap:round" }, svg);
-  s("line", { x1: x(u), x2: x(u), y1: yb - 10, y2: yb + 10, style: "stroke:var(--texto);stroke-width:1.5" }, svg);
-  s("text", { x: x0, y: yb + 25, texto: "0" }, svg);
-  s("text", { x: x1, y: yb + 25, "text-anchor": "end", texto: "1" }, svg);
-  s("text", { x: x(u), y: yb + 25, "text-anchor": "middle", texto: `umbral ${coma(u, 3)}` }, svg);
+  s("line", { x1: x(u), x2: x(u), y1: yb - 46, y2: yb + 8, style: "stroke:var(--texto-2);stroke-width:1.2;stroke-dasharray:3 3" }, svg);
+  s("text", { x: x0, y: yb + 24, texto: "0" }, svg);
+  s("text", { x: x1, y: yb + 24, "text-anchor": "end", texto: "1" }, svg);
+  s("text", { x: x(u), y: yb + 24, "text-anchor": "middle", texto: `umbral ${coma(u, 3)}` }, svg);
   const g = s("g", { transform: `translate(${x0} 0)` }, svg);
-  s("path", { d: `M0 ${yb - 5} l-7 -12 h14 z`, style: "fill:var(--texto)" }, g);
+  s("line", { x1: 0, x2: 0, y1: yb - 48, y2: yb + 9, style: "stroke:var(--texto);stroke-width:2" }, g);
+  s("circle", { cx: 0, cy: yb - 48, r: 4, style: "fill:var(--texto)" }, g);
   animar(900, (k) => g.setAttribute("transform", `translate(${x(p * k)} 0)`));
 }
 
@@ -622,8 +657,10 @@ function prepararMuestra() {
   const ok = FASES.every((k) => estado.leidas[k]);
   estado.fases = ok ? { PRE: estado.leidas.PRE, EARLY: estado.leidas.EARLY, LATE: estado.leidas.LATE } : null;
   estado.mapa = null;
-  if (estado.animando) { cancelAnimationFrame(estado.animando); estado.animando = null; }
+  if (estado.animando) pararSecuencia();
   $("visor-vacio").hidden = ok; $("play").disabled = !ok;
+  resultadoInicial();
+  $("r-muestra").textContent = ok ? `${nombreMuestra()}: lista para predecir` : "Sin muestra cargada";
   if (ok) { mostrarFase(estado.faseVisor); graficaCinetica(estado.fases); }
   else {
     $("visor").getContext("2d").clearRect(0, 0, LADO, LADO);
@@ -715,7 +752,7 @@ async function predecir() {
     await procesoPaso(4, lento ? 320 : 0);
     $("proceso").hidden = true;
     estado.mapa = r.mapa;
-    mostrarResultado(r, avisos(fases));
+    mostrarResultado(r, fases);
     anadirHistorial(r, fases);
     if (estado.mapa && estado.tieneMapa && !$("ver-mapa").dataset.tocada) $("ver-mapa").checked = true;
     if (estado.fases) dibujarVisor(null, estado.faseVisor);
@@ -743,20 +780,30 @@ function resultadoInicial() {
   $("r-redes").textContent = "";
 }
 
-function mostrarResultado(r, listaAvisos) {
-  const u = D.modelo.umbral;
+function mostrarResultado(r, fases) {
+  const u = D.modelo.umbral, pac = D.validacion.pacientes, pcr = r.clase === "pCR";
   $("resultado-vacio").hidden = true; $("proceso").hidden = true; $("resultado").hidden = false;
-  medidor(r.probabilidad, u);
-  contarHasta($("r-prob"), r.probabilidad);
-  const pcr = r.clase === "pCR";
-  $("r-clase").className = pcr ? "pcr" : "nopcr";
-  $("r-clase").textContent = pcr ? "pCR = 1, respuesta completa probable." : "pCR = 0, respuesta completa poco probable.";
-  $("r-frase").textContent = `La probabilidad calibrada (${coma(r.probabilidad, 3)}) ${pcr ? "llega al" : "queda por debajo del"} umbral (${coma(u, 3)}).`;
-  $("r-avisos").innerHTML = listaAvisos.map((a) => `<li>${escapar(a)}</li>`).join("");
+  $("r-muestra").textContent = `${nombreMuestra()}, un corte`;
   $("r-hora").textContent = new Date().toLocaleTimeString("es-ES");
-  histograma($("g-contexto"), 360, 170, u, r.probabilidad);
-  const pac = D.validacion.pacientes, cerca = pac.filter(([p]) => Math.abs(p - r.probabilidad) <= 0.02);
+  $("r-dictamen").className = `dictamen ${pcr ? "pcr" : "nopcr"}`;
+  contarHasta($("r-prob"), r.probabilidad);
+  $("r-clase").textContent = pcr ? "pCR = 1" : "pCR = 0";
+  $("r-clase-texto").textContent = pcr ? "respuesta completa probable" : "respuesta completa poco probable";
+  $("r-frase").textContent = `La probabilidad calibrada ${pcr ? "llega al" : "queda por debajo del"} umbral de ${coma(u, 3)}.`;
+  medidor(r.probabilidad, u);
   const menores = pac.filter(([p]) => p < r.probabilidad).length;
+  $("r-percentil").textContent = `Arriba, las 1.097 pacientes de validación. Esta muestra supera la probabilidad del ${pct(menores / pac.length)} de ellas.`;
+  const cerca = pac.filter(([p]) => Math.abs(p - r.probabilidad) <= 0.02);
+  const hallazgos = [
+    `Probabilidad calibrada de <b>${coma(r.probabilidad, 3)}</b>, ${pcr ? "por encima del" : "por debajo del"} umbral de <b>${coma(u, 3)}</b>.`,
+    `Las quince redes dan entre <b>${coma(Math.min(...r.probs), 3)}</b> y <b>${coma(Math.max(...r.probs), 3)}</b> antes de calibrar.`,
+    cerca.length >= 10
+      ? `De las ${cerca.length} pacientes de validación con una probabilidad parecida (±0,02), el <b>${pct(cerca.filter(([, y]) => y).length / cerca.length)}</b> tuvo pCR, frente al ${pct(PREVALENCIA)} del total.`
+      : "Hay pocas pacientes de validación con una probabilidad tan extrema como esta.",
+  ];
+  $("r-hallazgos").innerHTML = hallazgos.map((h) => `<li>${h}</li>`).join("");
+  $("r-calidad").innerHTML = controlCalidad(fases).map((c) => `<li class="${c.ok ? "" : "mal"}">${escapar(c.texto)}</li>`).join("");
+  histograma($("g-contexto"), 360, 170, u, r.probabilidad);
   $("r-contexto").innerHTML = (cerca.length >= 10
     ? `De las ${cerca.length} pacientes de validación con una probabilidad parecida (±0,02), el ${pct(cerca.filter(([, y]) => y).length / cerca.length)} tuvo pCR; en total fue el ${pct(PREVALENCIA)}. `
     : "Hay pocas pacientes de validación con una probabilidad tan extrema. ") + `Su probabilidad supera a la del ${pct(menores / pac.length)} de ellas.`;
@@ -888,7 +935,7 @@ function abrirDelLote(i, desplazar) {
   estado.loteActivo = i;
   estado.mapa = item.r.mapa;
   if (estado.mapa && estado.tieneMapa && !$("ver-mapa").dataset.tocada) $("ver-mapa").checked = true;
-  mostrarResultado(item.r, item.avisos);
+  mostrarResultado(item.r, item.fases);
   dibujarVisor(null, estado.faseVisor);
   if (desplazar) document.querySelector(".puesto").scrollIntoView({ behavior: SIN_MOVIMIENTO ? "auto" : "smooth", block: "start" });
 }
@@ -1379,7 +1426,7 @@ function iniciar() {
   $("predecir").addEventListener("click", predecir);
   $("limpiar").addEventListener("click", limpiar);
   // visor
-  document.querySelectorAll("[data-fase-visor]").forEach((b) => b.addEventListener("click", () => { if (estado.animando) { cancelAnimationFrame(estado.animando); estado.animando = null; } mostrarFase(b.dataset.faseVisor); }));
+  document.querySelectorAll("[data-fase-visor]").forEach((b) => b.addEventListener("click", () => { if (estado.animando) pararSecuencia(); mostrarFase(b.dataset.faseVisor); }));
   $("par-comparar").addEventListener("change", () => { estado.par = $("par-comparar").value.split("|"); if (estado.fases) dibujarVisor(null, "COMPARAR"); });
   $("play").addEventListener("click", animarSecuencia);
   $("ver-recorte").addEventListener("change", () => { if (estado.fases) mostrarFase(estado.faseVisor); });

@@ -139,9 +139,12 @@
           <div class="leyenda-visor" id="leyenda-visor"></div>
         </div>
 
-        <!-- informe -->
+        <!-- informe: estructurado como un informe radiológico -->
         <aside class="panel panel-informe">
-          <div class="informe-cabecera"><h2>Informe</h2><span class="ayuda" id="r-hora"></span></div>
+          <header class="informe-cabecera">
+            <div><h2>Informe</h2><p class="informe-muestra" id="r-muestra">Sin muestra cargada</p></div>
+            <span class="ayuda" id="r-hora"></span>
+          </header>
           <p class="resultado-vacio" id="resultado-vacio">Carga las tres fases de un corte, o elige un ejemplo, y pulsa Predecir.</p>
           <div class="proceso" id="proceso">
             <ol>
@@ -153,15 +156,27 @@
             </ol>
           </div>
           <div id="resultado" hidden>
-            <div class="resultado-principal">
-            <div class="cifra"><span class="cifra-etiqueta">Probabilidad de pCR</span><span class="valor" id="r-prob">0,000</span></div>
-            <svg class="escala" id="g-medidor" viewBox="0 0 360 58" role="img" aria-label="Probabilidad frente al umbral"></svg>
-            <h3>Impresión</h3>
-            <p class="impresion"><span id="r-clase"></span> <span id="r-frase"></span></p>
-            <ul class="avisos" id="r-avisos"></ul>
-            </div>
-            <div class="datos-tecnicos">
-            <h3 class="separado-corto">Datos técnicos</h3>
+            <section class="dictamen" id="r-dictamen">
+              <span class="dictamen-etiqueta">Probabilidad de pCR</span>
+              <div class="dictamen-fila">
+                <span class="valor" id="r-prob">0,000</span>
+                <span class="dictamen-clase"><b id="r-clase"></b><small id="r-clase-texto"></small></span>
+              </div>
+              <p class="dictamen-frase" id="r-frase"></p>
+            </section>
+            <svg class="escala" id="g-medidor" viewBox="0 0 360 86" role="img" aria-label="Probabilidad frente al umbral y a las pacientes de validación"></svg>
+            <p class="escala-nota" id="r-percentil"></p>
+            <section class="informe-bloque">
+              <h3>Hallazgos</h3>
+              <ul class="hallazgos" id="r-hallazgos"></ul>
+            </section>
+            <section class="informe-bloque">
+              <h3>Control de calidad</h3>
+              <ul class="calidad" id="r-calidad"></ul>
+            </section>
+          </div>
+          <section class="informe-bloque datos-tecnicos">
+            <h3>Datos técnicos</h3>
             <dl class="ficha ficha-informe">
               <dt>Umbral</dt><dd id="r-umbral">—</dd>
               <dt>Checksum del modelo</dt><dd class="mono" id="r-checksum">—</dd>
@@ -171,9 +186,8 @@
               <dt>Entrenamiento</dt><dd id="r-entrenamiento">—</dd>
               <dt>Métricas internas</dt><dd id="r-metricas">—</dd>
             </dl>
-            <p class="nota-informe">Resultado de un trabajo académico, para uso educativo: no tiene validez clínica.</p>
-            </div>
-          </div>
+          </section>
+          <p class="nota-informe">Resultado de un trabajo académico, para uso educativo: no tiene validez clínica.</p>
         </aside>
       </div>
 
