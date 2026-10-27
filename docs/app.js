@@ -599,7 +599,7 @@ function actualizarBotonPredecir() {
 function ponerChips(fase, comprobaciones) {
   const caja = document.querySelector(`[data-chips="${fase}"]`);
   if (comprobaciones.length && comprobaciones.every((c) => c.ok)) {
-    const visibles = comprobaciones.filter((c) => c.t !== "valores finitos").map((c) => c.t);
+    const visibles = comprobaciones.filter((c) => c.t !== "valores finitos" && !c.t.endsWith(" MB")).map((c) => c.t);   // el resto, en el título
     caja.innerHTML = `<span class="chip bien" title="${escapar(comprobaciones.map((c) => c.t).join(", "))}"><i>✓</i>${escapar(visibles.join(", "))}</span>`;
     return;
   }

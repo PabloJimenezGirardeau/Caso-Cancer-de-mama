@@ -470,6 +470,17 @@ tbody tr:hover td { background: var(--acento-suave); }
   .pie-estado { padding: 0 12px; }
   .lote-rejilla { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+/* ---- escritorio: la fila de trabajo cabe en la pantalla; el visor siempre se ve entero y, si la muestra o el informe
+   tienen más contenido, se desplazan dentro de su columna ---- */
+@media (min-width: 861px) {
+  .puesto { grid-template-rows: max(540px, calc(100vh - 120px)); }
+  .puesto > .panel { min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--linea-fuerte) transparent; }
+  .visor { min-height: 0; }
+}
+@media (min-width: 861px) and (max-width: 1280px) {
+  .puesto { grid-template-rows: max(540px, calc(100vh - 120px)) auto; }
+  .puesto > .panel-informe { overflow: visible; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
