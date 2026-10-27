@@ -1,6 +1,6 @@
 // Generado por exportar_web.py: no editar a mano.
 window.WEB = {
- "generado": "2026-10-27T03:43:20",
+ "generado": "2026-10-27T06:36:13",
  "modelos": [
   "bn_normal_c128_lr3e-05_fold0.onnx",
   "bn_normal_c128_lr3e-05_fold1.onnx",
@@ -20,7 +20,9 @@ window.WEB = {
  ],
  "opset_onnx": 17,
  "onnx_frente_a_pytorch": 2.2649765014648438e-06,
- "checksum_web": "3c9994b1e26352eb",
+ "mapa": "salida 'mapa' [N, 16, 16]: Grad-CAM con signo del ultimo bloque (x 256) sobre el cuadrado central; positivo = evidencia de pCR = 1",
+ "mapa_frente_a_gradcam": 1.6894290481613141e-07,
+ "checksum_web": "0e339bf9eb817f7e",
  "checksum_web_como": "SHA-256 de los 15 .onnx (en este orden) y de 'umbral|a|b'; primeros 16 caracteres",
  "checksum_pytorch": "19c0ffd39e140ce7",
  "nota_ejemplos": "Pacientes de ENTRENAMIENTO (nunca del test). La mayoria de los 15 modelos las vieron al entrenar, asi que sus predicciones no miden el rendimiento: sirven para comprobar que la pagina reproduce a Python.",
