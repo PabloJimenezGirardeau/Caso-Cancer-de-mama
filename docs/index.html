@@ -162,6 +162,16 @@
             <h3>Impresión</h3>
             <p class="impresion"><span id="r-clase"></span> <span id="r-frase"></span></p>
             <ul class="avisos" id="r-avisos"></ul>
+            <h3 class="separado-corto">Datos técnicos</h3>
+            <dl class="ficha ficha-informe">
+              <dt>Umbral</dt><dd id="r-umbral">—</dd>
+              <dt>Checksum del modelo</dt><dd class="mono" id="r-checksum">—</dd>
+              <dt>Checksum PyTorch</dt><dd class="mono" id="r-checksum-pt">—</dd>
+              <dt>Dispositivo</dt><dd id="r-dispositivo">—</dd>
+              <dt>Tiempo de respuesta</dt><dd id="r-tiempo">—</dd>
+              <dt>Entrenamiento</dt><dd id="r-entrenamiento">—</dd>
+              <dt>Métricas internas</dt><dd id="r-metricas">—</dd>
+            </dl>
             <p class="nota-informe">Resultado de un trabajo académico, para uso educativo: no tiene validez clínica.</p>
           </div>
           <section class="informe-seccion">
@@ -175,16 +185,6 @@
             <svg class="grafica" id="g-redes" viewBox="0 0 360 150" role="img" aria-label="Probabilidad de cada red"></svg>
             <p class="ayuda">Probabilidad de cada red antes de calibrar. Si están juntas, las redes coinciden.</p>
           </section>
-          <details class="informe-seccion detalles">
-            <summary>Detalles técnicos</summary>
-            <dl class="ficha">
-              <dt>Umbral</dt><dd id="r-umbral">—</dd>
-              <dt>Dónde se calcula</dt><dd id="r-dispositivo">—</dd>
-              <dt>Tiempo de cálculo</dt><dd id="r-tiempo">—</dd>
-              <dt>Checksum web</dt><dd class="mono" id="r-checksum">—</dd>
-              <dt>Checksum PyTorch</dt><dd class="mono" id="r-checksum-pt">—</dd>
-            </dl>
-          </details>
         </aside>
       </div>
 

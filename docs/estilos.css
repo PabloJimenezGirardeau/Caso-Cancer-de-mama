@@ -251,8 +251,9 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .avisos li { padding: 8px 10px; border-left: 3px solid var(--aviso); background: color-mix(in srgb, var(--aviso) 8%, transparent); color: var(--aviso); font-size: 14px; }
 .nota-informe { margin: 14px 0 0; font-size: 12px; color: var(--texto-3); }
 .informe-seccion { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--linea); }
-.detalles summary { cursor: pointer; font-weight: 700; color: var(--texto-2); }
-.detalles[open] summary { margin-bottom: 10px; }
+.separado-corto { margin-top: 18px; }
+.ficha.ficha-informe { grid-template-columns: 116px minmax(0, 1fr); gap: 6px 12px; font-size: 12px; line-height: 1.45; }
+.ficha.ficha-informe dd { text-align: left; }
 .ficha { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 16px; }
 .ficha dt { color: var(--texto-3); }
 .ficha dd { margin: 0; text-align: right; color: var(--texto-2); overflow-wrap: anywhere; }
@@ -424,7 +425,7 @@ tbody tr:hover td { background: var(--acento-suave); }
   .puesto { grid-template-columns: 280px minmax(0, 1fr); }
   .panel-informe { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 32px; align-items: start; border-top: 1px solid var(--linea); }
   .puesto > .panel-informe { border-left: 0; }
-  .panel-informe > .informe-cabecera, .panel-informe > .detalles { grid-column: 1 / -1; }
+  .panel-informe > .informe-cabecera { grid-column: 1 / -1; }
   .panel-informe > #resultado-vacio, .panel-informe > #proceso, .panel-informe > #resultado { grid-column: 1; grid-row: 2; }
   .panel-informe > section:nth-of-type(1) { grid-column: 2; grid-row: 2; }
   .panel-informe > section:nth-of-type(2) { grid-column: 3; grid-row: 2; }

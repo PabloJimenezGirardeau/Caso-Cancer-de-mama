@@ -1387,7 +1387,15 @@ function iniciar() {
   $("abrir-portada").addEventListener("click", abrirPortada);
   document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("portada").hidden) cerrarPortada(null); });
   $("r-umbral").textContent = `${coma(D.modelo.umbral, 3)}, equilibrado`;
-  $("r-dispositivo").textContent = DEMO ? "maqueta, sin modelos" : "en tu navegador, con WebAssembly";
+  $("r-dispositivo").textContent = DEMO ? "maqueta, sin modelos" : "CPU de tu navegador (WebAssembly, ONNX Runtime)";
+  const en = D.modelo.entrenamiento, mv = D.modelo.metricas_validacion, mt = D.comparacion && D.comparacion.test;
+  $("r-entrenamiento").textContent = `${D.modelo.redes.length} redes (3 semillas × 5 folds) de ${miles(en.parametros)} parámetros; ` +
+    `${en.optimizador}, tasa ${String(en.lr).replace(".", ",")}, lote ${en.lote}, recorte central ${en.recorte} × ${en.recorte}, ` +
+    `parada temprana con paciencia 10`;
+  const u = mv.con_el_umbral;
+  $("r-metricas").textContent = `AUC ${coma(mv.auc)} en validación (1.097 pacientes)` +
+    (mt ? ` y ${coma(mt.modelos.recorte.auc)} en el test (${mt.pacientes_n}); ` : "; ") +
+    `con el umbral, en validación: sensibilidad ${pct(u.sensibilidad)} y especificidad ${pct(u.especificidad)}`;
   $("r-checksum").textContent = DEMO ? "— (maqueta)" : "calculando…";
   $("r-checksum-pt").textContent = D.modelo.checksum_pytorch;
   actualizarMapaDisponible();
