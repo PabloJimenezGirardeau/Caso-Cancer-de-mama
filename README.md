@@ -50,8 +50,8 @@ Cada decisión, con sus cifras y su justificación, está en [`notas/DECISIONES.
 
 Página estática en GitHub Pages (carpeta `docs/`). Las 15 redes, exportadas a ONNX, se ejecutan **en el navegador** con
 ONNX Runtime Web, con la misma lectura de los PNG que en Python. Permite cargar una muestra o elegir un ejemplo, ver las tres fases y
-el realce, y muestra la probabilidad, la clase, el umbral, el checksum del modelo, el dispositivo, el tiempo de respuesta, dónde mira
-la red (Grad-CAM) y los resultados de validación y test. La vista **Verificación** comprueba que la página reproduce las
+el realce, y muestra la probabilidad, la clase, el umbral, el checksum del modelo, el dispositivo, el tiempo de respuesta y los
+resultados de validación y test. La vista **Verificación** comprueba que la página reproduce las
 probabilidades de Python.
 
 ## Estructura

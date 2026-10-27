@@ -8,12 +8,10 @@
  *   2. las 15 redes (exportadas en modo evaluacion; el recorte central de 128x128 va dentro) dan sigmoide(logit);
  *   3. media de las 15, recorte a [1e-6, 1 - 1e-6] y calibracion de Platt: p = sigmoide(a*logit(media) + b);
  *   4. pCR = 1 si p >= umbral.
- * Si los ONNX traen la salida "mapa" (exportar_web.py, ConMapa), se dibuja ademas DONDE MIRA LA RED: el Grad-CAM de cada
- * red hacia la clase predicha (parte positiva del mapa con signo si pCR = 1, negativa si pCR = 0), normalizado y promediado.
  *
- * Datos: window.DATOS (datos_web.py: metricas, validacion, test, curvas, Grad-CAM) y window.WEB (exportar_web.py:
- * modelos, ejemplos). MODO MAQUETA: abierta como fichero (o con ?demo) no se cargan los modelos y las predicciones (y el
- * mapa) son inventadas, avisado con una franja; todo lo demas usa los datos reales.
+ * Datos: window.DATOS (datos_web.py: metricas, validacion, test, curvas) y window.WEB (exportar_web.py:
+ * modelos, ejemplos). MODO MAQUETA: abierta como fichero (o con ?demo) no se cargan los modelos y las predicciones son
+ * inventadas, avisado con una franja; todo lo demas usa los datos reales.
  */
 
 const D = window.DATOS;
@@ -31,13 +29,12 @@ const COLOR_MODELO = { recorte: "var(--m-cnn)", clinico: "var(--m-clin)", combin
 const NOMBRE_COHORTE = { duke: "Duke", spy1: "I-SPY1", spy2: "I-SPY2" };
 
 const estado = {
-  sesiones: [], checksumWeb: null, listo: false, tieneMapa: false,
+  sesiones: [], checksumWeb: null, listo: false,
   fases: null,                 // {PRE, EARLY, LATE}: Float32Array de la muestra cargada
   buffers: { PRE: null, EARLY: null, LATE: null }, nombres: { PRE: null, EARLY: null, LATE: null },
   leidas: { PRE: null, EARLY: null, LATE: null },   // Float32Array de cada fase que se ha leido bien
   ejemploActivo: null,         // indice del ejemplo cargado (o null si se subio a mano)
   faseVisor: "EARLY", animando: null, historial: [],
-  mapa: null,                  // Grad-CAM medio de la ultima prediccion (16x16, en [0, 1])
   cortina: 0.5, par: ["PRE", "EARLY"], arrastrando: false, puntero: null,
   lote: [], loteActivo: null, procesando: false, conjunto: "test", portada: null,
 };
@@ -198,8 +195,7 @@ function ponerEstado(texto, clase, progreso) {
 async function cargarModelo() {
   if (DEMO) {
     ponerEstado("Maqueta, sin modelos", "", 1);
-    estado.listo = true; estado.tieneMapa = true;
-    actualizarMapaDisponible();
+    estado.listo = true;
     actualizarBotonPredecir();
     return;
   }
@@ -215,7 +211,6 @@ async function cargarModelo() {
       buffers.push(buf);
       estado.sesiones.push(await ort.InferenceSession.create(buf, { executionProviders: ["wasm"] }));
     }
-    estado.tieneMapa = estado.sesiones.every((s_) => s_.outputNames.includes("mapa"));
     const m = D.modelo;
     const texto = new TextEncoder().encode(`${m.umbral}|${m.calibracion.a}|${m.calibracion.b}`);
     estado.checksumWeb = (await sha256Hex([...buffers, texto.buffer])).slice(0, 16);
@@ -225,7 +220,6 @@ async function cargarModelo() {
     $("verificar").disabled = false;
     const marca = `${estado.checksumWeb} <span class="${ok ? "bien" : "mal"}">${ok ? "✓" : "✗"}</span>`;
     $("cs-calc").innerHTML = marca; $("r-checksum").innerHTML = marca;
-    actualizarMapaDisponible();
     actualizarBotonPredecir();
   } catch (e) {
     console.error(e);
@@ -240,47 +234,10 @@ function hash01(f) {   // numero pseudoaleatorio estable a partir de la imagen (
   return ((h >>> 0) % 100000) / 100000;
 }
 
-// Grad-CAM de cada red (16x16, con signo) -> mapa medio hacia la clase predicha, en [0, 1]
-function combinarMapas(mapas, signo) {
-  const total = new Float32Array(256);
-  for (const m of mapas) {
-    let max = 0;
-    const v = new Float32Array(256);
-    for (let i = 0; i < 256; i++) { v[i] = Math.max(signo * m[i], 0); if (v[i] > max) max = v[i]; }
-    if (max > 0) for (let i = 0; i < 256; i++) total[i] += v[i] / max;
-  }
-  let max = 0;
-  for (let i = 0; i < 256; i++) if (total[i] > max) max = total[i];
-  if (max > 0) for (let i = 0; i < 256; i++) total[i] /= max;
-  return total;
-}
-
-function mapaDeMaqueta(f) {   // solo maqueta: el realce de la zona central, suavizado, hace de "mapa"
-  const m = new Float32Array(256);
-  for (let by = 0; by < 16; by++) for (let bx = 0; bx < 16; bx++) {
-    let s_ = 0;
-    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
-      const i = (INI + by * 8 + y) * LADO + INI + bx * 8 + x;
-      s_ += Math.max(f.EARLY[i] - f.PRE[i], 0);
-    }
-    m[by * 16 + bx] = s_;
-  }
-  const suave = new Float32Array(256);
-  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
-    let s_ = 0, n = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const yy = y + dy, xx = x + dx;
-      if (yy >= 0 && yy < 16 && xx >= 0 && xx < 16) { s_ += m[yy * 16 + xx]; n++; }
-    }
-    suave[y * 16 + x] = s_ / n;
-  }
-  return combinarMapas([suave], 1);
-}
-
 // alRed(i, p) se llama al terminar cada red; pausa (ms) solo para que la animacion del proceso se pueda seguir
 async function predecirCorte(f, { alRed = null, pausa = 0 } = {}) {
   const { umbral, calibracion } = D.modelo;
-  const probs = [], mapas = [];
+  const probs = [];
   let ms = 0;
   if (DEMO) {
     const base = 0.24 + 0.22 * hash01(f);
@@ -300,7 +257,6 @@ async function predecirCorte(f, { alRed = null, pausa = 0 } = {}) {
       ms += performance.now() - t0;
       const p = sigmoide(salida.logit.data[0]);
       probs.push(p);
-      if (salida.mapa) mapas.push(Float32Array.from(salida.mapa.data));
       if (alRed) alRed(i, p);
       if (pausa) await esperar(pausa);
     }
@@ -309,8 +265,7 @@ async function predecirCorte(f, { alRed = null, pausa = 0 } = {}) {
   m = limitar(m, 1e-6, 1 - 1e-6);
   const p = sigmoide(calibracion.a * Math.log(m / (1 - m)) + calibracion.b);
   const clase = p >= umbral ? "pCR" : "no pCR";
-  const mapa = mapas.length === probs.length ? combinarMapas(mapas, clase === "pCR" ? 1 : -1) : (DEMO ? mapaDeMaqueta(f) : null);
-  return { probabilidad: p, clase, media: m, probs, mapa, segundos: ms / 1000 };
+  return { probabilidad: p, clase, media: m, probs, segundos: ms / 1000 };
 }
 
 // ------------------------------------------------------------------------------------------------ imagenes
@@ -350,18 +305,6 @@ function pintarComparar(ctx) {    // izquierda: la primera fase del par; derecha
   }
   ctx.putImageData(img, 0, 0);
 }
-function pintarMapa(ctx, mapa) {    // el mapa de 16x16 sobre el cuadrado central, interpolado y semitransparente
-  const c = document.createElement("canvas"); c.width = c.height = 16;
-  const cc = c.getContext("2d"), img = cc.createImageData(16, 16);
-  for (let i = 0; i < 256; i++) {
-    const v = mapa[i], [r, g, b] = colorInferno(0.35 + 0.65 * v);
-    img.data[4 * i] = r; img.data[4 * i + 1] = g; img.data[4 * i + 2] = b;
-    img.data[4 * i + 3] = Math.round(215 * limitar((v - 0.1) / 0.9, 0, 1) ** 0.85);
-  }
-  cc.putImageData(img, 0, 0);
-  ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(c, INI, INI, RECORTE, RECORTE); ctx.restore();
-}
 function pintarRecorte(ctx) {
   if (!$("ver-recorte").checked) return;
   ctx.save(); ctx.strokeStyle = ANOTACION; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]);
@@ -380,7 +323,7 @@ const DESCRIPCION = { PRE: "Antes del contraste", EARLY: "Contraste temprano", L
                       COMPARAR: "" };
 const NOMBRE_VISTA = { REALCE: "Realce" };
 // Anotaciones de las esquinas del visor, como en una estacion de radiologia
-function ponerAnotaciones(etiqueta, conMapa, titulo = null) {
+function ponerAnotaciones(etiqueta, titulo = null) {
   if (etiqueta === "COMPARAR") {
     $("ov-tl").innerHTML = `<b>${estado.par[0]}</b><br>${DESCRIPCION[estado.par[0]]}`;
     $("ov-tr").innerHTML = `<b>${estado.par[1]}</b><br>${DESCRIPCION[estado.par[1]]}`;
@@ -390,7 +333,6 @@ function ponerAnotaciones(etiqueta, conMapa, titulo = null) {
   }
   const lineas = [];
   if ($("ver-recorte").checked) lineas.push('<span class="anot">Zona de interés</span>', "128 × 128");
-  if (conMapa) lineas.push("Grad-CAM de 15 redes");
   $("ov-bl").innerHTML = lineas.join("<br>");
   $("ov-br").innerHTML = `${escapar(nombreMuestra())}<br>Un corte`;
 }
@@ -401,15 +343,11 @@ function dibujarVisor(datos, etiqueta, titulo = null) {
   if (etiqueta === "REALCE") pintarRealce(ctx, estado.fases.PRE, estado.fases.EARLY);
   else if (etiqueta === "COMPARAR") pintarComparar(ctx);
   else pintarGris(ctx, datos || estado.fases[etiqueta]);
-  const conMapa = !!(estado.mapa && $("ver-mapa").checked);
-  if (conMapa) pintarMapa(ctx, estado.mapa);
   pintarRecorte(ctx);
-  ponerAnotaciones(etiqueta, conMapa, titulo);
+  ponerAnotaciones(etiqueta, titulo);
   const partes = [];
   if (etiqueta === "REALCE") partes.push('<span><span class="barra-realce"></span> Realce: cuánto más brilla cada punto en EARLY que en PRE (oscuro, nada; claro, mucho). Lo que capta el contraste, como el tumor, se ilumina.</span>');
   if (etiqueta === "COMPARAR") partes.push("<span>Arrastra sobre la imagen para mover la cortina.</span>");
-  if (conMapa) partes.push('<span><span class="barra-mapa"></span> Dónde mira la red: las zonas que más han empujado la decisión, de menos a más.</span>');
-  else if (estado.fases && estado.tieneMapa && !estado.mapa && etiqueta !== "COMPARAR") partes.push('<span class="nota">Pulsa Predecir para ver también dónde mira la red.</span>');
   $("leyenda-visor").innerHTML = partes.join("");
   $("cortina").hidden = etiqueta !== "COMPARAR";
   const imagen = rectanguloImagen(), cortina = $("cortina");
@@ -485,22 +423,6 @@ function moverCortina(ev) {
   const { caja, x, lado } = rectanguloImagen();
   estado.cortina = limitar((ev.clientX - caja.left - x) / lado, 0, 1);
   dibujarVisor(null, "COMPARAR");
-}
-
-// La casilla del mapa solo está activa cuando hay un mapa de la muestra que se ve, es decir, después de predecir
-function actualizarMapaDisponible() {
-  const casilla = $("ver-mapa"), etiqueta = casilla.closest(".interruptor"), hay = !!(estado.tieneMapa && estado.mapa);
-  casilla.disabled = !hay;
-  if (!hay) casilla.checked = false;
-  etiqueta.classList.toggle("desactivado", !hay);
-  etiqueta.title = !estado.tieneMapa ? "Disponible cuando los modelos se exporten con el mapa (exportar_web.py en el PC)"
-    : !estado.mapa ? "Se activa al predecir: el mapa sale de la predicción"
-    : (DEMO ? "Maqueta: el mapa es de ejemplo (el realce de la zona de interés)" : "Grad-CAM de las 15 redes hacia la clase predicha");
-}
-// Tras predecir, el mapa se muestra solo, salvo que se haya quitado a mano después de una predicción
-function activarMapa() {
-  actualizarMapaDisponible();
-  if (estado.mapa && estado.tieneMapa && !$("ver-mapa").dataset.quitado) $("ver-mapa").checked = true;
 }
 
 // ------------------------------------------------------------------------------------------------ graficas
@@ -669,8 +591,6 @@ function cineticaVacia() {
 function prepararMuestra() {
   const ok = FASES.every((k) => estado.leidas[k]);
   estado.fases = ok ? { PRE: estado.leidas.PRE, EARLY: estado.leidas.EARLY, LATE: estado.leidas.LATE } : null;
-  estado.mapa = null;
-  actualizarMapaDisponible();
   if (estado.animando) pararSecuencia();
   $("visor-vacio").hidden = ok; $("play").disabled = !ok;
   resultadoInicial();
@@ -765,10 +685,8 @@ async function predecir() {
     $("proceso-decision").textContent = `${r.clase === "pCR" ? "pCR = 1" : "pCR = 0"}: ${coma(r.probabilidad, 3)} frente al umbral ${coma(D.modelo.umbral, 3)}`;
     await procesoPaso(4, lento ? 320 : 0);
     $("proceso").hidden = true;
-    estado.mapa = r.mapa;
     mostrarResultado(r, fases);
     anadirHistorial(r, fases);
-    activarMapa();
     if (estado.fases) dibujarVisor(null, estado.faseVisor);
   } catch (e) {
     console.error(e); procesoReposo(); $("resultado-vacio").hidden = false;
@@ -931,7 +849,6 @@ function pintarItemLote(item, i) {
   b.type = "button"; b.className = "lote-item";
   const c = document.createElement("canvas"); c.width = c.height = LADO;
   const ctx = c.getContext("2d"); pintarGris(ctx, item.fases.EARLY);
-  if (item.r.mapa) pintarMapa(ctx, item.r.mapa);
   const pcr = item.r.clase === "pCR";
   b.append(c);
   b.insertAdjacentHTML("beforeend", `<span class="lote-nombre">${escapar(item.clave)}</span>
@@ -947,8 +864,6 @@ function abrirDelLote(i, desplazar) {
   document.querySelectorAll(".lote-item").forEach((b, j) => b.classList.toggle("activa", j === i));
   cargarFasesDirectas(item.fases, item.nombres, [{ t: "PNG", ok: true }, { t: "256 × 256", ok: true }]);
   estado.loteActivo = i;
-  estado.mapa = item.r.mapa;
-  activarMapa();
   mostrarResultado(item.r, item.fases);
   dibujarVisor(null, estado.faseVisor);
   if (desplazar) document.querySelector(".puesto").scrollIntoView({ behavior: SIN_MOVIMIENTO ? "auto" : "smooth", block: "start" });
@@ -1193,8 +1108,8 @@ function dibujarArquitectura() {
     { n: "Bloque 1", f: "16 × 64 × 64", c: 16, l: 64, p: 464, d: "convolución 3 × 3, BatchNorm, ReLU y pooling" },
     { n: "Bloque 2", f: "32 × 32 × 32", c: 32, l: 32, p: 4672, d: "convolución 3 × 3, BatchNorm, ReLU y pooling" },
     { n: "Bloque 3", f: "64 × 16 × 16", c: 64, l: 16, p: 18560, d: "convolución 3 × 3, BatchNorm, ReLU y pooling" },
-    { n: "Bloque 4", f: "128 × 8 × 8", c: 128, l: 8, p: 73984, d: "convolución 3 × 3, BatchNorm, ReLU y pooling; de aquí sale el mapa Grad-CAM" },
-    { n: "Media global", f: "128", c: 128, l: 1, p: 0, d: "un número por mapa" },
+    { n: "Bloque 4", f: "128 × 8 × 8", c: 128, l: 8, p: 73984, d: "convolución 3 × 3, BatchNorm, ReLU y pooling" },
+    { n: "Media global", f: "128", c: 128, l: 1, p: 0, d: "la media de cada uno de los 128 canales" },
     { n: "Densa", f: "64", c: 64, l: 1, p: 8256, d: "ReLU y dropout del 50 %" },
     { n: "Salida", f: "1", c: 1, l: 1, p: 65, d: "sigmoide: la probabilidad" },
   ];
@@ -1310,26 +1225,6 @@ function pintarComparacion(conj) {
     <li>La CNN frente a los datos clínicos: ${frase("imagen - clinico")}.</li>`;
 }
 
-function dibujarGradcam() {
-  const svg = $("g-gradcam"); vaciar(svg);
-  const g = D.gradcam;
-  if (!g) { $("gradcam-nota").textContent = "Sin datos: ejecuta mapas_gradcam.py en el PC."; return; }
-  const filas = [["todas", "Todas"], ["duke", "Duke"], ["spy1", "I-SPY1"], ["spy2", "I-SPY2"]];
-  const marco = [72, 600, 8, 128], x = escala(0, 0.6, marco[0], marco[1]), alto = (marco[3] - marco[2]) / filas.length;
-  const ge = s("g", { class: "eje" }, svg), gr = s("g", { class: "rejilla" }, svg);
-  for (const v of [0, 0.2, 0.4, 0.6]) { s("line", { x1: x(v), x2: x(v), y1: marco[2], y2: marco[3] }, gr); s("text", { x: x(v), y: marco[3] + 15, "text-anchor": "middle", texto: pct(v) }, ge); }
-  filas.forEach(([k, nombre], i) => {
-    const d = g[k], y0 = marco[2] + alto * i + 4;
-    s("text", { class: k === "todas" ? "marca-texto" : "", x: marco[0] - 8, y: y0 + 14, "text-anchor": "end", texto: nombre }, svg);
-    s("rect", { x: x(0), y: y0, width: x(d.parte_mapa_media) - x(0), height: 10, rx: 1, style: "fill:var(--m-cnn)",
-                "data-tip": `<b>${nombre}</b> (${d.pacientes} pacientes)<br>mapa dentro de la caja del tumor: ${pct(d.parte_mapa_media)}<br>con un mapa uniforme: ${pct(d.parte_uniforme_media)} (×${coma(d.cociente, 2)})<br>máximo dentro de la caja: ${pct(d.maximo_dentro)}` }, svg);
-    s("rect", { x: x(0), y: y0 + 12, width: x(d.parte_uniforme_media) - x(0), height: 6, rx: 1, style: "fill:var(--texto-3);opacity:.6" }, svg);
-    s("text", { x: x(d.parte_mapa_media) + 6, y: y0 + 9, texto: `×${coma(d.cociente, 2)}` }, svg);
-  });
-  const t = g.todas;
-  $("gradcam-nota").innerHTML = `El ${pct(t.parte_mapa_media)} del mapa cae dentro de la caja del tumor, frente al ${pct(t.parte_uniforme_media)} que caería con un mapa uniforme (barra gris). El punto más alto queda dentro en el ${pct(t.maximo_dentro)} de las ${miles(t.pacientes)} pacientes. La red prefiere el tumor, pero también mira el tejido de alrededor.`;
-}
-
 function montarModelo() {
   const m = D.modelo, v = m.metricas_validacion, e = m.entrenamiento, T = D.comparacion && D.comparacion.test;
   $("kpis").innerHTML = T
@@ -1365,7 +1260,6 @@ function montarModelo() {
     fila("Épocas elegidas", `de ${Math.min(...ep)} a ${Math.max(...ep)}, media ${coma(mediaDe(ep), 1)}`) + fila("Semillas", e.semillas.join(", ")) +
     fila("Calibración", `Platt, a = ${coma(m.calibracion.a, 3)} y b = ${coma(m.calibracion.b, 3)}`) +
     fila("Entrenado con", `${e.dispositivo_entrenamiento}, ${coma(e.segundos_por_epoca, 1)} s por época`) + fila("PyTorch", e.version_torch);
-  dibujarGradcam();
 }
 
 // ------------------------------------------------------------------------------------------------ vista Verificacion
@@ -1374,7 +1268,7 @@ function montarVerificacion() {
   $("ficha-checksum").innerHTML = fila("Checksum PyTorch", D.modelo.checksum_pytorch) +
     fila("Checksum web esperado", W ? W.checksum_web : "—") + fila("Checksum web calculado", '<span id="cs-calc">—</span>') +
     fila("ONNX frente a PyTorch", W ? `${W.onnx_frente_a_pytorch.toExponential(1)} en el logit` : "—") +
-    (W && W.mapa_frente_a_gradcam !== undefined ? fila("Mapa frente a Grad-CAM", `${W.mapa_frente_a_gradcam.toExponential(1)} relativa`) : "");
+    "";
   if (DEMO) {
     $("sello").querySelector("h3").textContent = "No disponible en la maqueta";
     $("sello").querySelector(".texto-suave").textContent = "La verificación necesita los modelos. Funciona en la página publicada.";
@@ -1444,10 +1338,6 @@ function iniciar() {
   $("par-comparar").addEventListener("change", () => { estado.par = $("par-comparar").value.split("|"); if (estado.fases) dibujarVisor(null, "COMPARAR"); });
   $("play").addEventListener("click", animarSecuencia);
   $("ver-recorte").addEventListener("change", () => { if (estado.fases) mostrarFase(estado.faseVisor); });
-  $("ver-mapa").addEventListener("change", () => {
-    if ($("ver-mapa").checked) delete $("ver-mapa").dataset.quitado; else $("ver-mapa").dataset.quitado = "1";
-    if (estado.fases) dibujarVisor(null, estado.faseVisor);
-  });
   $("ver-lupa").addEventListener("change", () => { if (!$("ver-lupa").checked) $("lupa").hidden = true; });
   const marcoVisor = $("marco-visor");
   marcoVisor.addEventListener("pointerdown", (ev) => {
@@ -1482,7 +1372,6 @@ function iniciar() {
     `con el umbral, en validación: sensibilidad ${pct(u.sensibilidad)} y especificidad ${pct(u.especificidad)}`;
   $("r-checksum").textContent = DEMO ? "— (maqueta)" : "calculando…";
   $("r-checksum-pt").textContent = D.modelo.checksum_pytorch;
-  actualizarMapaDisponible();
   cineticaVacia();
   resultadoInicial();
   montarGaleria();

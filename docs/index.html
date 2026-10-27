@@ -123,7 +123,6 @@
           </div>
           <div class="opciones-visor">
             <label class="interruptor"><input type="checkbox" id="ver-recorte" checked> Zona de interés</label>
-            <label class="interruptor"><input type="checkbox" id="ver-mapa"> Dónde mira la red</label>
             <label class="interruptor"><input type="checkbox" id="ver-lupa"> Lupa</label>
           </div>
           <div class="visor" id="marco-visor">
@@ -311,9 +310,6 @@
         <div>
           <div class="bloque-cabecera"><h2>Entrenamiento</h2></div>
           <dl class="ficha" id="ficha-entrenamiento"></dl>
-          <div class="bloque-cabecera separado"><h2>¿Mira el tumor?</h2><span class="ayuda">Grad-CAM en validación</span></div>
-          <svg class="grafica" id="g-gradcam" viewBox="0 0 640 160" role="img" aria-label="Parte del mapa Grad-CAM dentro de la caja del tumor"></svg>
-          <p class="ayuda" id="gradcam-nota"></p>
         </div>
       </section>
     </section>
@@ -369,8 +365,6 @@
         <ul>
           <li>Capacidad de discriminación limitada: AUC 0,573 en validación y 0,591 en el test, con 176 pacientes nuevas. Un modelo con
             datos clínicos (receptores, edad y volumen) predice mejor, 0,695 en el test, y la imagen apenas le añade (+0,010).</li>
-          <li>La red mira sobre todo el tumor, pero no solo: el 41 % de su mapa Grad-CAM cae en la caja del tumor, frente al 34 % de un
-            mapa uniforme.</li>
           <li>Un solo corte 2D: se pierde la forma tridimensional del tumor.</li>
           <li>Sensible al brillo de la imagen. Solo se ha probado con imágenes del conjunto BreastDCEDL; con imágenes de otro hospital o
             de otro procesado, la predicción no es fiable.</li>

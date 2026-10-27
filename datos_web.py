@@ -10,7 +10,6 @@ fichero, sin servidor) con:
     comparacion  validacion y TEST de los cuatro modelos de evaluar_test.py (CNN solo imagen, solo datos clinicos,
                  imagen + datos clinicos, solo cohorte): metricas y la probabilidad de cada paciente (sin su
                  identificador), para las curvas ROC y la tabla de la vista Modelo
-    gradcam      el resumen de mapas_gradcam.py (parte del mapa dentro de la caja del tumor en validacion)
 
 Lo que SI necesita PyTorch (los modelos ONNX, los ejemplos y la verificacion) lo genera exportar_web.py en el PC.
 
@@ -119,9 +118,6 @@ def main() -> None:
         "curvas": curvas,
         "comparacion": {"validacion": comparacion("validacion"), "test": comparacion("test")},
     }
-    ruta_gradcam = RAIZ / "figuras" / "mapas" / "gradcam_resumen.json"
-    if ruta_gradcam.exists():
-        datos["gradcam"] = json.loads(ruta_gradcam.read_text(encoding="utf-8"))["validacion"]
     SALIDA.parent.mkdir(parents=True, exist_ok=True)
     SALIDA.write_text("// Generado por datos_web.py: no editar a mano.\nwindow.DATOS = "
                       + json.dumps(datos, ensure_ascii=False, separators=(",", ":")) + ";\n", encoding="utf-8")
