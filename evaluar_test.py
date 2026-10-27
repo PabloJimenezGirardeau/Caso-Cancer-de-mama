@@ -22,7 +22,8 @@ Modelos (declarados ANTES del test, DECISIONES.md, 2026-10-26):
     solo cohorte (referencia)     la tasa de pCR de la cohorte de cada paciente, con las de entrenamiento: si la CNN
                                   no la supera, su AUC podria venir solo de reconocer el hospital
 Las regresiones se ajustan, en validacion, con los otros 4 folds; en el test, con las 1.097 pacientes de entrenamiento.
-(La CNN anterior, recorte con lr 1e-4 en modelo_c128/, se quito de la evaluacion por decision del usuario antes del test.)
+(La CNN anterior, recorte con lr 1e-4, se quito de la evaluacion por decision del usuario antes del test; sus pesos quedan
+en el historial de git.)
 
 La CNN se aplica tal cual: media de sus 15 modelos en cada corte, calibracion de Platt (a, b) y media de los cortes
 de la paciente; pCR = 1 si la probabilidad >= el umbral (umbral_final.json: criterio EQUILIBRADO, maxima F1

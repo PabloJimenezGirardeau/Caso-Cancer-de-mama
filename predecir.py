@@ -11,7 +11,7 @@ Pipeline fijado en la fase 4 (DECISIONES.md, `modelo/umbral_final.json`):
     5. paciente con varios cortes: media de sus cortes calibrados (la agregacion que pide el profesor);
     6. clase: "pCR" si p >= umbral (el del json; criterio equilibrado: maxima F1 equilibrada en validacion).
 
-La 2.1 (sin recorte) queda en `modelo_21/` como comparacion: ModeloFinal("modelo_21").
+Los modelos anteriores (2.1 sin recorte y recorte con lr 1e-4) ya no estan en el repositorio: quedan en el historial de git.
 
 Uso como modulo:
     from predecir import ModeloFinal

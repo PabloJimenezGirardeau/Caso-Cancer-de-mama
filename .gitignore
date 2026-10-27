@@ -234,3 +234,7 @@ resultados/
 
 # Datos del caso (imagenes y metadatos descargados): nunca al repositorio
 breastdcedl/
+
+# Solo en local: el diario de trabajo y las herramientas del asistente (skills)
+DIARIO.md
+.claude/
