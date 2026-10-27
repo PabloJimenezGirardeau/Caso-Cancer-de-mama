@@ -560,7 +560,7 @@ function graficaCinetica(f) {
     { nombre: "todo el tejido", color: "var(--texto-3)", v: FASES.map((k) => mediaDe(f[k], tejido)) },
   ];
   const ymax = Math.max(...series.flatMap((q) => q.v)) * 1.18 || 1;
-  const marco = [46, 330, 14, 160];
+  const marco = [46, 350, 14, 160];
   const x = (k) => marco[0] + 30 + k * ((marco[1] - marco[0] - 60) / 2), y = escala(0, ymax, marco[3], marco[2]);
   const gr = s("g", { class: "rejilla" }, svg), ge = s("g", { class: "eje" }, svg);
   for (const v of [0, ymax / 2, ymax]) { s("line", { x1: marco[0], x2: marco[1], y1: y(v), y2: y(v) }, gr); s("text", { x: marco[0] - 6, y: y(v) + 4, "text-anchor": "end", texto: coma(v, 2) }, ge); }
@@ -573,16 +573,11 @@ function graficaCinetica(f) {
   }
   const [pre, early, late] = series[0].v;
   const realce = (early - pre) / Math.max(pre, 1e-6), cambio = (late - early) / Math.max(early, 1e-6);
-  const forma = cambio > 0.05 ? "sigue subiendo" : cambio < -0.05 ? "lavado, baja tras el pico" : "meseta";
-  const g = s("g", {}, svg);
-  s("text", { class: "marca-texto", x: 350, y: 40, texto: "Zona de interés" }, g);
-  const porc = (v) => { const r = Math.round(100 * v); return `${r > 0 ? "+" : ""}${r === 0 ? 0 : r} %`; };
-  s("text", { x: 350, y: 62, texto: `realce temprano: ${porc(realce)}` }, g);
-  s("text", { x: 350, y: 82, texto: `de EARLY a LATE: ${porc(cambio)}` }, g);
-  s("text", { x: 350, y: 102, texto: `forma: ${forma}` }, g);
-  s("text", { x: 350, y: 130, texto: "Descriptivo, no es una" }, g);
-  s("text", { x: 350, y: 146, texto: "valoración clínica." }, g);
-  $("l-cinetica").innerHTML = series.map((q) => `<span><i class="linea" style="--c:${q.color}"></i>${q.nombre}</span>`).join("");
+  const forma = cambio > 0.05 ? "sigue subiendo" : cambio < -0.05 ? "lavado: baja tras el pico" : "se mantiene";
+  const porc = (v) => { const r = Math.round(100 * v); return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r)} %`; };
+  $("l-cinetica").innerHTML = series.map((q) => `<span><i class="linea" style="--c:${q.color}"></i>${q.nombre}</span>`).join("") +
+    `<p>En la zona de interés, el brillo sube un <b>${porc(realce)}</b> de PRE a EARLY y cambia un <b>${porc(cambio)}</b> de EARLY a LATE ` +
+    `(${forma}). Es descriptivo, no una valoración clínica.</p>`;
 }
 
 // ------------------------------------------------------------------------------------------------ vista Predecir
@@ -590,20 +585,25 @@ function actualizarBotonPredecir() {
   $("predecir").disabled = !(estado.listo && estado.fases) || estado.procesando;
 }
 
+// Las comprobaciones de cada fase: si todas pasan, una sola línea; si alguna falla, se ven todas y cuál falla
 function ponerChips(fase, comprobaciones) {
-  document.querySelector(`[data-chips="${fase}"]`).innerHTML =
-    comprobaciones.map((c) => `<span class="chip ${c.ok ? "bien" : "mal"}"><i>${c.ok ? "✓" : "✗"}</i>${escapar(c.t)}</span>`).join("");
+  const caja = document.querySelector(`[data-chips="${fase}"]`);
+  if (comprobaciones.length && comprobaciones.every((c) => c.ok)) {
+    const visibles = comprobaciones.filter((c) => c.t !== "valores finitos").map((c) => c.t);
+    caja.innerHTML = `<span class="chip bien" title="${escapar(comprobaciones.map((c) => c.t).join(", "))}"><i>✓</i>${escapar(visibles.join(", "))}</span>`;
+    return;
+  }
+  caja.innerHTML = comprobaciones.map((c) => `<span class="chip ${c.ok ? "bien" : "mal"}"><i>${c.ok ? "✓" : "✗"}</i>${escapar(c.t)}</span>`).join("");
 }
 
 function cineticaVacia() {
   const svg = $("g-cinetica"); vaciar(svg);
-  const ge = s("g", { class: "eje" }, svg), x = (k) => 76 + k * 112;
-  s("line", { x1: 46, x2: 330, y1: 160, y2: 160 }, ge);
+  const ge = s("g", { class: "eje" }, svg), x = (k) => 76 + k * 122;
+  s("line", { x1: 46, x2: 350, y1: 160, y2: 160 }, ge);
   FASES.forEach((k, j) => s("text", { x: x(j), y: 176, "text-anchor": "middle", texto: k }, ge));
   s("polyline", { points: `${x(0)},140 ${x(1)},70 ${x(2)},84`, style: "fill:none;stroke:var(--borde-fuerte);stroke-width:2;stroke-dasharray:5 5" }, svg);
-  s("text", { x: 350, y: 80, texto: "Al cargar una muestra se ve" }, svg);
-  s("text", { x: 350, y: 98, texto: "cómo cambia el brillo de la" }, svg);
-  s("text", { x: 350, y: 116, texto: "zona de interés con el contraste." }, svg);
+  s("text", { x: 198, y: 30, "text-anchor": "middle", texto: "Al cargar una muestra se ve cómo cambia" }, svg);
+  s("text", { x: 198, y: 46, "text-anchor": "middle", texto: "el brillo de la zona de interés" }, svg);
   $("l-cinetica").innerHTML = "";
 }
 
@@ -663,12 +663,17 @@ function mostrarErrores(lista) {
 }
 
 // ---- el proceso, paso a paso, mientras se predice ----
-function procesoIniciar() {
-  $("resultado").hidden = true; $("resultado-vacio").hidden = true; $("proceso").hidden = false;
+// Los cinco pasos del cálculo: en gris mientras no hay predicción; se encienden uno a uno al predecir
+function procesoReposo() {
+  $("proceso").hidden = false;
   document.querySelectorAll("#proceso [data-paso]").forEach((li) => li.classList.remove("activo", "hecho"));
   $("proceso-redes").innerHTML = Array.from({ length: 15 }, (_, i) =>
     `<i data-red="${i}" title="fold ${i % 5}, semilla ${SEMILLAS[Math.floor(i / 5)]}"></i>`).join("");
   $("proceso-decision").textContent = `Con el umbral ${coma(D.modelo.umbral, 3)}`;
+}
+function procesoIniciar() {
+  $("resultado").hidden = true; $("resultado-vacio").hidden = true;
+  procesoReposo();
 }
 function procesoMarcar(i, clase) {
   const li = document.querySelector(`#proceso [data-paso="${i}"]`);
@@ -705,7 +710,7 @@ async function predecir() {
     if (estado.mapa && estado.tieneMapa && !$("ver-mapa").dataset.tocada) $("ver-mapa").checked = true;
     if (estado.fases) dibujarVisor(null, estado.faseVisor);
   } catch (e) {
-    console.error(e); $("proceso").hidden = true; $("resultado-vacio").hidden = false;
+    console.error(e); procesoReposo(); $("resultado-vacio").hidden = false;
     mostrarErrores([`No se ha podido calcular la predicción (${e.message}).`]);
   } finally {
     estado.procesando = false;
@@ -715,7 +720,7 @@ async function predecir() {
 
 // Antes de la primera prediccion: el contexto (sin marca) y una nota en la seccion de las 15 redes
 function resultadoInicial() {
-  $("resultado").hidden = true; $("proceso").hidden = true; $("resultado-vacio").hidden = false; $("r-hora").textContent = "";
+  $("resultado").hidden = true; procesoReposo(); $("resultado-vacio").hidden = false; $("r-hora").textContent = "";
   histograma($("g-contexto"), 360, 170, D.modelo.umbral);
   $("r-contexto").innerHTML = `Así se reparten las probabilidades de las 1.097 pacientes de validación; el ${pct(PREVALENCIA)} tuvo pCR. ` +
                               "Al predecir, una línea marcará dónde cae la muestra.";
@@ -725,6 +730,7 @@ function resultadoInicial() {
   s("text", { x: 200, y: 62, "text-anchor": "middle", texto: "Al predecir aparece la probabilidad" }, svg);
   s("text", { x: 200, y: 80, "text-anchor": "middle", texto: "que da cada una de las quince redes" }, svg);
   $("r-tiempo").textContent = "—";
+  $("r-redes").textContent = "";
 }
 
 function mostrarResultado(r, listaAvisos) {
@@ -745,6 +751,8 @@ function mostrarResultado(r, listaAvisos) {
     ? `De las ${cerca.length} pacientes de validación con una probabilidad parecida (±0,02), el ${pct(cerca.filter(([, y]) => y).length / cerca.length)} tuvo pCR; en total fue el ${pct(PREVALENCIA)}. `
     : "Hay pocas pacientes de validación con una probabilidad tan extrema. ") + `Su probabilidad supera a la del ${pct(menores / pac.length)} de ellas.`;
   graficaRedes(r.probs);
+  $("r-redes").innerHTML = `Las quince redes dan entre ${coma(Math.min(...r.probs))} y ${coma(Math.max(...r.probs))}. Su media, ` +
+    `${coma(r.media)}, pasa a <b>${coma(r.probabilidad)}</b> con la calibración de Platt.`;
   $("r-tiempo").textContent = DEMO ? "— (maqueta)" : `${coma(r.segundos * 1000, 0)} ms para las quince redes`;
 }
 
@@ -908,7 +916,7 @@ function montarGaleria() {
       const f = fantasma(1000 + i * 77), b = document.createElement("button");
       b.className = "ejemplo"; b.type = "button";
       const c = document.createElement("canvas"); c.width = c.height = LADO; pintarGris(c.getContext("2d"), f.EARLY);
-      b.append(c); b.insertAdjacentHTML("beforeend", `<span><b>Fantasma ${i + 1}</b><i>sintético</i></span>`);
+      b.append(c); b.insertAdjacentHTML("beforeend", `<span>Fantasma ${i + 1}</span>`); b.title = `Fantasma ${i + 1}, sintético`;
       const nombres = Object.fromEntries(FASES.map((k) => [k, `Fantasma ${i + 1} (${k})`]));
       b.addEventListener("click", () => { estado.loteActivo = null; cargarFasesDirectas(f, nombres, [{ t: "fantasma sintético", ok: true }, { t: "256 × 256", ok: true }], i); });
       g.append(b);
@@ -919,8 +927,9 @@ function montarGaleria() {
   $("ejemplos-nota").textContent = "Pacientes de entrenamiento: la mayoría de las redes ya las vieron.";
   W.ejemplos.forEach((e, i) => {
     const b = document.createElement("button"); b.className = "ejemplo"; b.type = "button";
-    b.innerHTML = `<img src="${e.rutas.EARLY}" alt="" loading="lazy"><span><b>pCR real = ${e.pCR}</b><i>${e.patient_id}</i></span>`;
-    b.title = e.sample_id;
+    b.innerHTML = `<img src="${e.rutas.EARLY}" alt="" loading="lazy"><span>pCR = ${e.pCR}</span>`;
+    b.title = `${e.sample_id}: pCR real = ${e.pCR}`;
+    b.setAttribute("aria-label", `Ejemplo ${e.sample_id}, pCR real ${e.pCR}`);
     b.addEventListener("click", async () => {
       mostrarErrores([]);
       try {

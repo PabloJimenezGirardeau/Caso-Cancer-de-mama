@@ -137,17 +137,13 @@
             <canvas class="lupa" id="lupa" hidden></canvas>
           </div>
           <div class="leyenda-visor" id="leyenda-visor"></div>
-          <h2 class="separado">Curva de realce</h2>
-          <p class="ayuda">Brillo medio de la zona de interés y de todo el tejido en las tres fases.</p>
-          <svg class="grafica" id="g-cinetica" viewBox="0 0 520 190" role="img" aria-label="Curva de realce"></svg>
-          <div class="leyenda" id="l-cinetica"></div>
         </div>
 
         <!-- informe -->
         <aside class="panel panel-informe">
           <div class="informe-cabecera"><h2>Informe</h2><span class="ayuda" id="r-hora"></span></div>
           <p class="resultado-vacio" id="resultado-vacio">Carga las tres fases de un corte, o elige un ejemplo, y pulsa Predecir.</p>
-          <div class="proceso" id="proceso" hidden>
+          <div class="proceso" id="proceso">
             <ol>
               <li data-paso="0"><span class="marca-paso"></span><div><b>Lectura</b><small>Tres PNG en escala de grises, como en Python</small></div></li>
               <li data-paso="1"><span class="marca-paso"></span><div><b>Recorte</b><small>Los 128 × 128 píxeles centrales</small></div></li>
@@ -157,11 +153,14 @@
             </ol>
           </div>
           <div id="resultado" hidden>
+            <div class="resultado-principal">
             <div class="cifra"><span class="cifra-etiqueta">Probabilidad de pCR</span><span class="valor" id="r-prob">0,000</span></div>
             <svg class="escala" id="g-medidor" viewBox="0 0 360 58" role="img" aria-label="Probabilidad frente al umbral"></svg>
             <h3>Impresión</h3>
             <p class="impresion"><span id="r-clase"></span> <span id="r-frase"></span></p>
             <ul class="avisos" id="r-avisos"></ul>
+            </div>
+            <div class="datos-tecnicos">
             <h3 class="separado-corto">Datos técnicos</h3>
             <dl class="ficha ficha-informe">
               <dt>Umbral</dt><dd id="r-umbral">—</dd>
@@ -173,19 +172,32 @@
               <dt>Métricas internas</dt><dd id="r-metricas">—</dd>
             </dl>
             <p class="nota-informe">Resultado de un trabajo académico, para uso educativo: no tiene validez clínica.</p>
+            </div>
           </div>
-          <section class="informe-seccion">
-            <h3>Contexto</h3>
-            <svg class="grafica" id="g-contexto" viewBox="0 0 360 170" role="img" aria-label="Probabilidades de las pacientes de validación"></svg>
-            <div class="leyenda"><span><i style="--c:var(--nopcr)"></i>pCR = 0</span><span><i style="--c:var(--pcr)"></i>pCR = 1</span><span><i class="discontinua" style="--c:var(--texto-3)"></i>umbral</span></div>
-            <p class="ayuda" id="r-contexto"></p>
-          </section>
-          <section class="informe-seccion">
-            <h3>Las quince redes</h3>
-            <svg class="grafica" id="g-redes" viewBox="0 0 360 150" role="img" aria-label="Probabilidad de cada red"></svg>
-            <p class="ayuda">Probabilidad de cada red antes de calibrar. Si están juntas, las redes coinciden.</p>
-          </section>
         </aside>
+      </div>
+
+      <!-- segunda fila: lo que acompaña a la lectura, en tres paneles iguales -->
+      <div class="fila-analisis">
+        <section class="panel">
+          <h2>Curva de realce</h2>
+          <p class="ayuda">Brillo medio de la zona de interés y de todo el tejido en las tres fases.</p>
+          <svg class="grafica" id="g-cinetica" viewBox="0 0 360 190" role="img" aria-label="Curva de realce"></svg>
+          <div class="leyenda" id="l-cinetica"></div>
+        </section>
+        <section class="panel">
+          <h2>Contexto</h2>
+          <p class="ayuda">Las 1.097 pacientes de validación, por su probabilidad.</p>
+          <svg class="grafica" id="g-contexto" viewBox="0 0 360 170" role="img" aria-label="Probabilidades de las pacientes de validación"></svg>
+          <div class="leyenda"><span><i style="--c:var(--nopcr)"></i>pCR = 0</span><span><i style="--c:var(--pcr)"></i>pCR = 1</span><span><i class="discontinua" style="--c:var(--texto-3)"></i>umbral</span></div>
+          <p class="ayuda" id="r-contexto"></p>
+        </section>
+        <section class="panel">
+          <h2>Las quince redes</h2>
+          <p class="ayuda">Probabilidad de cada red antes de calibrar. Si están juntas, las redes coinciden.</p>
+          <svg class="grafica" id="g-redes" viewBox="0 0 360 150" role="img" aria-label="Probabilidad de cada red"></svg>
+          <p class="ayuda" id="r-redes"></p>
+        </section>
       </div>
 
       <section class="panel tira" id="lote" hidden>

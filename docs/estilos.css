@@ -120,9 +120,12 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .vista.activa { display: block; }
 
 /* ---- el puesto de lectura: muestra | visor | informe ---- */
-.puesto { display: grid; grid-template-columns: 300px minmax(0, 1fr) 380px; align-items: start; background: var(--panel); border: 1px solid var(--linea); }
+.puesto { display: grid; grid-template-columns: 300px minmax(0, 1fr) 380px; align-items: stretch; background: var(--panel); border: 1px solid var(--linea); }
 .panel { padding: 20px 22px 24px; }
 .puesto > .panel + .panel { border-left: 1px solid var(--linea); }
+.fila-analisis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--panel); border: 1px solid var(--linea); border-top: 0; }
+.fila-analisis > .panel + .panel { border-left: 1px solid var(--linea); }
+.fila-analisis .grafica { margin-top: 10px; }
 .panel h2 { font-size: 16px; font-weight: 700; }
 .panel h3 { font-size: 14px; font-weight: 700; color: var(--texto-2); margin-bottom: 8px; }
 
@@ -141,7 +144,9 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .ranura-titulo { font-weight: 700; }
 .ranura-titulo span { font-weight: 400; color: var(--texto-3); }
 .ranura.mal .ranura-titulo { color: var(--error); }
+.ranura > div:last-child { min-width: 0; }
 .ranura-estado { margin-top: 1px; font-size: 12px; color: var(--texto-3); overflow-wrap: anywhere; }
+.ranura.cargada .ranura-estado { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chips { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; }
 .chip { font-size: 12px; color: var(--texto-2); }
 .chip i { font-style: normal; margin-right: 3px; color: var(--ok); }
@@ -171,13 +176,13 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .lote-zona b { font-size: 14px; }
 .lote-zona span { font-size: 12px; color: var(--texto-3); }
 
-.galeria { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
-.ejemplo { display: grid; padding: 0; border: 1px solid var(--linea); border-radius: 2px; background: #000; cursor: pointer; overflow: hidden; text-align: left; }
+.galeria { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.ejemplo { position: relative; display: grid; padding: 0; border: 1px solid var(--linea); border-radius: 2px; background: #000; cursor: pointer; overflow: hidden; text-align: left; }
 .ejemplo:hover { border-color: var(--texto-3); }
 .ejemplo canvas, .ejemplo img { width: 100%; aspect-ratio: 1; display: block; object-fit: cover; }
-.ejemplo span { display: block; padding: 4px 6px 5px; background: var(--panel); font-size: 12px; color: var(--texto-3); line-height: 1.35; }
-.ejemplo b { display: block; color: var(--texto-2); font-weight: 700; }
-.ejemplo i { display: block; font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ejemplo span { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 5px 3px; background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, .85));
+  font-size: 11px; font-weight: 700; color: #e8ecf2; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ejemplo:hover, .ejemplo:focus-visible { border-color: var(--anotacion-texto); }
 
 /* visor */
 .panel-visor { padding-top: 16px; }
@@ -226,7 +231,6 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
   position: absolute; z-index: 4; width: 150px; height: 150px; border-radius: 50%; border: 2px solid #ffd23f;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .7); pointer-events: none; background: #000;
 }
-#g-cinetica { max-width: 640px; }
 .leyenda-visor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; min-height: 22px; margin-top: 10px; color: var(--texto-2); }
 .leyenda-visor > span { display: inline-flex; align-items: center; gap: 6px; }
 .leyenda-visor i { width: 11px; height: 11px; border-radius: 2px; background: var(--c); }
@@ -381,6 +385,9 @@ tbody tr:hover td { background: var(--acento-suave); }
 .leyenda i.linea { width: 16px; height: 2px; }
 .leyenda i.discontinua { width: 16px; height: 0; border-top: 2px dashed var(--c); background: none; }
 .leyenda i.vertical { width: 2px; height: 12px; }
+.leyenda p { flex-basis: 100%; margin: 4px 0 0; color: var(--texto-3); }
+.leyenda p b, #r-redes b { color: var(--texto); }
+.escala { max-width: 440px; }
 .descuadre {
   position: fixed; z-index: 50; max-width: 270px; padding: 8px 10px; pointer-events: none; opacity: 0;
   background: var(--panel-2); border: 1px solid var(--linea-fuerte); border-radius: var(--radio); box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
@@ -423,13 +430,10 @@ tbody tr:hover td { background: var(--acento-suave); }
 /* ---- pantallas medianas: el informe pasa debajo, en tres columnas ---- */
 @media (max-width: 1280px) {
   .puesto { grid-template-columns: 280px minmax(0, 1fr); }
-  .panel-informe { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 32px; align-items: start; border-top: 1px solid var(--linea); }
+  .panel-informe { grid-column: 1 / -1; border-top: 1px solid var(--linea); }
   .puesto > .panel-informe { border-left: 0; }
-  .panel-informe > .informe-cabecera { grid-column: 1 / -1; }
-  .panel-informe > #resultado-vacio, .panel-informe > #proceso, .panel-informe > #resultado { grid-column: 1; grid-row: 2; }
-  .panel-informe > section:nth-of-type(1) { grid-column: 2; grid-row: 2; }
-  .panel-informe > section:nth-of-type(2) { grid-column: 3; grid-row: 2; }
-  .panel-informe > section.informe-seccion { margin-top: 0; padding-top: 0; border-top: 0; }
+  #resultado:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 40px; align-items: start; }
+  .datos-tecnicos > .separado-corto { margin-top: 0; }
   .comparacion { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .comparacion > :last-child { grid-column: 1 / -1; }
 }
@@ -442,8 +446,10 @@ tbody tr:hover td { background: var(--acento-suave); }
   main { padding: 12px 12px 32px; }
   .puesto { grid-template-columns: minmax(0, 1fr); }
   .puesto > .panel + .panel { border-left: 0; border-top: 1px solid var(--linea); }
-  .panel-informe { display: block; }
-  .panel-informe > section.informe-seccion { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--linea); }
+  #resultado:not([hidden]) { display: block; }
+  .datos-tecnicos > .separado-corto { margin-top: 18px; }
+  .fila-analisis { grid-template-columns: minmax(0, 1fr); }
+  .fila-analisis > .panel + .panel { border-left: 0; border-top: 1px solid var(--linea); }
   .visor { width: 100%; min-width: 0; }
   .boton-herramienta { margin-left: 0; }
   .ov { font-size: 10px; }
