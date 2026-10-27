@@ -1,0 +1,36 @@
+TEST · 176 pacientes · 1758 cortes · 53 pCR (30.1%)
+
+
+CNN solo imagen (principal)  AUC 0.591 (IC95 0.497-0.681)   AP 0.373 (azar 0.301)   Brier 0.2075 (referencia 0.2105)
+                             en validacion era AUC 0.573
+solo datos clínicos          AUC 0.695 (IC95 0.603-0.778)   AP 0.484 (azar 0.301)   Brier 0.1906 (referencia 0.2105)
+                             en validacion era AUC 0.704
+imagen + datos clínicos      AUC 0.705 (IC95 0.618-0.785)   AP 0.496 (azar 0.301)   Brier 0.1887 (referencia 0.2105)
+                             en validacion era AUC 0.710
+solo cohorte (referencia)    AUC 0.544 (IC95 0.462-0.621)   AP 0.321 (azar 0.301)   Brier 0.2098 (referencia 0.2105)
+                             en validacion era AUC 0.523
+
+imagen + datos clinicos, pesos de la regresion ajustada con todo el entrenamiento (edad, volumen y CNN estandarizados):
+   HR -1.348   HER2 +0.876   HRxHER2 +0.215   edad -0.259   log_volumen -0.279   cnn +0.233
+
+CNN solo imagen (principal) con el umbral 0.316 (equilibrado):
+   matriz: VP 16  FN 37  VN 93  FP 30
+   sensibilidad 30% (20%-44%)   especificidad 76% (67%-82%)   precision 35% (23%-49%)   VPN 72% (63%-79%)
+   F1 pCR 0.32   F1 no pCR 0.74   F1 equilibrada 0.53   accuracy 62% (55%-69%)
+   media de las dos clases (macro): precision 0.53   recall 0.53   F1 0.53
+   un solo corte (como en la app): AUC 0.583, sensibilidad 35%, especificidad 75%
+CNN solo imagen (principal) con el umbral 0.361 (desescalar, comparacion):
+   matriz: VP 0  FN 53  VN 119  FP 4
+   sensibilidad 0% (0%-7%)   especificidad 97% (92%-99%)   precision 0% (0%-49%)   VPN 69% (62%-76%)
+   F1 pCR 0.00   F1 no pCR 0.81   F1 equilibrada 0.40   accuracy 68% (60%-74%)
+   media de las dos clases (macro): precision 0.35   recall 0.48   F1 0.40
+siempre 'no pCR': accuracy 70%; media de las dos clases: precision 0.35, recall 0.50, F1 0.41
+
+diferencia de AUC imagen - solo cohorte: +0.047 (IC95 -0.056 a +0.145) -> el intervalo incluye el 0
+diferencia de AUC imagen - clinico: -0.104 (IC95 -0.231 a +0.028) -> el intervalo incluye el 0
+diferencia de AUC imagen + clinico - clinico: +0.010 (IC95 -0.010 a +0.031) -> el intervalo incluye el 0
+
+AUC por cohorte:           solo imagen   solo clinico   imagen+clin.
+  duke  (  42 pac.,   9 pCR)        0.734          0.492          0.532
+  spy1  (  35 pac.,  12 pCR)        0.290          0.830          0.797
+  spy2  (  99 pac.,  32 pCR)        0.634          0.749          0.754
