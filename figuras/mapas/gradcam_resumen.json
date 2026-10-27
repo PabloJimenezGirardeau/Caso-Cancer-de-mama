@@ -1,0 +1,78 @@
+{
+  "checksum": "19c0ffd39e140ce7",
+  "capa": "ReLU del ultimo bloque (128 @ 16x16 sobre el cuadrado central)",
+  "validacion": {
+    "todas": {
+      "pacientes": 1091,
+      "parte_mapa_media": 0.4125656371580059,
+      "parte_uniforme_media": 0.3440748122064047,
+      "cociente": 1.1990579447312602,
+      "pacientes_con_mas_que_uniforme": 0.6865261228230981,
+      "maximo_dentro": 0.6214482126489459
+    },
+    "duke": {
+      "pacientes": 209,
+      "parte_mapa_media": 0.3136396408318481,
+      "parte_uniforme_media": 0.2155542693069677,
+      "cociente": 1.4550379439954328,
+      "pacientes_con_mas_que_uniforme": 0.8325358851674641,
+      "maximo_dentro": 0.6555023923444976
+    },
+    "spy1": {
+      "pacientes": 104,
+      "parte_mapa_media": 0.49584188684284175,
+      "parte_uniforme_media": 0.4113816481370192,
+      "cociente": 1.205308717800876,
+      "pacientes_con_mas_que_uniforme": 0.7019230769230769,
+      "maximo_dentro": 0.6826923076923077
+    },
+    "spy2": {
+      "pacientes": 778,
+      "parte_mapa_media": 0.42800882901526055,
+      "parte_uniforme_media": 0.36960293885061857,
+      "cociente": 1.1580233380888991,
+      "pacientes_con_mas_que_uniforme": 0.6452442159383034,
+      "maximo_dentro": 0.6041131105398457
+    }
+  },
+  "pacientes_sin_caja": 6,
+  "casos_test": [
+    {
+      "tipo": "VERDADERO POSITIVO",
+      "paciente": "ACRIN-6698-162562",
+      "cohorte": "spy2",
+      "probabilidad_corte": 0.34987837076187134,
+      "parte_mapa": 0.030513426288962364,
+      "parte_uniforme": 0.1556396484375,
+      "maximo_dentro": false
+    },
+    {
+      "tipo": "FALSO POSITIVO",
+      "paciente": "ACRIN-6698-848003",
+      "cohorte": "spy2",
+      "probabilidad_corte": 0.3820050358772278,
+      "parte_mapa": 0.10485123097896576,
+      "parte_uniforme": 0.1123046875,
+      "maximo_dentro": false
+    },
+    {
+      "tipo": "FALSO NEGATIVO",
+      "paciente": "ISPY1_1090",
+      "cohorte": "spy1",
+      "probabilidad_corte": 0.21945394575595856,
+      "parte_mapa": 0.3287148177623749,
+      "parte_uniforme": 0.24591064453125,
+      "maximo_dentro": true
+    },
+    {
+      "tipo": "VERDADERO NEGATIVO",
+      "paciente": "Breast_MRI_345",
+      "cohorte": "duke",
+      "probabilidad_corte": 0.19587385654449463,
+      "parte_mapa": 0.2598890960216522,
+      "parte_uniforme": 0.162841796875,
+      "maximo_dentro": false
+    }
+  ],
+  "segundos": 14.0
+}
