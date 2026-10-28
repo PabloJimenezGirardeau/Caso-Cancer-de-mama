@@ -460,6 +460,28 @@ tbody tr:hover td { background: var(--acento-suave); }
 .sello .icono { flex: 0 0 auto; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; border: 1.5px solid var(--linea-fuerte); color: var(--texto-3); font-size: 18px; font-weight: 700; }
 .sello.bien .icono { border-color: var(--ok); color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
 .sello.mal .icono { border-color: var(--error); color: var(--error); background: color-mix(in srgb, var(--error) 10%, transparent); }
+/* verificación: mientras comprueba, un aro que gira; al terminar, el sello salta, la marca se dibuja trazo a trazo
+   y una onda sale del círculo (con movimiento reducido, todo aparece ya terminado) */
+.sello .icono { position: relative; }
+.sello .icono svg { display: block; width: 22px; height: 22px; }
+.sello.verificando .icono { border-color: var(--panel-3); }
+.sello.verificando .icono::before {
+  content: ""; position: absolute; inset: -1.5px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--naranja);
+  animation: girar .8s linear infinite;
+}
+.sello.recien .icono { animation: sello-salto .55s cubic-bezier(.2, .9, .3, 1.35) both; }
+.sello.recien .icono::after {
+  content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid currentColor; opacity: 0; pointer-events: none;
+  animation: sello-onda 1.1s ease-out .2s;
+}
+.sello.recien .icono path { stroke-dasharray: 1; animation: sello-trazo .45s ease-out .22s both; }
+.sello.recien.bien { animation: sello-luz 1.6s ease-out; }
+@keyframes sello-salto { 0% { transform: scale(.4); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
+@keyframes sello-onda { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(2.3); opacity: 0; } }
+@keyframes sello-trazo { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes sello-luz { from { background: color-mix(in srgb, var(--ok) 18%, var(--panel-2)); border-color: color-mix(in srgb, var(--ok) 45%, transparent); } }
+.fila-nueva td { animation: aparecer .35s ease both; }
+@keyframes aparecer { from { opacity: 0; } }
 .sello h3 { margin: 0 0 2px; font-size: 16px; }
 .sello p { margin: 0; }
 .boton-ancho-auto { flex: 0 0 auto; }

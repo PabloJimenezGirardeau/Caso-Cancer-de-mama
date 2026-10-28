@@ -1585,22 +1585,34 @@ function montarVerificacion() {
 }
 
 const etiquetaClase = (c) => (c === "pCR" ? "pCR = 1" : "pCR = 0");
+// La marca del sello, para dibujarla trazo a trazo al terminar
+const MARCA_SELLO = {
+  bien: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path pathLength="1" d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  mal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path pathLength="1" d="M7 7l10 10M17 7L7 17"/></svg>',
+};
 async function verificar() {
-  const tabla = $("t-verificacion"); $("verificar").disabled = true;
-  const sello = $("sello"); sello.className = "sello"; sello.querySelector(".icono").textContent = "…"; sello.querySelector("h3").textContent = "Verificando…";
-  const filas = []; let peor = 0, ok = true;
+  const tabla = $("t-verificacion"), sello = $("sello"), icono = sello.querySelector(".icono"), nota = sello.querySelector(".texto-suave");
+  $("verificar").disabled = true;
+  sello.className = "sello verificando"; icono.textContent = ""; sello.querySelector("h3").textContent = "Verificando…";
+  // la tabla se rellena corte a corte, para que se vea avanzar
+  tabla.hidden = false;
+  tabla.innerHTML = '<thead><tr><th>Corte</th><th>Python</th><th>Esta página</th><th>Diferencia</th><th>Clase</th><th></th></tr></thead><tbody></tbody>';
+  const cuerpo = tabla.querySelector("tbody");
+  let peor = 0, ok = true, n = 0;
   for (const e of W.ejemplos) {
+    let fila;
     try {
       const f = {}; for (const k of FASES) f[k] = leerFase(await bajar(e.rutas[k]), k).x;
       const r = await predecirCorte(f), dif = Math.abs(r.probabilidad - e.probabilidad_python), bien = dif < TOLERANCIA && r.clase === e.clase_python;
       peor = Math.max(peor, dif); ok = ok && bien;
-      filas.push(`<tr><td>${e.sample_id}</td><td class="num">${e.probabilidad_python.toFixed(6)}</td><td class="num">${r.probabilidad.toFixed(6)}</td><td class="num">${dif.toExponential(1)}</td><td>${e.clase_python === r.clase ? etiquetaClase(r.clase) : `${etiquetaClase(e.clase_python)} / ${etiquetaClase(r.clase)}`}</td><td class="${bien ? "bien" : "mal"}">${bien ? "✓" : "✗"}</td></tr>`);
-    } catch (err) { ok = false; filas.push(`<tr><td>${e.sample_id}</td><td colspan="5" class="mal">${err.message}</td></tr>`); }
+      fila = `<tr class="fila-nueva"><td>${e.sample_id}</td><td class="num">${e.probabilidad_python.toFixed(6)}</td><td class="num">${r.probabilidad.toFixed(6)}</td><td class="num">${dif.toExponential(1)}</td><td>${e.clase_python === r.clase ? etiquetaClase(r.clase) : `${etiquetaClase(e.clase_python)} / ${etiquetaClase(r.clase)}`}</td><td class="${bien ? "bien" : "mal"}">${bien ? "✓" : "✗"}</td></tr>`;
+    } catch (err) { ok = false; fila = `<tr class="fila-nueva"><td>${e.sample_id}</td><td colspan="5" class="mal">${err.message}</td></tr>`; }
+    cuerpo.insertAdjacentHTML("beforeend", fila);
+    nota.textContent = `${++n} de ${W.ejemplos.length} cortes comprobados…`;
   }
-  tabla.hidden = false;
-  tabla.innerHTML = `<thead><tr><th>Corte</th><th>Python</th><th>Esta página</th><th>Diferencia</th><th>Clase</th><th></th></tr></thead><tbody>${filas.join("")}</tbody>`;
-  sello.className = `sello ${ok ? "bien" : "mal"}`;
-  sello.querySelector(".icono").textContent = ok ? "✓" : "✗";
+  // al terminar: el sello salta, la marca se dibuja y sale una onda del círculo
+  sello.className = `sello ${ok ? "bien" : "mal"}`; void sello.offsetWidth; sello.classList.add("recien");
+  icono.innerHTML = MARCA_SELLO[ok ? "bien" : "mal"];
   sello.querySelector("h3").textContent = ok ? "La página reproduce el cálculo de Python" : "Hay diferencias con Python";
   sello.querySelector(".texto-suave").textContent = `${W.ejemplos.length} cortes. Diferencia máxima de probabilidad: ${peor.toExponential(1)} (tolerancia ${TOLERANCIA.toExponential(0)}).`;
   $("verificar").disabled = false;
