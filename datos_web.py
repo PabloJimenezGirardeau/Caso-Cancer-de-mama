@@ -1,0 +1,158 @@
+"""Datos de la app web que NO necesitan PyTorch: se generan en cualquier ordenador a partir de modelo/ y referencia/.
+
+Escribe docs/datos/datos.js (un script que define window.DATOS, para que la pagina lo pueda leer tambien abierta como
+fichero, sin servidor) con:
+    modelo       umbral, criterio, calibracion, checksum de PyTorch (el mismo que calcula predecir.py), parametros del
+                 entrenamiento y metricas internas de validacion
+    validacion   las 1.097 pacientes de validacion: probabilidad calibrada (fuera de fold), pCR real, fold y cohorte
+                 (para la curva ROC, el deslizador del umbral, la calibracion y el contexto del resultado)
+    curvas       curvas de entrenamiento del modelo final (semilla 42, los 5 folds) con su referencia sin imagen
+    comparacion  validacion y TEST de tres modelos de evaluar_test.py (CNN solo imagen, solo datos clinicos e
+                 imagen + datos clinicos): metricas y la probabilidad de cada paciente (sin su identificador), para las
+                 curvas ROC y la tabla de la vista Modelo. La referencia "solo cohorte" de evaluar_test.py no va a la app
+    calidad      lo normal en los cortes de ENTRENAMIENTO, para el control de calidad de la app: el rango de brillo
+                 medio de la zona de interes (recorte central de 128) en cada fase y en cuantos cortes PRE es la
+                 fase mas oscura del tejido (lee los PNG: tarda alrededor de un minuto)
+
+Lo que SI necesita PyTorch (los modelos ONNX, los ejemplos y la verificacion) lo genera exportar_web.py en el PC.
+
+Uso:
+    python datos_web.py
+"""
+
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+from datetime import datetime
+from pathlib import Path
+
+import curvas_entrenamiento as ce
+
+RAIZ = Path(__file__).resolve().parent
+MODELO = RAIZ / "modelo"
+SALIDA = RAIZ / "docs" / "datos" / "datos.js"
+
+
+def checksum_pytorch(cfg: dict) -> str:
+    """El mismo que predecir.ModeloFinal.checksum: SHA-256 del json y de los 15 .pt en orden; 16 caracteres."""
+    huella = hashlib.sha256((MODELO / "umbral_final.json").read_bytes().replace(b"\r\n", b"\n"))   # LF, como predecir.py
+    for nombre in cfg["configuraciones"]:
+        for k in range(5):
+            huella.update((MODELO / f"{nombre}_fold{k}.pt").read_bytes())
+    return huella.hexdigest()[:16]
+
+
+MODELOS_COMPARADOS = ("recorte", "clinico", "combinado")
+
+
+def comparacion(conjunto: str) -> dict | None:
+    """Metricas y probabilidades por paciente de los tres modelos (figuras/<conjunto>/, de evaluar_test.py)."""
+    carpeta = RAIZ / "figuras" / conjunto
+    if not (carpeta / "metricas.json").exists():
+        return None
+    m = json.loads((carpeta / "metricas.json").read_text(encoding="utf-8"))
+    with open(carpeta / "pacientes.csv", encoding="utf-8") as f:
+        filas = [[round(float(r[n]), 6) for n in MODELOS_COMPARADOS] + [int(r["pCR"]), r["cohorte"]]
+                 for r in csv.DictReader(f)]
+    claves = ("VP", "FN", "VN", "FP", "sensibilidad", "especificidad", "precision", "vpn", "f1_pcr", "f1_no_pcr",
+              "f1_equilibrada", "accuracy", "precision_media", "recall_medio", "ic95")
+    principal = m["modelos"]["recorte"]
+    return {
+        "pacientes_n": m["pacientes"], "cortes": m["cortes"], "pcr": m["pcr"],
+        "modelos": {n: {k: m["modelos"][n][k] for k in ("auc", "auc_ic95", "ap", "brier")} for n in MODELOS_COMPARADOS},
+        "con_el_umbral": {k: principal[k] for k in claves}, "umbral": m["umbrales"]["recorte"],
+        "un_corte": {k: m["un_corte"]["recorte"][k] for k in ("auc", "sensibilidad", "especificidad")},
+        "diferencias": {k: v for k, v in m["diferencias_auc"].items() if "cohorte" not in k}, "coeficientes_combinado": m.get("combinado_coeficientes"),
+        "cohortes": {c: {"pacientes": d["pacientes"], "pcr": d["pcr"],
+                         **{n: {"auc": d[n]["auc"], "auc_ic95": d[n]["auc_ic95"]} for n in ("recorte", "clinico", "combinado")}}
+                     for c, d in m["cohortes"].items()},
+        "columnas": [*MODELOS_COMPARADOS, "pCR", "cohorte"], "filas": filas,
+    }
+
+
+def calidad_entrenamiento() -> dict:
+    """Brillo medio de la zona de interes en cada fase (percentiles 0,5 y 99,5: el 99 % central de los cortes) y
+    proporcion de cortes en los que, en el tejido (PRE > 0,1), EARLY y LATE brillan mas que PRE. Solo entrenamiento."""
+    import numpy as np
+    from PIL import Image
+    base = next(b for b in (ce.RAIZ, ce.RAIZ / "breastdcedl") if (b / "dataset").is_dir())
+    leer = lambda ruta: np.asarray(Image.open(base / ruta).convert("L"), dtype=np.float32) / 255.0
+    with open(ce.RAIZ / "metadata" / "samples.csv", encoding="utf-8") as f:
+        filas = [r for r in csv.DictReader(f) if r["split"] == "train"]
+    brillo, pre_oscura = [], []
+    for r in filas:
+        x = np.stack([leer(r["path_pre"]), leer(r["path_early"]), leer(r["path_late"])])
+        brillo.append(x[:, 64:192, 64:192].mean(axis=(1, 2)))
+        tejido = x[0] > 0.1
+        if tejido.any():
+            m = [float(c[tejido].mean()) for c in x]
+            pre_oscura.append(m[1] > m[0] and m[2] > m[0])
+    brillo = np.array(brillo)
+    return {"cortes": len(filas),
+            "brillo_zona": {k: [round(float(np.percentile(brillo[:, j], 0.5)), 4), round(float(np.percentile(brillo[:, j], 99.5)), 4)]
+                            for j, k in enumerate(("PRE", "EARLY", "LATE"))},
+            "brillo_zona_como": "media de la zona de interes (128 x 128 central); percentiles 0,5 y 99,5 de los cortes de entrenamiento",
+            "pre_mas_oscura": round(float(np.mean(pre_oscura)), 4)}
+
+
+def main() -> None:
+    cfg = json.loads((MODELO / "umbral_final.json").read_text(encoding="utf-8"))
+    nombres = [f"{c}_fold{k}" for c in cfg["configuraciones"] for k in range(5)]
+    resumenes = [json.loads((MODELO / f"{n}_resumen.json").read_text(encoding="utf-8")) for n in nombres]
+    r0 = resumenes[0]
+
+    with open(ce.RAIZ / "metadata" / "patients.csv", encoding="utf-8") as f:
+        cohorte = {r["pid"]: r["dataset"] for r in csv.DictReader(f)}
+    with open(MODELO / "umbral_final_pacientes.csv", encoding="utf-8") as f:
+        pacientes = [[float(r["prob"]), int(r["pCR"]), int(r["fold"]), cohorte[r["patient_id"]]]
+                     for r in csv.DictReader(f)]
+
+    refs = ce.referencias_por_fold()
+    curvas = []
+    for k in range(5):
+        d = ce.leer(f"{cfg['configuraciones'][0]}_fold{k}")
+        curvas.append({"fold": k, "epocas": [int(e) for e in d["epoca"]],
+                       "perdida_val": [round(v, 5) for v in d["perdida_val"]],
+                       "perdida_train": [round(v, 5) for v in d.get("perdida_train_eval", d["perdida_train"])],
+                       "auc_val": [round(v, 4) for v in d["auc_val"]], "auc_train": [round(v, 4) for v in d["auc_train"]],
+                       "elegida": int(d["elegida"]) + 1, "referencia_val": round(refs[k][1], 5),
+                       "referencia_train": round(refs[k][0], 5)})
+
+    datos = {
+        "generado": datetime.now().isoformat(timespec="seconds"),
+        "modelo": {
+            "nombre": "Modelo final: recorte central 128, tasa de aprendizaje 3e-5 (3 semillas × 5 folds)",
+            "redes": nombres,
+            "umbral": cfg["umbral"], "criterio_umbral": cfg["criterio"], "umbral_desescalar": cfg.get("umbral_desescalar"),
+            "calibracion": {"a": cfg["calibracion"]["a"], "b": cfg["calibracion"]["b"]},
+            "checksum_pytorch": checksum_pytorch(cfg),
+            "entrenamiento": {
+                "parametros": r0["parametros"], "optimizador": r0["optimizador_clase"], "lr": r0["lr"], "lote": r0["lote"],
+                "epocas_max": r0["epocas"], "recorte": r0["recorte"], "semillas": sorted({r["semilla"] for r in resumenes}),
+                "epocas_elegidas": [r["epoca_elegida"] for r in resumenes],
+                "auc_val_por_red": [round(r["auc_val"], 4) for r in resumenes],
+                "version_torch": r0["version_torch"], "dispositivo_entrenamiento": r0["dispositivo"],
+                "segundos_por_epoca": r0["tiempo_medio_por_epoca_seg"],
+            },
+            "metricas_validacion": {
+                "auc": cfg["auc_validacion"], "auc_ic95": cfg["auc_ic95"], "ap": cfg["ap"], "brier": cfg["brier"],
+                "brier_referencia": cfg["brier_referencia"], "con_el_umbral": cfg["metricas_validacion"],
+                "auc_por_fold": cfg["auc_por_fold"].get("promedio"),
+            },
+        },
+        "validacion": {"columnas": ["probabilidad", "pCR", "fold", "cohorte"], "pacientes": pacientes},
+        "curvas": curvas,
+        "comparacion": {"validacion": comparacion("validacion"), "test": comparacion("test")},
+        "calidad": calidad_entrenamiento(),
+    }
+    SALIDA.parent.mkdir(parents=True, exist_ok=True)
+    SALIDA.write_text("// Generado por datos_web.py: no editar a mano.\nwindow.DATOS = "
+                      + json.dumps(datos, ensure_ascii=False, separators=(",", ":")) + ";\n", encoding="utf-8")
+    print(f"{SALIDA}: {len(pacientes)} pacientes de validacion, {len(curvas)} curvas, "
+          f"checksum PyTorch {datos['modelo']['checksum_pytorch']} ({SALIDA.stat().st_size / 1024:.0f} KB)")
+
+
+if __name__ == "__main__":
+    main()

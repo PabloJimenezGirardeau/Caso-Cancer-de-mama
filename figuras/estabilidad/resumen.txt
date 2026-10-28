@@ -1,0 +1,32 @@
+Panel de estabilidad · modelo final (bn_normal_c128_lr3e-05, bn_normal_c128_lr3e-05_s1, bn_normal_c128_lr3e-05_s2) · validacion de los 5 folds, 1097 pacientes, 10945 cortes
+
+1. ACUERDO ENTRE SEMILLAS (Spearman entre las probabilidades por paciente de dos semillas del mismo fold)
+   fold 0: 42-1 +0.87  42-2 +0.70  1-2 +0.82
+   fold 1: 42-1 +0.79  42-2 +0.85  1-2 +0.58
+   fold 2: 42-1 +0.84  42-2 +0.85  1-2 +0.85
+   fold 3: 42-1 +0.78  42-2 +0.86  1-2 +0.78
+   fold 4: 42-1 +0.88  42-2 +0.95  1-2 +0.87
+   media +0.82 (de +0.58 a +0.95); 1 = mismo orden, 0 = sin relacion
+
+3. COHERENCIA ENTRE CORTES DE UNA MISMA PACIENTE (modelo final calibrado)
+   desviacion de las probabilidades DENTRO de una paciente (media): 0.0084
+   desviacion ENTRE pacientes (de sus medias): 0.0454  ->  cociente 0.19 (cuanto menor, mas coherente; 1 = los cortes de una paciente varian tanto como pacientes distintas)
+
+4. VARIABILIDAD (AUC de validacion por paciente en la epoca elegida)
+   fold 0: semillas 0.602  0.597  0.584  (rango 0.019)  promedio de las 3: 0.605
+   fold 1: semillas 0.575  0.543  0.550  (rango 0.032)  promedio de las 3: 0.558
+   fold 2: semillas 0.592  0.599  0.604  (rango 0.012)  promedio de las 3: 0.604
+   fold 3: semillas 0.575  0.560  0.575  (rango 0.015)  promedio de las 3: 0.577
+   fold 4: semillas 0.573  0.595  0.572  (rango 0.023)  promedio de las 3: 0.583
+   rango medio entre semillas en un fold: 0.020; desviacion entre folds del promedio: 0.020
+
+2. ROBUSTEZ A CAMBIOS IRRELEVANTES (media de los 3 modelos del fold, por corte)
+   comprobacion: la prediccion original reproduce los probs_val guardados (dif. max 5.0e-07)
+   volteada     cambio medio de probabilidad 0.0131 (percentil 95 0.0431); Spearman con la original 0.902; pacientes que cambian de clase 9.9%
+   brillo x0,9  cambio medio de probabilidad 0.0187 (percentil 95 0.0390); Spearman con la original 0.976; pacientes que cambian de clase 16.0%
+   brillo x1,1  cambio medio de probabilidad 0.0195 (percentil 95 0.0393); Spearman con la original 0.985; pacientes que cambian de clase 13.5%
+   PROMEDIO CON LA IMAGEN VOLTEADA (TTA), AUC por paciente en cada fold (sin calibrar):
+   sin TTA 0.6051  0.5578  0.6042  0.5774  0.5832   media 0.5855
+   con TTA 0.6024  0.5607  0.6119  0.5711  0.5946   media 0.5881
+   diferencia media +0.0026  IC95 -0.0064 a +0.0116  ->  REGLA (positiva y el IC excluye el 0): NO se adopta
+
