@@ -7,11 +7,8 @@
   <meta name="description" content="Una CNN entrenada desde cero estima la respuesta patológica completa (pCR) a partir de un corte de resonancia DCE de mama tomado antes del tratamiento. Uso educativo.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;500&family=Atkinson+Hyperlegible+Next:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="estilos.css">
-  <script>
-    try { const t = localStorage.getItem("tema"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
-  </script>
 </head>
 <body>
   <!-- ================================================= PORTADA ================================================= -->
@@ -47,26 +44,25 @@
   <div class="franja-demo" id="franja-demo" hidden>Maqueta: los datos de validación y test son reales, pero las predicciones son
     inventadas porque la página está abierta sin los modelos. Publicada en GitHub Pages usa el modelo de verdad.</div>
 
-  <header class="barra">
+  <aside class="lateral">
     <div class="marca">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="4.4"/><path d="M3 7.5h3M18 16.5h3"/></svg>
-      <span>pCR en resonancia DCE</span>
+      <span class="marca-logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><circle cx="12" cy="12" r="4.2"/></svg></span>
+      <span class="marca-texto"><b>Predicción de pCR</b><small>Resonancia DCE</small></span>
     </div>
     <nav class="menu" aria-label="Vistas">
-      <button data-vista="predecir" aria-current="page">Predecir</button>
-      <button data-vista="modelo">Modelo</button>
-      <button data-vista="verificacion">Verificación</button>
-      <button data-vista="acerca">Acerca de</button>
+      <button data-vista="predecir" aria-current="page" title="Predecir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3.5"/></svg><span>Predecir</span></button>
+      <button data-vista="modelo" title="Modelo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="M7.5 15l3.5-4 3 2.5 5-6.5"/></svg><span>Modelo</span></button>
+      <button data-vista="verificacion" title="Verificación"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Verificación</span></button>
+      <button data-vista="acerca" title="Acerca de"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>Acerca de</span></button>
     </nav>
-    <div class="barra-derecha">
-      <button class="icono-boton" id="abrir-portada" title="Ver la portada" aria-label="Ver la portada">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="13" rx="1.5"/><path d="M8 21h8M12 17v4"/></svg>
-      </button>
-      <button class="icono-boton" id="tema" title="Cambiar entre consola oscura y negatoscopio" aria-label="Cambiar tema">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
-      </button>
+    <div class="lateral-pie">
+      <div class="estado-modelo">
+        <span class="pastilla" id="estado"><span class="luz"></span><span id="estado-texto">Cargando…</span>
+          <span class="progreso"><i id="estado-progreso"></i></span></span>
+      </div>
+      <button class="lateral-boton" id="abrir-portada" title="Ver la portada"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span>Ver la portada</span></button>
     </div>
-  </header>
+  </aside>
 
   <main>
     <!-- ================================================= PREDECIR ================================================= -->
@@ -120,12 +116,12 @@
             <select id="par-comparar" class="selector" hidden aria-label="Fases que se comparan">
               <option value="PRE|EARLY">PRE con EARLY</option><option value="EARLY|LATE">EARLY con LATE</option><option value="PRE|LATE">PRE con LATE</option>
             </select>
-            <button class="boton-herramienta" id="play" disabled title="Reproduce la llegada del contraste: PRE, EARLY y LATE">
-              <svg width="11" height="11" viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z" fill="currentColor"/></svg> Secuencia</button>
           </div>
           <div class="opciones-visor">
             <label class="interruptor"><input type="checkbox" id="ver-recorte" checked> Zona de interés</label>
             <label class="interruptor"><input type="checkbox" id="ver-lupa"> Lupa</label>
+            <button class="boton-herramienta" id="play" disabled title="Reproduce la llegada del contraste: PRE, EARLY y LATE">
+              <svg width="11" height="11" viewBox="0 0 12 12"><path d="M2 1l9 5-9 5z" fill="currentColor"/></svg> Secuencia</button>
           </div>
           <div class="visor" id="marco-visor">
             <canvas id="visor" width="256" height="256"></canvas>
@@ -249,7 +245,8 @@
     <section class="vista" id="vista-modelo" aria-label="Modelo">
       <header class="cabecera-vista">
         <h1>El modelo, en validación y en el test</h1>
-        <p class="resumen" id="kpis"></p>
+        <p class="resumen" id="kpis-texto"></p>
+        <div class="kpis" id="kpis"></div>
       </header>
       <nav class="indice" id="indice-modelo" aria-label="Secciones de la página">
         <button data-ir="comparacion">¿Añade algo la imagen?</button>
@@ -396,10 +393,6 @@
     </section>
   </main>
 
-  <footer class="pie-estado">
-    <span class="pastilla" id="estado"><span class="luz"></span><span id="estado-texto">Cargando…</span>
-      <span class="progreso"><i id="estado-progreso"></i></span></span>
-  </footer>
   <div class="descuadre" id="descuadre" role="tooltip"></div>
 
   <script src="datos/datos.js"></script>

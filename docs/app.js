@@ -23,7 +23,7 @@ const LADO = 256, RECORTE = 128, INI = (LADO - RECORTE) / 2, TAM_MAX = 5 * 1024 
 const FASES = ["PRE", "EARLY", "LATE"];
 const SEMILLAS = [42, 1, 2];
 const SIN_MOVIMIENTO = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-const ANOTACION = "#ffd23f";      // color de las anotaciones sobre la imagen (zona de interes)
+const ANOTACION = "#ff6a1f";      // color de las anotaciones sobre la imagen (zona de interes): el naranja de acento
 const MODELOS = ["recorte", "clinico", "combinado"];
 const NOMBRE_MODELO = { recorte: "CNN solo imagen", clinico: "solo datos clínicos", combinado: "imagen y datos clínicos" };
 const COLOR_MODELO = { recorte: "var(--m-cnn)", clinico: "var(--m-clin)", combinado: "var(--m-comb)" };
@@ -407,7 +407,7 @@ function dibujarVisor(datos, etiqueta, titulo = null) {
   if (tres) {
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, ancho, LADO);
     FASES.forEach((k, j) => pintarGris(ctx, estado.fases[k], origenes[j]));
-    ctx.fillStyle = "#3a424d";
+    ctx.fillStyle = "#2b2b30";
     for (let j = 1; j < FASES.length; j++) ctx.fillRect(origenes[j] - HUECO / 2 - 1, 0, 2, LADO);
   } else if (etiqueta === "REALCE") pintarRealce(ctx, estado.fases.PRE, estado.fases.EARLY);
   else if (etiqueta === "COMPARAR") pintarComparar(ctx);
@@ -771,7 +771,7 @@ function procesoMarcar(i, clase) {
 function llevarAlInforme() {
   const panel = document.querySelector(".panel-informe"), suave = SIN_MOVIMIENTO ? "auto" : "smooth";
   const r = panel.getBoundingClientRect();
-  if (r.top < 56 || r.top > window.innerHeight * 0.45) panel.scrollIntoView({ behavior: suave, block: "start" });
+  if (r.top < 0 || r.top > window.innerHeight * 0.45) panel.scrollIntoView({ behavior: suave, block: "start" });
   if (panel.scrollHeight > panel.clientHeight) panel.scrollTo({ top: 0, behavior: suave });
 }
 
@@ -1389,7 +1389,7 @@ function dibujarArquitectura() {
     const cx = paso * i + paso / 2, alto = 24 + 110 * Math.sqrt(q.l / 256), ancho = 10 + 46 * Math.sqrt(q.c / 128);
     const y0 = 95 - alto / 2;
     s("rect", { x: cx - ancho / 2, y: y0, width: ancho, height: alto, rx: 2,
-                style: i === 1 ? "fill:none;stroke:#ffd23f;stroke-dasharray:4 3;stroke-width:1.5"
+                style: i === 1 ? "fill:none;stroke:var(--naranja);stroke-dasharray:4 3;stroke-width:1.5"
                      : q.p ? "fill:var(--acento);fill-opacity:.12;stroke:var(--acento);stroke-opacity:.5"
                      : "fill:var(--texto-3);fill-opacity:.06;stroke:var(--texto-3);stroke-opacity:.6;stroke-dasharray:3 3",
                 "data-tip": `<b>${q.n}</b><br>${q.f}<br>${q.d}${q.p ? `<br>${q.p.toLocaleString("es-ES")} parámetros` : ""}` }, svg);
@@ -1473,15 +1473,39 @@ function pintarComparacion(conj) {
     <li>La CNN frente a los datos clínicos: ${frase("imagen - clinico")}.</li>`;
 }
 
+// Tarjetas de métricas: el test en grande; debajo, su intervalo (o qué es) y el valor en validación
+const ICONO_KPI = {
+  auc: '<path d="M4 4v16h16"/><path d="M4 20C7 11 12 6.5 20 4.5"/>',
+  sens: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',
+  esp: '<circle cx="12" cy="12" r="8"/><path d="M8.5 12h7"/>',
+  prec: '<circle cx="12" cy="12" r="5"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/>',
+  rec: '<path d="M19 12a7 7 0 0 1-12 5M5 12a7 7 0 0 1 12-5"/><path d="M17 3v4h-4M7 21v-4h4"/>',
+};
+function montarKpis(m, v, e, T) {
+  if (!T) {
+    $("kpis-texto").innerHTML = `En validación, con 1.097 pacientes, la CNN alcanza un AUC de <b>${coma(v.auc)}</b>.`;
+    return;
+  }
+  const u = T.con_el_umbral, vu = v.con_el_umbral, ic = u.ic95 || {};
+  $("kpis-texto").innerHTML = `En grande, el <b>test</b>: ${T.pacientes_n} pacientes que el modelo nunca vio, con el umbral ${coma(m.umbral)}. ` +
+    `Debajo, <b>validación</b>: 1.097 pacientes. Son ${m.redes.length} redes de ${miles(e.parametros)} parámetros, entrenadas desde cero.`;
+  const icono = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONO_KPI[k]}</svg>`;
+  const tarjeta = (k, nombre, valor, detalle, enValidacion) =>
+    `<article class="kpi"><div class="kpi-icono">${icono(k)}</div><div class="kpi-nombre">${nombre}</div><div class="kpi-valor">${valor}</div>` +
+    `<div class="kpi-detalle">${detalle}</div><div class="kpi-detalle">Validación: <b>${enValidacion}</b></div></article>`;
+  const icPct = (a) => (a ? `IC95 ${pct(a[0])} a ${pct(a[1])}` : "");
+  const aucIc = T.modelos.recorte.auc_ic95;
+  $("kpis").innerHTML =
+    tarjeta("auc", "AUC por paciente", coma(T.modelos.recorte.auc, 3), `IC95 ${coma(aucIc[0], 2)} a ${coma(aucIc[1], 2)}`, coma(v.auc, 3)) +
+    tarjeta("sens", "Sensibilidad", pct(u.sensibilidad), icPct(ic.sensibilidad), pct(vu.sensibilidad)) +
+    tarjeta("esp", "Especificidad", pct(u.especificidad), icPct(ic.especificidad), pct(vu.especificidad)) +
+    tarjeta("prec", "Precisión media", coma(u.precision_media, 2), "media de las dos clases", coma((vu.precision + vu.vpn) / 2, 2)) +
+    tarjeta("rec", "Recall medio", coma(u.recall_medio, 2), "media de las dos clases", coma((vu.sensibilidad + vu.especificidad) / 2, 2));
+}
+
 function montarModelo() {
   const m = D.modelo, v = m.metricas_validacion, e = m.entrenamiento, T = D.comparacion && D.comparacion.test;
-  $("kpis").innerHTML = T
-    ? `En las <b>${T.pacientes_n} pacientes del test</b>, que el modelo nunca vio, la CNN alcanza un AUC de <b>${coma(T.modelos.recorte.auc)}</b>
-       (IC95 de ${coma(T.modelos.recorte.auc_ic95[0], 2)} a ${coma(T.modelos.recorte.auc_ic95[1], 2)}), en línea con validación:
-       <b>${coma(v.auc)}</b> con 1.097 pacientes. Con el umbral ${coma(m.umbral)}, su precisión media y su recall medio son
-       <b>${coma(T.con_el_umbral.precision_media, 2)}</b> y <b>${coma(T.con_el_umbral.recall_medio, 2)}</b>. Son ${m.redes.length} redes de
-       ${miles(e.parametros)} parámetros, entrenadas desde cero.`
-    : `En validación, con 1.097 pacientes, la CNN alcanza un AUC de <b>${coma(v.auc)}</b>.`;
+  montarKpis(m, v, e, T);
   dibujarArquitectura();
   if (D.comparacion && D.comparacion.test && D.comparacion.validacion) {
     document.querySelectorAll("#selector-conjunto button").forEach((b) => b.addEventListener("click", () => pintarComparacion(b.dataset.conjunto)));
@@ -1575,11 +1599,6 @@ function iniciar() {
   $("franja-demo").hidden = !DEMO;
   document.querySelectorAll(".menu button").forEach((b) => b.addEventListener("click", () => cambiarVista(b.dataset.vista)));
   const inicial = location.hash.slice(1); if (["predecir", "modelo", "verificacion", "acerca"].includes(inicial)) cambiarVista(inicial);
-  $("tema").addEventListener("click", () => {
-    const claro = document.documentElement.dataset.theme !== "light";
-    if (claro) document.documentElement.dataset.theme = "light"; else delete document.documentElement.dataset.theme;
-    try { localStorage.setItem("tema", claro ? "light" : ""); } catch (e) {}
-  });
   // ranuras: un fichero va a su fase; varios a la vez se reparten por el nombre (o van al lote)
   document.querySelectorAll('.ranura input[type="file"]').forEach((input) => {
     const fase = input.dataset.fase, ranura = input.closest(".ranura");
