@@ -24,10 +24,9 @@ const FASES = ["PRE", "EARLY", "LATE"];
 const SEMILLAS = [42, 1, 2];
 const SIN_MOVIMIENTO = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const ANOTACION = "#ffd23f";      // color de las anotaciones sobre la imagen (zona de interes)
-const MODELOS = ["recorte", "clinico", "combinado", "solo_cohorte"];
-const NOMBRE_MODELO = { recorte: "CNN solo imagen", clinico: "solo datos clínicos", combinado: "imagen y datos clínicos",
-                        solo_cohorte: "solo cohorte" };
-const COLOR_MODELO = { recorte: "var(--m-cnn)", clinico: "var(--m-clin)", combinado: "var(--m-comb)", solo_cohorte: "var(--m-coh)" };
+const MODELOS = ["recorte", "clinico", "combinado"];
+const NOMBRE_MODELO = { recorte: "CNN solo imagen", clinico: "solo datos clínicos", combinado: "imagen y datos clínicos" };
+const COLOR_MODELO = { recorte: "var(--m-cnn)", clinico: "var(--m-clin)", combinado: "var(--m-comb)" };
 const NOMBRE_COHORTE = { duke: "Duke", spy1: "I-SPY1", spy2: "I-SPY2" };
 
 const estado = {
@@ -1404,26 +1403,26 @@ function dibujarArquitectura() {
   $("arq-nota").textContent = `${D.modelo.entrenamiento.parametros.toLocaleString("es-ES")} parámetros por red. Pasa el ratón por cada capa para ver qué hace.`;
 }
 
-// ---- validacion y test de los cuatro modelos ----
+// ---- validacion y test de los tres modelos ----
 function dibujarRocComparada(conj) {
   const svg = $("g-roc-comp"); vaciar(svg);
   const c = D.comparacion[conj];
   const marco = [40, 306, 10, 270], x = escala(0, 1, marco[0], marco[1]), y = escala(0, 1, marco[3], marco[2]);
   ejes(svg, { x, y, xt: [0, 0.5, 1], yt: [0, 0.5, 1], fx: (v) => coma(v, 1), fy: (v) => coma(v, 1), xl: "1 − especificidad", yl: "sensibilidad", marco });
   s("line", { x1: x(0), y1: y(0), x2: x(1), y2: y(1), style: "stroke:var(--texto-3);stroke-dasharray:2 3;opacity:.7" }, svg);
+  const jY = c.columnas.indexOf("pCR");
   [...MODELOS].reverse().forEach((n) => {
-    const j = MODELOS.indexOf(n), puntos = curvaRocDe(c.filas.map((f) => [f[j], f[4]]));
-    const discontinua = n === "solo_cohorte";
-    const linea = s("polyline", { points: puntos.map(([a, b]) => `${x(a)},${y(b)}`).join(" "), class: discontinua ? "" : "trazo",
-      style: `fill:none;stroke:${COLOR_MODELO[n]};stroke-width:${n === "recorte" ? 2.8 : 1.8}${discontinua ? ";stroke-dasharray:5 4" : ""}` }, svg);
-    if (!discontinua) linea.setAttribute("pathLength", "1");   // para animar el trazado al cambiar de conjunto
+    const j = c.columnas.indexOf(n), puntos = curvaRocDe(c.filas.map((f) => [f[j], f[jY]]));
+    const linea = s("polyline", { points: puntos.map(([a, b]) => `${x(a)},${y(b)}`).join(" "), class: "trazo",
+      style: `fill:none;stroke:${COLOR_MODELO[n]};stroke-width:${n === "recorte" ? 2.8 : 1.8}` }, svg);
+    linea.setAttribute("pathLength", "1");   // para animar el trazado al cambiar de conjunto
   });
   const u = c.con_el_umbral;
   s("circle", { cx: x(1 - u.especificidad), cy: y(u.sensibilidad), r: 6, style: "fill:var(--anotacion-texto);stroke:var(--consola);stroke-width:2.5",
                 "data-tip": `<b>CNN con el umbral ${coma(c.umbral, 3)}</b><br>sensibilidad ${pct(u.sensibilidad)}, especificidad ${pct(u.especificidad)}` }, svg);
   $("l-roc-comp").innerHTML = MODELOS.map((n) => {
     const m = c.modelos[n];
-    return `<span><i class="${n === "solo_cohorte" ? "discontinua" : "linea"}" style="--c:${COLOR_MODELO[n]}"></i>${NOMBRE_MODELO[n]} <b>${coma(m.auc, 3)}</b></span>`;
+    return `<span><i class="linea" style="--c:${COLOR_MODELO[n]}"></i>${NOMBRE_MODELO[n]} <b>${coma(m.auc, 3)}</b></span>`;
   }).join("");
 }
 
@@ -1471,7 +1470,6 @@ function pintarComparacion(conj) {
     return `<b>${conSigno(d.diferencia)}</b> (IC95 de ${conSigno(d.ic95[0])} a ${conSigno(d.ic95[1])}, ${excluye ? "significativo" : "no significativo"})`;
   };
   $("t-notas").innerHTML = `<li>Lo que la imagen añade a los datos clínicos: ${frase("imagen + clinico - clinico")}.</li>
-    <li>La CNN frente a solo saber el hospital: ${frase("imagen - solo cohorte")}.</li>
     <li>La CNN frente a los datos clínicos: ${frase("imagen - clinico")}.</li>`;
 }
 

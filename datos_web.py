@@ -7,9 +7,9 @@ fichero, sin servidor) con:
     validacion   las 1.097 pacientes de validacion: probabilidad calibrada (fuera de fold), pCR real, fold y cohorte
                  (para la curva ROC, el deslizador del umbral, la calibracion y el contexto del resultado)
     curvas       curvas de entrenamiento del modelo final (semilla 42, los 5 folds) con su referencia sin imagen
-    comparacion  validacion y TEST de los cuatro modelos de evaluar_test.py (CNN solo imagen, solo datos clinicos,
-                 imagen + datos clinicos, solo cohorte): metricas y la probabilidad de cada paciente (sin su
-                 identificador), para las curvas ROC y la tabla de la vista Modelo
+    comparacion  validacion y TEST de tres modelos de evaluar_test.py (CNN solo imagen, solo datos clinicos e
+                 imagen + datos clinicos): metricas y la probabilidad de cada paciente (sin su identificador), para las
+                 curvas ROC y la tabla de la vista Modelo. La referencia "solo cohorte" de evaluar_test.py no va a la app
     calidad      lo normal en los cortes de ENTRENAMIENTO, para el control de calidad de la app: el rango de brillo
                  medio de la zona de interes (recorte central de 128) en cada fase y en cuantos cortes PRE es la
                  fase mas oscura del tejido (lee los PNG: tarda alrededor de un minuto)
@@ -44,11 +44,11 @@ def checksum_pytorch(cfg: dict) -> str:
     return huella.hexdigest()[:16]
 
 
-MODELOS_COMPARADOS = ("recorte", "clinico", "combinado", "solo_cohorte")
+MODELOS_COMPARADOS = ("recorte", "clinico", "combinado")
 
 
 def comparacion(conjunto: str) -> dict | None:
-    """Metricas y probabilidades por paciente de los cuatro modelos (figuras/<conjunto>/, de evaluar_test.py)."""
+    """Metricas y probabilidades por paciente de los tres modelos (figuras/<conjunto>/, de evaluar_test.py)."""
     carpeta = RAIZ / "figuras" / conjunto
     if not (carpeta / "metricas.json").exists():
         return None
@@ -64,7 +64,7 @@ def comparacion(conjunto: str) -> dict | None:
         "modelos": {n: {k: m["modelos"][n][k] for k in ("auc", "auc_ic95", "ap", "brier")} for n in MODELOS_COMPARADOS},
         "con_el_umbral": {k: principal[k] for k in claves}, "umbral": m["umbrales"]["recorte"],
         "un_corte": {k: m["un_corte"]["recorte"][k] for k in ("auc", "sensibilidad", "especificidad")},
-        "diferencias": m["diferencias_auc"], "coeficientes_combinado": m.get("combinado_coeficientes"),
+        "diferencias": {k: v for k, v in m["diferencias_auc"].items() if "cohorte" not in k}, "coeficientes_combinado": m.get("combinado_coeficientes"),
         "cohortes": {c: {"pacientes": d["pacientes"], "pcr": d["pcr"],
                          **{n: {"auc": d[n]["auc"], "auc_ic95": d[n]["auc_ic95"]} for n in ("recorte", "clinico", "combinado")}}
                      for c, d in m["cohortes"].items()},
