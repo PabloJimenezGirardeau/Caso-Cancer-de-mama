@@ -69,7 +69,8 @@ probabilidades de Python.
 ├── mapas_gradcam.py         dónde mira el modelo (Grad-CAM)
 ├── curvas_entrenamiento.py  figuras de las curvas de entrenamiento
 ├── graficas.py              utilidades de gráficas
-├── exportar_web.py          modelos ONNX y ejemplos para la app (necesita PyTorch)
+├── exportar_web.py          modelos ONNX y cortes de la verificación de la app (necesita PyTorch)
+├── galeria_web.py           cortes de la galería de ejemplos de la app: el tumor se ve bien
 ├── datos_web.py             datos de la app (no necesita PyTorch)
 ├── descargar_datos.py       descarga el dataset
 ├── ver_muestras.py          visor de muestras del dataset
@@ -104,7 +105,8 @@ python predecir.py --verificar 20          # comprueba que el modelo reproduce l
 python predecir.py --muestra ISPY1_1001_z012
 python evaluar_test.py                     # ensayo con la validación; con --test, el test (una sola vez)
 python mapas_gradcam.py                    # Grad-CAM
-python exportar_web.py                     # la app: modelos ONNX y ejemplos
+python exportar_web.py                     # la app: modelos ONNX y cortes de la verificación
+python galeria_web.py                      # la app: cortes de la galería de ejemplos (sin PyTorch)
 python datos_web.py                        # la app: métricas, curvas y resultados
 ```
 

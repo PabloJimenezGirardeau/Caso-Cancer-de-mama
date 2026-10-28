@@ -9,6 +9,7 @@ navegador) y los datos de la calibracion y el umbral. Este script:
     3. elige cortes de ejemplo (pacientes de ENTRENAMIENTO: nunca del test) y guarda, para cada uno, la probabilidad que
        da `predecir.py`: la pagina la recalcula y la compara (verificacion de que es el mismo pipeline);
     4. guarda en docs/datos/web.js la lista de modelos, el checksum web y los ejemplos con su probabilidad de Python.
+       Estos cortes los usa la Verificacion de la app; la galeria de ejemplos usa los de galeria_web.py.
        (El umbral, la calibracion, las metricas y las curvas los escribe datos_web.py en docs/datos/datos.js.)
 
 Uso (en el PC, que tiene PyTorch):

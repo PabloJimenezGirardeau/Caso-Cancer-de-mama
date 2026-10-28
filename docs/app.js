@@ -9,13 +9,15 @@
  *   3. media de las 15, recorte a [1e-6, 1 - 1e-6] y calibracion de Platt: p = sigmoide(a*logit(media) + b);
  *   4. pCR = 1 si p >= umbral.
  *
- * Datos: window.DATOS (datos_web.py: metricas, validacion, test, curvas) y window.WEB (exportar_web.py:
- * modelos, ejemplos). MODO MAQUETA: abierta como fichero (o con ?demo) no se cargan los modelos y las predicciones son
+ * Datos: window.DATOS (datos_web.py: metricas, validacion, test, curvas), window.WEB (exportar_web.py:
+ * modelos y cortes de la Verificacion) y window.GALERIA (galeria_web.py: cortes de la galeria). MODO MAQUETA: abierta como fichero (o con ?demo) no se cargan los modelos y las predicciones son
  * inventadas, avisado con una franja; todo lo demas usa los datos reales.
  */
 
 const D = window.DATOS;
 const W = window.WEB || null;
+// Galería: cortes de entrenamiento donde el tumor se ve bien (galeria_web.py); si faltan, los de la Verificación
+const EJEMPLOS = window.GALERIA && window.GALERIA.ejemplos && window.GALERIA.ejemplos.length ? window.GALERIA.ejemplos : (W ? W.ejemplos : []);
 const DEMO = location.protocol === "file:" || new URLSearchParams(location.search).has("demo");
 const LADO = 256, RECORTE = 128, INI = (LADO - RECORTE) / 2, TAM_MAX = 5 * 1024 * 1024, TOLERANCIA = 1e-4;
 const FASES = ["PRE", "EARLY", "LATE"];
@@ -319,7 +321,7 @@ function mezcla(a, b, t) { const r = new Float32Array(a.length); for (let i = 0;
 
 function nombreMuestra() {
   if (estado.loteActivo !== null && estado.lote[estado.loteActivo]) return estado.lote[estado.loteActivo].clave;
-  if (estado.ejemploActivo !== null) return DEMO ? `Fantasma ${estado.ejemploActivo + 1}` : W.ejemplos[estado.ejemploActivo].sample_id;
+  if (estado.ejemploActivo !== null) return DEMO ? `Fantasma ${estado.ejemploActivo + 1}` : EJEMPLOS[estado.ejemploActivo].sample_id;
   const n = estado.nombres.EARLY || estado.nombres.PRE || "";
   return n.replace(/\.png$/i, "").replace(/[_\-\s.]?(PRE|EARLY|LATE)$/i, "").replace(/ \((PRE|EARLY|LATE)\)$/, "") || "Muestra";
 }
@@ -832,8 +834,8 @@ function resultadoInicial() {
 // las 3 de su fold no la vieron (para ellas era validación). Su media, calibrada con Platt igual que en la validación,
 // es la comprobación honesta.
 function comprobacionReal(r) {
-  if (DEMO || !W || estado.ejemploActivo === null || estado.loteActivo !== null) return null;
-  const e = W.ejemplos[estado.ejemploActivo];
+  if (DEMO || estado.ejemploActivo === null || estado.loteActivo !== null) return null;
+  const e = EJEMPLOS[estado.ejemploActivo];
   if (!e || r.probs.length !== 15) return null;
   const tres = r.probs.filter((_, j) => j % 5 === e.fold);
   const m = limitar(tres.reduce((a, b) => a + b, 0) / tres.length, 1e-6, 1 - 1e-6);
@@ -1043,6 +1045,7 @@ function fantasma(semilla) {   // corte sintetico (solo maqueta): mama, tejido f
 
 async function bajar(ruta) { const r = await fetch(ruta); if (!r.ok) throw new Error(`${ruta}: ${r.status}`); return r.arrayBuffer(); }
 
+const COHORTE = { spy1: "I-SPY1", spy2: "I-SPY2", duke: "Duke" };
 function montarGaleria() {
   const g = $("galeria"); g.innerHTML = "";
   if (DEMO) {
@@ -1058,12 +1061,12 @@ function montarGaleria() {
     }
     return;
   }
-  if (!W) { g.innerHTML = '<p class="ayuda" style="grid-column:1/-1">Los ejemplos se generan con exportar_web.py.</p>'; return; }
-  $("ejemplos-nota").textContent = "Pacientes de entrenamiento: la mayoría de las redes ya las vieron.";
-  W.ejemplos.forEach((e, i) => {
+  if (!EJEMPLOS.length) { g.innerHTML = '<p class="ayuda" style="grid-column:1/-1">Los ejemplos se generan con galeria_web.py.</p>'; return; }
+  $("ejemplos-nota").textContent = "Pacientes de entrenamiento en las que el tumor se ve bien, elegidas sin mirar lo que predice el modelo. La mayoría de las redes ya las vieron.";
+  EJEMPLOS.forEach((e, i) => {
     const b = document.createElement("button"); b.className = "ejemplo"; b.type = "button";
     b.innerHTML = `<img src="${e.rutas.EARLY}" alt="" loading="lazy"><span>pCR = ${e.pCR}</span>`;
-    b.title = `${e.sample_id}: pCR real = ${e.pCR}`;
+    b.title = `${e.sample_id}${e.cohorte ? ` (${COHORTE[e.cohorte] || e.cohorte})` : ""}: pCR real = ${e.pCR}`;
     b.setAttribute("aria-label", `Ejemplo ${e.sample_id}, pCR real ${e.pCR}`);
     b.addEventListener("click", async () => {
       mostrarErrores([]);
@@ -1124,9 +1127,9 @@ function animarPortada(fases, nombre) {
 }
 
 async function fasesDePortada() {
-  if (DEMO || !W || !W.ejemplos.length) return { fases: fantasma(1000), nombre: "Fantasma sintético" };
+  if (DEMO || !EJEMPLOS.length) return { fases: fantasma(1000), nombre: "Fantasma sintético" };
   try {
-    const e = W.ejemplos[0], f = {};
+    const e = EJEMPLOS[0], f = {};
     for (const k of FASES) f[k] = leerFase(await bajar(e.rutas[k]), k).x;
     return { fases: f, nombre: e.sample_id };
   } catch (err) { return { fases: fantasma(1000), nombre: "Fantasma sintético" }; }
