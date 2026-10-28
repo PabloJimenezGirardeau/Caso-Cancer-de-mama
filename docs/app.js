@@ -813,6 +813,35 @@ function resultadoInicial() {
   $("r-redes").textContent = "";
 }
 
+// Ejemplos (pacientes de entrenamiento): se conoce su pCR real. 12 de las 15 redes vieron a la paciente al entrenar;
+// las 3 de su fold no la vieron (para ellas era validación). Su media, calibrada con Platt igual que en la validación,
+// es la comprobación honesta.
+function comprobacionReal(r) {
+  if (DEMO || !W || estado.ejemploActivo === null || estado.loteActivo !== null) return null;
+  const e = W.ejemplos[estado.ejemploActivo];
+  if (!e || r.probs.length !== 15) return null;
+  const tres = r.probs.filter((_, j) => j % 5 === e.fold);
+  const m = limitar(tres.reduce((a, b) => a + b, 0) / tres.length, 1e-6, 1 - 1e-6);
+  const p3 = sigmoide(D.modelo.calibracion.a * Math.log(m / (1 - m)) + D.modelo.calibracion.b);
+  const real = e.pCR === 1, c15 = r.clase === "pCR", c3 = p3 >= D.modelo.umbral;
+  return { real, acierta15: c15 === real, p3, acierta3: c3 === real, clase3: c3, fold: e.fold };
+}
+
+function mostrarReal(r) {
+  const c = comprobacionReal(r);
+  $("r-real").hidden = !c;
+  r.real = c;
+  if (!c) return;
+  const v = $("r-veredicto");
+  v.className = `insignia-veredicto ${c.acierta15 ? "acierta" : "falla"}`;
+  v.textContent = c.acierta15 ? "✓ Acierta" : "✗ Falla";
+  $("r-real-texto").textContent = `pCR real = ${c.real ? 1 : 0}: ${c.real ? "tuvo respuesta completa" : "no tuvo respuesta completa"}.`;
+  $("r-real-nota").innerHTML = `Es una paciente de entrenamiento: 12 de las 15 redes la vieron al entrenar. Las 3 que no la vieron (fold ${c.fold}) ` +
+    `dan <b>${coma(c.p3, 3)}</b> calibrada, es decir, <b>pCR = ${c.clase3 ? 1 : 0}</b>: ` +
+    `${c.acierta3 === c.acierta15 ? "también " : "en cambio, "}${c.acierta3 ? "aciertan" : "fallan"}. ` +
+    "Así se midió el modelo en validación.";
+}
+
 function mostrarResultado(r, fases) {
   const u = D.modelo.umbral, pac = D.validacion.pacientes, pcr = r.clase === "pCR";
   $("resultado-vacio").hidden = true; $("proceso").hidden = true; $("resultado").hidden = false;
@@ -824,6 +853,7 @@ function mostrarResultado(r, fases) {
   $("r-clase-texto").textContent = pcr ? "respuesta completa probable" : "respuesta completa poco probable";
   $("r-frase").textContent = `La probabilidad calibrada ${pcr ? "supera el" : "queda por debajo del"} umbral de ${coma(u, 3)}.`;
   medidor(r.probabilidad, u);
+  mostrarReal(r);
   const menores = pac.filter(([p]) => p < r.probabilidad).length;
   $("r-percentil").textContent = `Arriba, las 1.097 pacientes de validación. Esta muestra supera la probabilidad del ${pct(menores / pac.length)} de ellas.`;
   const cerca = pac.filter(([p]) => Math.abs(p - r.probabilidad) <= 0.02);
@@ -849,7 +879,8 @@ function mostrarResultado(r, fases) {
 function anadirHistorial(r, fases, nombreDado = null) {
   const n = estado.historial.length + 1, hora = new Date().toLocaleTimeString("es-ES");
   const nombre = nombreDado || nombreMuestra();
-  const fila = { n, hora, nombre, probabilidad: r.probabilidad, clase: r.clase, ms: r.segundos * 1000, checksum: DEMO ? "maqueta" : estado.checksumWeb };
+  const fila = { n, hora, nombre, probabilidad: r.probabilidad, clase: r.clase, ms: r.segundos * 1000, checksum: DEMO ? "maqueta" : estado.checksumWeb,
+                 real: r.real ? (r.real.real ? 1 : 0) : null, acierta: r.real ? r.real.acierta15 : null };
   estado.historial.push(fila);
   const tbody = $("historial");
   if (n === 1) tbody.innerHTML = "";
@@ -859,14 +890,16 @@ function anadirHistorial(r, fases, nombreDado = null) {
   const celda = td(""); const c = document.createElement("canvas"); c.width = c.height = LADO; pintarGris(c.getContext("2d"), fases.EARLY); celda.appendChild(c); tr.append(celda);
   tr.append(td(escapar(nombre)), td(coma(r.probabilidad, 3), "num"),
             td(`<span class="punto-clase" style="--c:var(${r.clase === "pCR" ? "--pcr" : "--nopcr"})">${r.clase === "pCR" ? "pCR = 1" : "pCR = 0"}</span>`),
+            td(fila.real === null ? "—" : `${fila.real} <span class="${fila.acierta ? "acierta" : "falla"}">${fila.acierta ? "✓ acierta" : "✗ falla"}</span>`),
             td(DEMO ? "—" : `${coma(fila.ms, 0)} ms`, "num"), td(fila.checksum, "mono"));
   tbody.prepend(tr);
   $("descargar").disabled = false; $("vaciar").disabled = false;
 }
 
 function descargarHistorial() {
-  const filas = [["n", "hora", "muestra", "probabilidad", "clase", "umbral", "tiempo_ms", "checksum"]];
-  for (const h of estado.historial) filas.push([h.n, h.hora, h.nombre, coma(h.probabilidad, 6), h.clase === "pCR" ? "pCR=1" : "pCR=0", coma(D.modelo.umbral, 6), DEMO ? "" : coma(h.ms, 0), h.checksum]);
+  const filas = [["n", "hora", "muestra", "probabilidad", "clase", "umbral", "pcr_real", "acierta", "tiempo_ms", "checksum"]];
+  for (const h of estado.historial) filas.push([h.n, h.hora, h.nombre, coma(h.probabilidad, 6), h.clase === "pCR" ? "pCR=1" : "pCR=0", coma(D.modelo.umbral, 6),
+    h.real === null ? "" : h.real, h.acierta === null ? "" : (h.acierta ? "si" : "no"), DEMO ? "" : coma(h.ms, 0), h.checksum]);
   const csv = filas.map((f) => f.join(";")).join("\r\n");
   const bom = String.fromCharCode(0xfeff);   // para que Excel lea bien las tildes
   const a = document.createElement("a");
@@ -1454,7 +1487,7 @@ function iniciar() {
   window.addEventListener("resize", () => { if (estado.fases && estado.faseVisor === "COMPARAR") dibujarVisor(null, "COMPARAR"); });
   // historial y verificacion
   $("descargar").addEventListener("click", descargarHistorial);
-  $("vaciar").addEventListener("click", () => { estado.historial = []; $("historial").innerHTML = '<tr><td colspan="8" class="vacio">Aún no hay predicciones en esta sesión.</td></tr>'; $("descargar").disabled = true; $("vaciar").disabled = true; });
+  $("vaciar").addEventListener("click", () => { estado.historial = []; $("historial").innerHTML = '<tr><td colspan="9" class="vacio">Aún no hay predicciones en esta sesión.</td></tr>'; $("descargar").disabled = true; $("vaciar").disabled = true; });
   $("verificar").addEventListener("click", verificar);
   // portada
   $("portada-empezar").addEventListener("click", () => cerrarPortada("predecir"));

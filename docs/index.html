@@ -170,6 +170,11 @@
             </section>
             <svg class="escala" id="g-medidor" viewBox="0 0 360 86" role="img" aria-label="Probabilidad frente al umbral y a las pacientes de validación"></svg>
             <p class="escala-nota" id="r-percentil"></p>
+            <section class="informe-bloque" id="r-real" hidden>
+              <h3>Resultado real</h3>
+              <p class="real-veredicto"><span class="insignia-veredicto" id="r-veredicto"></span><span id="r-real-texto"></span></p>
+              <p class="real-nota" id="r-real-nota"></p>
+            </section>
             <section class="informe-bloque">
               <h3>Hallazgos</h3>
               <ul class="hallazgos" id="r-hallazgos"></ul>
@@ -230,8 +235,8 @@
           <div class="botones botones-tira"><button class="boton boton-secundario" id="descargar" disabled>Descargar CSV</button>
             <button class="boton boton-secundario" id="vaciar" disabled>Vaciar</button></div></div>
         <div class="tabla-contenedor">
-          <table><thead><tr><th>Nº</th><th>Hora</th><th></th><th>Muestra</th><th>Probabilidad</th><th>Clase</th><th>Tiempo</th><th>Checksum</th></tr></thead>
-            <tbody id="historial"><tr><td colspan="8" class="vacio">Aún no hay predicciones en esta sesión.</td></tr></tbody></table>
+          <table><thead><tr><th>Nº</th><th>Hora</th><th></th><th>Muestra</th><th>Probabilidad</th><th>Clase</th><th>pCR real</th><th>Tiempo</th><th>Checksum</th></tr></thead>
+            <tbody id="historial"><tr><td colspan="9" class="vacio">Aún no hay predicciones en esta sesión.</td></tr></tbody></table>
         </div>
       </section>
     </section>
