@@ -1150,7 +1150,6 @@ function fantasma(semilla) {   // corte sintetico (solo maqueta): mama, tejido f
 
 async function bajar(ruta) { const r = await fetch(ruta); if (!r.ok) throw new Error(`${ruta}: ${r.status}`); return r.arrayBuffer(); }
 
-const COHORTE = { spy1: "I-SPY1", spy2: "I-SPY2", duke: "Duke" };
 function montarGaleria() {
   const g = $("galeria"); g.innerHTML = "";
   if (DEMO) {
@@ -1171,7 +1170,7 @@ function montarGaleria() {
   EJEMPLOS.forEach((e, i) => {
     const b = document.createElement("button"); b.className = "ejemplo"; b.type = "button";
     b.innerHTML = `<img src="${e.rutas.EARLY}" alt="" loading="lazy"><span>pCR = ${e.pCR}</span>`;
-    b.title = `${e.sample_id}${e.cohorte ? ` (${COHORTE[e.cohorte] || e.cohorte})` : ""}: pCR real = ${e.pCR}`;
+    b.title = `${e.sample_id}${e.cohorte ? ` (${NOMBRE_COHORTE[e.cohorte] || e.cohorte})` : ""}: pCR real = ${e.pCR}`;
     b.setAttribute("aria-label", `Ejemplo ${e.sample_id}, pCR real ${e.pCR}`);
     b.addEventListener("click", async () => {
       mostrarErrores([]);
@@ -1310,8 +1309,10 @@ function actualizarUmbral(u) {
   const m = metricasUmbral(u);
   $("u-matriz").innerHTML = matrizHtml(m.vn, m.fp, m.fn, m.vp);
   const tarjeta = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
+  // las mismas seis que la matriz del test, para compararlas de un vistazo (las medias son de las dos clases)
   $("u-metricas").innerHTML = tarjeta("sensibilidad", pct(m.sens)) + tarjeta("especificidad", pct(m.esp)) + tarjeta("precisión", pct(m.prec)) +
-                              tarjeta("VPN", pct(m.vpn)) + tarjeta("F1 equilibrada", coma(m.f1eq, 2)) + tarjeta("accuracy", pct(m.acc));
+                              tarjeta("precisión media", coma((m.prec + m.vpn) / 2, 2)) + tarjeta("recall medio", coma((m.sens + m.esp) / 2, 2)) +
+                              tarjeta("F1 media", coma(m.f1eq, 2));
   dibujarRoc(u);
   histograma($("g-distribucion"), 440, 190, u);
 }
@@ -1332,10 +1333,14 @@ function dibujarCalibracion() {
   s("text", { class: "marca-texto", x: x(lim * 0.04), y: y(lim * 0.92), texto: `Brier ${coma(brier, 4)} (sin mirar la imagen: ${coma(D.modelo.metricas_validacion.brier_referencia, 4)})` }, svg);
 }
 
+const PACIENCIA = 10;   // parada.py: épocas seguidas sin superar el máximo de la validación suavizada
+// Media móvil centrada de 3 épocas, como parada.suavizar (en los bordes, lo que haya)
+const suavizar = (v) => v.map((_, i) => mediaDe(v.slice(Math.max(0, i - 1), i + 2)));
+
 function dibujarCurvas(k) {
   const c = D.curvas[k];
   document.querySelectorAll("#selector-fold button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.fold) === k)));
-  const pintar = (svg, a, b, ref, etiqueta, fy, ylim) => {
+  const pintar = (svg, a, b, ref, etiqueta, fy, ylim, conSuavizada = false) => {
     vaciar(svg);
     const marco = [58, 332, 12, 180], ep = c.epocas, xmax = ep[ep.length - 1];
     const todos = [...c[a], ...c[b], ref];
@@ -1345,16 +1350,26 @@ function dibujarCurvas(k) {
     const xt = [1, Math.round(xmax / 2), xmax];
     ejes(svg, { x, y, xt, yt, fx: (v) => String(v), fy, xl: "época", yl: etiqueta, marco });
     s("line", { x1: marco[0], x2: marco[1], y1: y(ref), y2: y(ref), style: "stroke:var(--texto-3);stroke-dasharray:4 3" }, svg);
+    const finPaciencia = Math.min(c.elegida + PACIENCIA, xmax);       // la última época solo completa la media de la anterior
+    s("rect", { x: x(c.elegida), y: marco[2], width: x(finPaciencia) - x(c.elegida), height: marco[3] - marco[2], style: "fill:var(--texto-3);opacity:.12" }, svg);
+    if (conSuavizada) s("text", { x: (x(c.elegida) + x(finPaciencia)) / 2, y: marco[3] - 7, "text-anchor": "middle", texto: `${PACIENCIA} épocas sin mejorar` }, svg);
     s("line", { x1: x(c.elegida), x2: x(c.elegida), y1: marco[2], y2: marco[3], style: "stroke:var(--texto);stroke-width:1.5;opacity:.6" }, svg);
     for (const [clave, color] of [[a, "var(--nopcr)"], [b, "var(--pcr)"]]) {
       s("polyline", { points: ep.map((e, j) => `${x(e)},${y(c[clave][j])}`).join(" "), style: `fill:none;stroke:${color};stroke-width:2` }, svg);
     }
+    const suave = conSuavizada ? suavizar(c[b]) : null;
+    if (suave) {
+      s("polyline", { points: ep.map((e, j) => `${x(e)},${y(suave[j])}`).join(" "), style: "fill:none;stroke:var(--pcr);stroke-width:1.5;stroke-dasharray:4 3" }, svg);
+      const j = ep.indexOf(c.elegida);
+      if (j >= 0) s("circle", { cx: x(c.elegida), cy: y(suave[j]), r: 4, style: "fill:var(--pcr);stroke:var(--consola);stroke-width:2" }, svg);
+    }
     ep.forEach((e, j) => s("rect", { x: x(e) - 6, y: marco[2], width: 12, height: marco[3] - marco[2], style: "fill:transparent",
-      "data-tip": `<b>época ${e}</b>${e === c.elegida ? " (elegida)" : ""}<br>entrenamiento ${coma(c[a][j], 3)}, validación ${coma(c[b][j], 3)}` }, svg));
+      "data-tip": `<b>época ${e}</b>${e === c.elegida ? " (elegida)" : ""}<br>entrenamiento ${coma(c[a][j], 3)}, validación ${coma(c[b][j], 3)}` +
+                  (suave ? `<br>validación suavizada ${coma(suave[j], 3)}` : "") }, svg));
   };
   pintar($("g-perdida"), "perdida_train", "perdida_val", c.referencia_val, "pérdida", (v) => coma(v, 3));
   pintar($("g-auc"), "auc_train", "auc_val", 0.5, "AUC por paciente", (v) => coma(v, 2),
-         [Math.min(0.4, ...c.auc_train, ...c.auc_val), Math.max(0.8, ...c.auc_train)]);
+         [Math.min(0.4, ...c.auc_train, ...c.auc_val), Math.max(0.8, ...c.auc_train)], true);
 }
 
 function dibujarArquitectura() {
@@ -1438,34 +1453,12 @@ function dibujarBosque(conj) {    // AUC con su IC95 en validacion y en test, po
   });
 }
 
-function dibujarCohortesComparadas(conj) {
-  const svg = $("g-cohortes-comp"); vaciar(svg);
-  const c = D.comparacion[conj], cohortes = ["duke", "spy1", "spy2"], n3 = ["recorte", "clinico", "combinado"];
-  const marco = [40, 1290, 14, 140], y = escala(0.2, 1, marco[3], marco[2]);
-  const ge = s("g", { class: "eje" }, svg), gr = s("g", { class: "rejilla" }, svg);
-  for (const v of [0.2, 0.5, 0.8, 1]) { s("line", { x1: marco[0], x2: marco[1], y1: y(v), y2: y(v) }, gr); s("text", { x: marco[0] - 6, y: y(v) + 4, "text-anchor": "end", texto: coma(v, 1) }, ge); }
-  s("line", { x1: marco[0], x2: marco[1], y1: y(0.5), y2: y(0.5), style: "stroke:var(--texto-3);stroke-dasharray:4 3" }, svg);
-  const grupo = (marco[1] - marco[0]) / cohortes.length, ancho = 64;
-  cohortes.forEach((k, i) => {
-    const d = c.cohortes[k], centro = marco[0] + grupo * (i + 0.5);
-    s("text", { class: "marca-texto", x: centro, y: marco[3] + 18, "text-anchor": "middle", texto: NOMBRE_COHORTE[k] }, svg);
-    s("text", { x: centro, y: marco[3] + 34, "text-anchor": "middle", texto: `${d.pacientes} pacientes, ${d.pcr} con pCR` }, svg);
-    n3.forEach((n, j) => {
-      const m = d[n], xb = centro + (j - 1) * (ancho + 10) - ancho / 2, auc = limitar(m.auc, 0.2, 1);
-      s("rect", { x: xb, y: y(auc), width: ancho, height: Math.max(1, y(0.2) - y(auc)), rx: 1, style: `fill:${COLOR_MODELO[n]};opacity:.85`,
-                  "data-tip": `<b>${NOMBRE_COHORTE[k]}</b>, ${NOMBRE_MODELO[n]}<br>AUC ${coma(m.auc, 3)} (IC95 ${coma(m.auc_ic95[0], 2)} a ${coma(m.auc_ic95[1], 2)})` }, svg);
-      s("text", { x: xb + ancho / 2, y: y(auc) - 4, "text-anchor": "middle", texto: coma(m.auc, 2) }, svg);
-    });
-  });
-}
-
 function pintarComparacion(conj) {
   estado.conjunto = conj;
   document.querySelectorAll("#selector-conjunto button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.conjunto === conj)));
   const c = D.comparacion[conj];
   dibujarRocComparada(conj);
   dibujarBosque(conj);
-  dibujarCohortesComparadas(conj);
   const u = c.con_el_umbral;
   $("t-matriz").innerHTML = matrizHtml(u.VN, u.FP, u.FN, u.VP);
   const tarjeta = (k, v) => `<div><span>${k}</span><b>${v}</b></div>`;
@@ -1506,6 +1499,11 @@ function montarModelo() {
   }));
   actualizarUmbral(m.umbral);
   dibujarCalibracion();
+  // índice de la vista Modelo: lleva a cada sección
+  document.querySelectorAll("#indice-modelo [data-ir]").forEach((b) => b.addEventListener("click",
+    () => $(b.dataset.ir).scrollIntoView({ behavior: SIN_MOVIMIENTO ? "auto" : "smooth", block: "start" })));
+  window.addEventListener("scroll", marcarIndice, { passive: true });
+  marcarIndice();
   $("selector-fold").innerHTML = D.curvas.map((c) => `<button data-fold="${c.fold}" aria-pressed="false">fold ${c.fold}</button>`).join("");
   document.querySelectorAll("#selector-fold button").forEach((b) => b.addEventListener("click", () => dibujarCurvas(Number(b.dataset.fold))));
   dibujarCurvas(0);
@@ -1560,6 +1558,18 @@ function cambiarVista(v) {
   document.querySelectorAll(".menu button").forEach((b) => { if (b.dataset.vista === v) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
   try { history.replaceState(null, "", `#${v}`); } catch (e) {}
   window.scrollTo({ top: 0 });
+  marcarIndice();
+}
+
+// Índice de la vista Modelo: marca la sección en la que estás (la última cuyo título ya ha pasado bajo el índice)
+function marcarIndice() {
+  if (!$("vista-modelo").classList.contains("activa")) return;
+  const enlaces = [...document.querySelectorAll("#indice-modelo [data-ir]")];
+  const alFinal = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+  let actual = enlaces[0];
+  for (const b of enlaces) if ($(b.dataset.ir).getBoundingClientRect().top <= 140) actual = b;
+  if (alFinal) actual = enlaces[enlaces.length - 1];
+  enlaces.forEach((b) => b.setAttribute("aria-current", String(b === actual)));
 }
 
 function iniciar() {

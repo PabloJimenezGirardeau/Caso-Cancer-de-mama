@@ -251,6 +251,12 @@
         <h1>El modelo, en validación y en el test</h1>
         <p class="resumen" id="kpis"></p>
       </header>
+      <nav class="indice" id="indice-modelo" aria-label="Secciones de la página">
+        <button data-ir="comparacion">¿Añade algo la imagen?</button>
+        <button data-ir="arquitectura">Arquitectura</button>
+        <button data-ir="umbral">Umbral y calibración</button>
+        <button data-ir="entrenamiento">Entrenamiento</button>
+      </nav>
 
       <section class="bloque" id="comparacion">
         <div class="bloque-cabecera">
@@ -277,19 +283,16 @@
             <div class="metricas-umbral" id="t-metricas"></div>
           </div>
         </div>
-        <h3 class="separado">AUC por cohorte</h3>
-        <svg class="grafica" id="g-cohortes-comp" viewBox="0 0 1300 190" role="img" aria-label="AUC por cohorte"></svg>
-        <div class="leyenda"><span><i style="--c:var(--m-cnn)"></i>CNN solo imagen</span><span><i style="--c:var(--m-clin)"></i>solo datos clínicos</span><span><i style="--c:var(--m-comb)"></i>imagen y datos clínicos</span></div>
       </section>
 
-      <section class="bloque">
+      <section class="bloque" id="arquitectura">
         <div class="bloque-cabecera"><h2>Arquitectura</h2><span class="ayuda" id="arq-nota"></span></div>
         <div class="tabla-contenedor"><svg class="grafica" id="g-arquitectura" viewBox="0 0 1100 230" role="img" aria-label="Arquitectura de la red"></svg></div>
       </section>
 
-      <section class="bloque dos">
+      <section class="bloque dos" id="umbral">
         <div>
-          <div class="bloque-cabecera"><h2>Umbral</h2><span class="ayuda">validación, por paciente</span></div>
+          <div class="bloque-cabecera"><h2>Umbral</h2><span class="ayuda">validación, 1.097 pacientes</span></div>
           <div class="deslizador">
             <div class="deslizador-cabecera"><label for="u-deslizador">Mueve el umbral</label><b id="u-valor">0,316</b></div>
             <input type="range" id="u-deslizador" min="0.08" max="0.55" step="0.001" value="0.316">
@@ -304,22 +307,25 @@
           </div>
         </div>
         <div>
-          <div class="bloque-cabecera"><h2>Distribución</h2></div>
+          <div class="bloque-cabecera"><h2>Distribución</h2><span class="ayuda">validación, 1.097 pacientes</span></div>
           <svg class="grafica" id="g-distribucion" viewBox="0 0 440 190" role="img" aria-label="Distribución por clase"></svg>
           <div class="leyenda"><span><i style="--c:var(--nopcr)"></i>pCR = 0</span><span><i style="--c:var(--pcr)"></i>pCR = 1</span></div>
-          <div class="bloque-cabecera separado"><h2>Calibración</h2><span class="ayuda">diez grupos por probabilidad</span></div>
+          <div class="bloque-cabecera separado"><h2>Calibración</h2><span class="ayuda">validación, 1.097 pacientes, en diez grupos</span></div>
           <svg class="grafica" id="g-calibracion" viewBox="0 0 440 210" role="img" aria-label="Calibración"></svg>
         </div>
       </section>
 
-      <section class="bloque dos">
+      <section class="bloque dos" id="entrenamiento">
         <div>
           <div class="bloque-cabecera"><h2>Curvas de entrenamiento</h2><div class="segmentos" id="selector-fold"></div></div>
           <div class="dos dos-interno">
             <svg class="grafica" id="g-perdida" viewBox="0 0 340 220" role="img" aria-label="Pérdida por época"></svg>
             <svg class="grafica" id="g-auc" viewBox="0 0 340 220" role="img" aria-label="AUC por época"></svg>
           </div>
-          <div class="leyenda"><span><i class="linea" style="--c:var(--nopcr)"></i>entrenamiento, medido como validación</span><span><i class="linea" style="--c:var(--pcr)"></i>validación</span><span><i class="discontinua" style="--c:var(--texto-3)"></i>sin mirar la imagen o azar</span><span><i class="vertical" style="--c:var(--texto)"></i>época elegida</span></div>
+          <div class="leyenda"><span><i class="linea" style="--c:var(--nopcr)"></i>entrenamiento, medido como validación</span><span><i class="linea" style="--c:var(--pcr)"></i>validación</span><span><i class="discontinua" style="--c:var(--texto-3)"></i>sin mirar la imagen o azar</span><span><i class="vertical" style="--c:var(--texto)"></i>época elegida</span><span><i class="discontinua" style="--c:var(--pcr)"></i>validación suavizada (media de 3 épocas)</span><span><i class="zona"></i>10 épocas sin mejorar</span></div>
+          <p class="nota-parada">Parada temprana: se vigila el AUC de validación suavizado (cada época con la anterior y la siguiente). La época
+            elegida es la de su máximo; tras 10 épocas sin superarlo se para, y la red se queda con los pesos de la época elegida. Curvas de la
+            semilla 42.</p>
         </div>
         <div>
           <div class="bloque-cabecera"><h2>Entrenamiento</h2></div>

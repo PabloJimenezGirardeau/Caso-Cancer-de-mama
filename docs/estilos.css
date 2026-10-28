@@ -452,6 +452,16 @@ tbody tr:hover td { background: var(--acento-suave); }
 .leyenda i.linea { width: 16px; height: 2px; }
 .leyenda i.discontinua { width: 16px; height: 0; border-top: 2px dashed var(--c); background: none; }
 .leyenda i.vertical { width: 2px; height: 12px; }
+.leyenda i.zona { width: 14px; height: 10px; background: var(--texto-3); opacity: .35; }
+.nota-parada { max-width: 75ch; margin: 10px 0 0; font-size: 14px; color: var(--texto-3); }
+/* índice de la vista Modelo: se queda bajo la barra al bajar por la página y marca la sección en la que estás */
+.indice { position: sticky; top: 56px; z-index: 15; display: flex; gap: 28px; height: 44px; margin: 0 -24px; padding: 0 24px;
+  background: var(--consola); border-bottom: 1px solid var(--linea); }
+.indice button { padding: 0; border: 0; background: none; cursor: pointer; font: inherit; font-size: 14px; font-weight: 500; color: var(--texto-3); white-space: nowrap; }
+.indice button:hover { color: var(--texto); }
+.indice button[aria-current="true"] { color: var(--texto); box-shadow: inset 0 -2px 0 var(--anotacion-texto); }
+.indice + .bloque { border-top: 0; }
+#vista-modelo .bloque { scroll-margin-top: 100px; }
 .leyenda p { flex-basis: 100%; margin: 4px 0 0; color: var(--texto-3); }
 .leyenda p b, #r-redes b { color: var(--texto); }
 .descuadre {
