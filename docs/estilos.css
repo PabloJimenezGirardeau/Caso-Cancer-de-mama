@@ -308,10 +308,18 @@ td .falla { color: var(--error); font-weight: 700; }
 .proceso li.hecho .marca-paso::after { content: "✓"; }
 @keyframes latido { 0% { box-shadow: 0 0 0 0 rgba(255, 210, 63, .45); } 100% { box-shadow: 0 0 0 9px rgba(255, 210, 63, 0); } }
 /* cada paso despliega su imagen cuando se ejecuta y la conserva al terminar */
-.paso-visual { margin-top: 8px; }
-.proceso li:not(.activo):not(.hecho) .paso-visual { display: none; }
-.proceso li.activo .paso-visual { animation: desplegar .35s ease both; }
+/* el pliegue se abre poco a poco: los pasos siguientes bajan con suavidad en vez de dar un salto */
+.pv-pliegue { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows .5s cubic-bezier(.2, .8, .2, 1), opacity .4s ease .1s; }
+.pv-pliegue > .paso-visual { min-height: 0; overflow: hidden; padding-top: 8px; }
+.proceso li.activo .pv-pliegue, .proceso li.hecho .pv-pliegue { grid-template-rows: 1fr; opacity: 1; }
 @keyframes desplegar { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+/* al terminar: los pasos se desvanecen y el informe entra con un fundido */
+.proceso { transition: opacity .3s ease; }
+.proceso.saliendo { opacity: 0; }
+#resultado.entrando { animation: entrar .5s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes entrar { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.resultado-vacio { transition: color .3s ease; }
+.resultado-vacio.calculando { color: var(--anotacion-texto); }
 .pv-lectura { display: flex; gap: 6px; }
 .pv-lectura figure { margin: 0; display: grid; gap: 2px; justify-items: center; animation: desplegar .3s ease both; }
 .pv-lectura figure:nth-child(2) { animation-delay: .12s; }

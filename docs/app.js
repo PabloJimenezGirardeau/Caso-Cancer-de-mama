@@ -36,7 +36,7 @@ const estado = {
   ejemploActivo: null,         // indice del ejemplo cargado (o null si se subio a mano)
   faseVisor: "EARLY", animando: null, historial: [],
   cortina: 0.5, par: ["PRE", "EARLY"], arrastrando: false, puntero: null,
-  foco: false,                 // durante el cálculo, el visor oscurece lo que queda fuera de la zona de interés
+  foco: 0,                     // durante el cálculo, cuánto se oscurece lo que queda fuera de la zona de interés (0 a 1)
   lote: [], loteActivo: null, procesando: false, conjunto: "test", portada: null,
 };
 
@@ -348,8 +348,8 @@ function dibujarVisor(datos, etiqueta, titulo = null) {
   if (etiqueta === "REALCE") pintarRealce(ctx, estado.fases.PRE, estado.fases.EARLY);
   else if (etiqueta === "COMPARAR") pintarComparar(ctx);
   else pintarGris(ctx, datos || estado.fases[etiqueta]);
-  if (estado.foco) {      // mientras se calcula: solo cuenta la zona de interés, el resto se oscurece
-    ctx.save(); ctx.fillStyle = "rgba(0, 0, 0, .68)";
+  if (estado.foco > 0) {      // mientras se calcula: solo cuenta la zona de interés, el resto se oscurece
+    ctx.save(); ctx.fillStyle = `rgba(0, 0, 0, ${0.68 * estado.foco})`;
     ctx.fillRect(0, 0, LADO, INI); ctx.fillRect(0, INI + RECORTE, LADO, LADO - INI - RECORTE);
     ctx.fillRect(0, INI, INI, RECORTE); ctx.fillRect(INI + RECORTE, INI, LADO - INI - RECORTE, RECORTE); ctx.restore();
   }
@@ -664,8 +664,19 @@ function procesoReposo() {
   vaciar($("pv-redes")); vaciar($("pv-decision")); $("pv-cuenta").textContent = "";
 }
 function procesoIniciar() {
-  $("resultado").hidden = true; $("resultado-vacio").hidden = true;
+  $("resultado").hidden = true;
+  const aviso = $("resultado-vacio");      // la frase se queda en su sitio (nada salta) y cambia a "calculando"
+  aviso.hidden = false; aviso.textContent = "Calculando con las quince redes…"; aviso.classList.add("calculando");
   procesoReposo();
+  $("proceso").classList.remove("saliendo");
+}
+function fundirFoco(hasta, ms) {
+  const desde = estado.foco;
+  return new Promise((listo) => animar(ms, (k) => {
+    estado.foco = desde + (hasta - desde) * k;
+    if (estado.fases) dibujarVisor(null, estado.faseVisor);
+    if (k >= 1) listo();
+  }));
 }
 function procesoMarcar(i, clase) {
   const li = document.querySelector(`#proceso [data-paso="${i}"]`);
@@ -775,21 +786,22 @@ async function predecir() {
     $("r-muestra").textContent = `${nombreMuestra()}: calculando…`;
     llevarAlInforme();
     procesoMarcar(0, "activo"); pvLectura(fases); await esperar(t(650)); procesoMarcar(0, "hecho");
-    procesoMarcar(1, "activo"); estado.foco = true; dibujarVisor(null, estado.faseVisor);
+    procesoMarcar(1, "activo"); fundirFoco(1, t(500));
     await pvRecorte(fases, t(900)); await esperar(t(200)); procesoMarcar(1, "hecho");
     procesoMarcar(2, "activo");
     const r = await predecirCorte(fases, { alRed: pvRedesIniciar(), pausa: t(75) });
-    await esperar(t(250)); procesoMarcar(2, "hecho"); estado.foco = false; dibujarVisor(null, estado.faseVisor);
+    await esperar(t(250)); procesoMarcar(2, "hecho"); fundirFoco(0, t(500));
     procesoMarcar(3, "activo"); await pvCalibracion(r, t(800)); await esperar(t(200)); procesoMarcar(3, "hecho");
     procesoMarcar(4, "activo");
     $("proceso-decision").textContent = `${r.clase === "pCR" ? "pCR = 1" : "pCR = 0"}: ${coma(r.probabilidad, 3)} frente al umbral ${coma(D.modelo.umbral, 3)}`;
     await pvDecision(r, t(800)); await esperar(t(650)); procesoMarcar(4, "hecho");
-    $("proceso").hidden = true;
+    $("proceso").classList.add("saliendo"); await esperar(t(300));
     mostrarResultado(r, fases);
+    const res = $("resultado"); res.classList.remove("entrando"); void res.offsetWidth; res.classList.add("entrando");
     anadirHistorial(r, fases);
     llevarAlInforme();
   } catch (e) {
-    console.error(e); estado.foco = false; procesoReposo(); $("resultado-vacio").hidden = false;
+    console.error(e); estado.foco = 0; resultadoInicial();
     mostrarErrores([`No se ha podido calcular la predicción (${e.message}).`]);
   } finally {
     estado.procesando = false;
@@ -800,7 +812,10 @@ async function predecir() {
 
 // Antes de la primera prediccion: el contexto (sin marca) y una nota en la seccion de las 15 redes
 function resultadoInicial() {
-  $("resultado").hidden = true; procesoReposo(); $("resultado-vacio").hidden = false; $("r-hora").textContent = "";
+  $("resultado").hidden = true; procesoReposo(); $("proceso").classList.remove("saliendo");
+  const aviso = $("resultado-vacio");
+  aviso.hidden = false; aviso.classList.remove("calculando"); aviso.textContent = "Carga las tres fases de un corte, o elige un ejemplo, y pulsa Predecir.";
+  $("r-hora").textContent = "";
   histograma($("g-contexto"), 360, 170, D.modelo.umbral);
   $("r-contexto").innerHTML = `Así se reparten las probabilidades de las 1.097 pacientes de validación; el ${pct(PREVALENCIA)} tuvo pCR. ` +
                               "Al predecir, una línea marcará dónde cae la muestra.";
