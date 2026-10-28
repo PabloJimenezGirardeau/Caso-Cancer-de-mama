@@ -147,11 +147,16 @@
           <p class="resultado-vacio" id="resultado-vacio">Carga las tres fases de un corte, o elige un ejemplo, y pulsa Predecir.</p>
           <div class="proceso" id="proceso">
             <ol>
-              <li data-paso="0"><span class="marca-paso"></span><div><b>Lectura</b><small>Tres PNG en escala de grises, como en Python</small></div></li>
-              <li data-paso="1"><span class="marca-paso"></span><div><b>Recorte</b><small>Los 128 × 128 píxeles centrales</small></div></li>
-              <li data-paso="2"><span class="marca-paso"></span><div><b>Quince redes</b><small>Tres semillas por cada uno de los cinco folds</small><div class="proceso-redes" id="proceso-redes"></div></div></li>
-              <li data-paso="3"><span class="marca-paso"></span><div><b>Calibración</b><small>Media de las quince y escalado de Platt</small></div></li>
-              <li data-paso="4"><span class="marca-paso"></span><div><b>Decisión</b><small id="proceso-decision">Umbral</small></div></li>
+              <li data-paso="0"><span class="marca-paso"></span><div><b>Lectura</b><small>Tres PNG en escala de grises, como en Python</small>
+                <div class="paso-visual pv-lectura" id="pv-lectura"></div></div></li>
+              <li data-paso="1"><span class="marca-paso"></span><div><b>Recorte</b><small>Los 128 × 128 píxeles centrales: lo único que mira la red</small>
+                <div class="paso-visual"><canvas class="pv-recorte" id="pv-recorte" width="256" height="256"></canvas></div></div></li>
+              <li data-paso="2"><span class="marca-paso"></span><div><b>Quince redes</b><small>Tres semillas por cada uno de los cinco folds</small>
+                <div class="paso-visual"><svg class="pv-redes" id="pv-redes" viewBox="0 0 300 92" aria-hidden="true"></svg><span class="pv-nota" id="pv-cuenta"></span></div></div></li>
+              <li data-paso="3"><span class="marca-paso"></span><div><b>Calibración</b><small>Media de las quince y escalado de Platt</small>
+                <div class="paso-visual pv-calibracion" id="pv-calibracion"></div></div></li>
+              <li data-paso="4"><span class="marca-paso"></span><div><b>Decisión</b><small id="proceso-decision">Con el umbral 0,316</small>
+                <div class="paso-visual"><svg class="pv-decision" id="pv-decision" viewBox="0 0 300 46" aria-hidden="true"></svg></div></div></li>
             </ol>
           </div>
           <div id="resultado" hidden>

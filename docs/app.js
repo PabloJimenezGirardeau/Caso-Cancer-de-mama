@@ -36,6 +36,7 @@ const estado = {
   ejemploActivo: null,         // indice del ejemplo cargado (o null si se subio a mano)
   faseVisor: "EARLY", animando: null, historial: [],
   cortina: 0.5, par: ["PRE", "EARLY"], arrastrando: false, puntero: null,
+  foco: false,                 // durante el cálculo, el visor oscurece lo que queda fuera de la zona de interés
   lote: [], loteActivo: null, procesando: false, conjunto: "test", portada: null,
 };
 
@@ -347,6 +348,11 @@ function dibujarVisor(datos, etiqueta, titulo = null) {
   if (etiqueta === "REALCE") pintarRealce(ctx, estado.fases.PRE, estado.fases.EARLY);
   else if (etiqueta === "COMPARAR") pintarComparar(ctx);
   else pintarGris(ctx, datos || estado.fases[etiqueta]);
+  if (estado.foco) {      // mientras se calcula: solo cuenta la zona de interés, el resto se oscurece
+    ctx.save(); ctx.fillStyle = "rgba(0, 0, 0, .68)";
+    ctx.fillRect(0, 0, LADO, INI); ctx.fillRect(0, INI + RECORTE, LADO, LADO - INI - RECORTE);
+    ctx.fillRect(0, INI, INI, RECORTE); ctx.fillRect(INI + RECORTE, INI, LADO - INI - RECORTE, RECORTE); ctx.restore();
+  }
   pintarRecorte(ctx);
   ponerAnotaciones(etiqueta, titulo);
   const partes = [];
@@ -648,13 +654,14 @@ function mostrarErrores(lista) {
 }
 
 // ---- el proceso, paso a paso, mientras se predice ----
-// Los cinco pasos del cálculo: en gris mientras no hay predicción; se encienden uno a uno al predecir
+// Los cinco pasos del cálculo: en gris mientras no hay predicción. Al predecir, cada paso despliega lo que pasa con
+// esta muestra: las tres fases, el recorte, la probabilidad de cada red, la calibración y la decisión frente al umbral.
 function procesoReposo() {
   $("proceso").hidden = false;
   document.querySelectorAll("#proceso [data-paso]").forEach((li) => li.classList.remove("activo", "hecho"));
-  $("proceso-redes").innerHTML = Array.from({ length: 15 }, (_, i) =>
-    `<i data-red="${i}" title="fold ${i % 5}, semilla ${SEMILLAS[Math.floor(i / 5)]}"></i>`).join("");
   $("proceso-decision").textContent = `Con el umbral ${coma(D.modelo.umbral, 3)}`;
+  ["pv-lectura", "pv-calibracion"].forEach((id) => { $(id).innerHTML = ""; });
+  vaciar($("pv-redes")); vaciar($("pv-decision")); $("pv-cuenta").textContent = "";
 }
 function procesoIniciar() {
   $("resultado").hidden = true; $("resultado-vacio").hidden = true;
@@ -664,10 +671,95 @@ function procesoMarcar(i, clase) {
   const li = document.querySelector(`#proceso [data-paso="${i}"]`);
   li.classList.remove("activo", "hecho"); li.classList.add(clase);
 }
-async function procesoPaso(i, ms) { procesoMarcar(i, "activo"); if (ms) await esperar(ms); procesoMarcar(i, "hecho"); }
-function procesoRed(i, p) {
-  const punto = document.querySelector(`#proceso-redes [data-red="${i}"]`);
-  if (punto) { punto.classList.add("hecha"); punto.title += `: ${coma(p, 3)}`; }
+
+// Al pulsar Predecir: el informe a la vista (a la derecha en pantallas grandes, debajo del visor en las demás)
+function llevarAlInforme() {
+  const panel = document.querySelector(".panel-informe"), suave = SIN_MOVIMIENTO ? "auto" : "smooth";
+  const r = panel.getBoundingClientRect();
+  if (r.top < 56 || r.top > window.innerHeight * 0.45) panel.scrollIntoView({ behavior: suave, block: "start" });
+  if (panel.scrollHeight > panel.clientHeight) panel.scrollTo({ top: 0, behavior: suave });
+}
+
+function pvLectura(fases) {
+  $("pv-lectura").innerHTML = "";
+  for (const k of FASES) {
+    const fig = document.createElement("figure"), c = document.createElement("canvas");
+    c.width = c.height = LADO; pintarGris(c.getContext("2d"), fases[k]);
+    fig.append(c); fig.insertAdjacentHTML("beforeend", `<figcaption>${k}</figcaption>`);
+    $("pv-lectura").append(fig);
+  }
+}
+
+// La miniatura de EARLY hace zoom hasta el cuadrado central de 128 × 128
+function pvRecorte(fases, ms) {
+  const fuente = document.createElement("canvas"); fuente.width = fuente.height = LADO;
+  pintarGris(fuente.getContext("2d"), fases.EARLY);
+  const ctx = $("pv-recorte").getContext("2d");
+  return new Promise((listo) => {
+    animar(ms, (k) => {
+      const lado = LADO - k * RECORTE, o = k * INI;
+      ctx.drawImage(fuente, o, o, lado, lado, 0, 0, LADO, LADO);
+      const a = (INI - o) * LADO / lado, b = RECORTE * LADO / lado;      // el cuadrado, en coordenadas del lienzo
+      ctx.save(); ctx.strokeStyle = ANOTACION; ctx.lineWidth = 3; ctx.setLineDash([10, 8]);
+      ctx.strokeRect(a + 1.5, a + 1.5, b - 3, b - 3); ctx.restore();
+      if (k >= 1) listo();
+    });
+  });
+}
+
+// Una barra por red, agrupadas por fold (tres semillas en cada grupo), que crecen hasta su probabilidad al terminar
+// cada red; la línea amarilla es la media de las que van
+function pvRedesIniciar() {
+  const svg = $("pv-redes"); vaciar(svg);
+  const y = escala(0, 0.6, 74, 6), base = y(0), ancho = 12, hueco = 3, grupo = 3 * ancho + 2 * hueco, sep = (292 - 34 - 5 * grupo) / 4;
+  const xBarra = (i) => 34 + (i % 5) * (grupo + sep) + Math.floor(i / 5) * (ancho + hueco);
+  const ge = s("g", { class: "eje" }, svg), gr = s("g", { class: "rejilla" }, svg);
+  for (const v of [0, 0.3, 0.6]) {
+    s("line", { x1: 30, x2: 292, y1: y(v), y2: y(v) }, gr);
+    s("text", { x: 26, y: y(v) + 3, "text-anchor": "end", texto: coma(v, 1) }, ge);
+  }
+  for (let k = 0; k < 5; k++) s("text", { x: 34 + k * (grupo + sep) + grupo / 2, y: 87, "text-anchor": "middle", texto: `fold ${k}` }, ge);
+  const media = s("line", { x1: 30, x2: 292, y1: base, y2: base, style: "stroke:var(--anotacion-texto);stroke-width:2;opacity:0" }, svg);
+  const etiqueta = s("text", { x: 292, y: base - 4, "text-anchor": "end", style: "fill:var(--anotacion-texto);font-weight:700;opacity:0", texto: "" }, svg);
+  const probs = [];
+  $("pv-cuenta").textContent = "0 de 15 redes";
+  return (i, p) => {
+    probs.push(p);
+    const barra = s("rect", { x: xBarra(i), width: ancho, y: base, height: 0, rx: 1, style: "fill:var(--texto)" }, svg);
+    barra.appendChild(s("title", { texto: `fold ${i % 5}, semilla ${SEMILLAS[Math.floor(i / 5)]}: ${coma(p, 3)}` }));
+    const alto = base - y(Math.min(p, 0.6));
+    animar(320, (k) => { barra.setAttribute("y", base - alto * k); barra.setAttribute("height", alto * k); });
+    const m = probs.reduce((a, b) => a + b, 0) / probs.length;
+    media.setAttribute("y1", y(m)); media.setAttribute("y2", y(m)); media.style.opacity = 1;
+    etiqueta.setAttribute("y", y(m) - 4); etiqueta.textContent = `media ${coma(m, 3)}`; etiqueta.style.opacity = 1;
+    svg.appendChild(media); svg.appendChild(etiqueta);       // la media, siempre por encima de las barras
+    $("pv-cuenta").textContent = `${probs.length} de 15 redes`;
+  };
+}
+
+function pvCalibracion(r, ms) {
+  $("pv-calibracion").innerHTML = `<span>media de las redes</span><b>${coma(r.media, 3)}</b><i>→</i><span>calibrada</span><b id="pv-calibrada">${coma(r.media, 3)}</b>`;
+  return new Promise((listo) => animar(ms, (k) => {
+    $("pv-calibrada").textContent = coma(r.media + (r.probabilidad - r.media) * k, 3);
+    if (k >= 1) listo();
+  }));
+}
+
+// Barra de 0 a 1: la marca se desliza hasta la probabilidad calibrada, frente al umbral
+function pvDecision(r, ms) {
+  const svg = $("pv-decision"); vaciar(svg);
+  const u = D.modelo.umbral, x = escala(0, 1, 8, 292), yb = 22;
+  s("line", { x1: 8, x2: x(u), y1: yb, y2: yb, style: "stroke:var(--nopcr);stroke-width:6;stroke-linecap:round" }, svg);
+  s("line", { x1: x(u), x2: 292, y1: yb, y2: yb, style: "stroke:var(--pcr);stroke-width:6;stroke-linecap:round" }, svg);
+  s("line", { x1: x(u), x2: x(u), y1: yb - 9, y2: yb + 9, style: "stroke:var(--texto-2);stroke-width:1.5" }, svg);
+  s("text", { x: x(u), y: yb + 22, "text-anchor": "middle", texto: `umbral ${coma(u, 3)}` }, svg);
+  s("text", { x: 8, y: yb + 22, texto: "0" }, svg); s("text", { x: 292, y: yb + 22, "text-anchor": "end", texto: "1" }, svg);
+  const g = s("g", {}, svg);
+  s("circle", { cx: 0, cy: yb, r: 7, style: "fill:var(--texto);stroke:var(--panel);stroke-width:2" }, g);
+  return new Promise((listo) => animar(ms, (k) => {
+    g.setAttribute("transform", `translate(${x(r.probabilidad * k)} 0)`);
+    if (k >= 1) listo();
+  }));
 }
 
 async function predecir() {
@@ -677,26 +769,31 @@ async function predecir() {
   estado.procesando = true;
   const boton = $("predecir");
   boton.classList.add("calculando"); boton.disabled = true;
-  const lento = !SIN_MOVIMIENTO;
+  const lento = !SIN_MOVIMIENTO, t = (ms) => (lento ? ms : 0);
   try {
     procesoIniciar();
-    await procesoPaso(0, lento ? 220 : 0);
-    await procesoPaso(1, lento ? 220 : 0);
+    $("r-muestra").textContent = `${nombreMuestra()}: calculando…`;
+    llevarAlInforme();
+    procesoMarcar(0, "activo"); pvLectura(fases); await esperar(t(650)); procesoMarcar(0, "hecho");
+    procesoMarcar(1, "activo"); estado.foco = true; dibujarVisor(null, estado.faseVisor);
+    await pvRecorte(fases, t(900)); await esperar(t(200)); procesoMarcar(1, "hecho");
     procesoMarcar(2, "activo");
-    const r = await predecirCorte(fases, { alRed: procesoRed, pausa: lento ? 45 : 0 });
-    procesoMarcar(2, "hecho");
-    await procesoPaso(3, lento ? 200 : 0);
+    const r = await predecirCorte(fases, { alRed: pvRedesIniciar(), pausa: t(75) });
+    await esperar(t(250)); procesoMarcar(2, "hecho"); estado.foco = false; dibujarVisor(null, estado.faseVisor);
+    procesoMarcar(3, "activo"); await pvCalibracion(r, t(800)); await esperar(t(200)); procesoMarcar(3, "hecho");
+    procesoMarcar(4, "activo");
     $("proceso-decision").textContent = `${r.clase === "pCR" ? "pCR = 1" : "pCR = 0"}: ${coma(r.probabilidad, 3)} frente al umbral ${coma(D.modelo.umbral, 3)}`;
-    await procesoPaso(4, lento ? 320 : 0);
+    await pvDecision(r, t(800)); await esperar(t(650)); procesoMarcar(4, "hecho");
     $("proceso").hidden = true;
     mostrarResultado(r, fases);
     anadirHistorial(r, fases);
-    if (estado.fases) dibujarVisor(null, estado.faseVisor);
+    llevarAlInforme();
   } catch (e) {
-    console.error(e); procesoReposo(); $("resultado-vacio").hidden = false;
+    console.error(e); estado.foco = false; procesoReposo(); $("resultado-vacio").hidden = false;
     mostrarErrores([`No se ha podido calcular la predicción (${e.message}).`]);
   } finally {
     estado.procesando = false;
+    if (estado.fases) dibujarVisor(null, estado.faseVisor);
     boton.classList.remove("calculando"); actualizarBotonPredecir();
   }
 }
