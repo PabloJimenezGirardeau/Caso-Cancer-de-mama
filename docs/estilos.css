@@ -450,7 +450,7 @@ tbody tr:hover td { background: var(--acento-suave); }
 .matriz { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); gap: 6px; font-size: 12px; }
 .matriz .celda { padding: 12px 8px; border: 1px solid var(--linea); border-radius: 12px; background: var(--panel-2); text-align: center; color: var(--texto-3); }
 .matriz .celda b { display: block; font-size: 24px; font-weight: 700; color: var(--texto); }
-.matriz .celda.acierto { background: color-mix(in srgb, var(--ok) 9%, var(--panel-2)); border-color: color-mix(in srgb, var(--ok) 26%, transparent); }
+.matriz .celda.acierto { background: color-mix(in srgb, var(--naranja) 13%, var(--panel-2)); border-color: color-mix(in srgb, var(--naranja) 42%, transparent); }
 .matriz .cab { display: grid; place-items: center; padding: 2px 4px; color: var(--texto-3); text-align: center; }
 .metricas-umbral { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
 .metricas-umbral div { padding: 8px 11px; border: 1px solid var(--linea); border-radius: 12px; background: var(--panel-2); }
