@@ -5,7 +5,7 @@ navegador) y los datos de la calibracion y el umbral. Este script:
     1. convierte cada modelo de PyTorch a ONNX (en modo evaluacion; el recorte central va dentro del modelo), con dos
        salidas: el logit y el MAPA de donde mira la red (Grad-CAM, ver ConMapa);
     2. comprueba con onnxruntime que cada ONNX da EXACTAMENTE lo mismo que PyTorch sobre cortes reales, y que el mapa
-       coincide con el Grad-CAM calculado con autograd (el de mapas_gradcam.py);
+       coincide con el Grad-CAM calculado con autograd (el de analisis/mapas_gradcam.py);
     3. elige cortes de ejemplo (pacientes de ENTRENAMIENTO: nunca del test) y guarda, para cada uno, la probabilidad que
        da `predecir.py`: la pagina la recalcula y la compara (verificacion de que es el mismo pipeline);
     4. guarda en docs/datos/web.js la lista de modelos, el checksum web y los ejemplos con su probabilidad de Python.
@@ -83,7 +83,7 @@ class ConMapa(torch.nn.Module):
 
 
 def gradcam_autograd(red: torch.nn.Module, x: torch.Tensor) -> torch.Tensor:
-    """Grad-CAM con signo calculado con autograd (como mapas_gradcam.py, antes de la ReLU): para comprobar ConMapa."""
+    """Grad-CAM con signo calculado con autograd (como analisis/mapas_gradcam.py, antes de la ReLU): para comprobar ConMapa."""
     guardado = {}
     gancho = red.extractor[3][2].register_forward_hook(lambda _m, _e, salida: guardado.__setitem__("a", salida))
     t = x.clone().requires_grad_(True)

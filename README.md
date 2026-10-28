@@ -4,7 +4,8 @@ Una red convolucional propia, entrenada desde cero en PyTorch, estima la probabi
 a la quimioterapia neoadyuvante a partir de **un solo corte** de resonancia magnética con contraste dinámico (DCE), tomado antes
 del tratamiento. Trabajo académico sobre el conjunto de datos **BreastDCEDL**.
 
-**App:** https://pablojimenezgirardeau.github.io/Caso-Cancer-de-mama/
+**App:** https://pablojimenezgirardeau.github.io/Caso-Cancer-de-mama/ · **Decisiones:** [`notas/DECISIONES.md`](notas/DECISIONES.md) ·
+**Licencia:** [CC BY-NC 4.0](LICENSE)
 
 > Uso exclusivamente educativo. Sin validez clínica: no debe usarse para tomar decisiones sobre pacientes.
 
@@ -37,57 +38,68 @@ AUC por paciente (intervalo de confianza del 95 % en el test):
 | **CNN solo imagen (principal)** | **0,573** | **0,591** (0,50-0,68) |
 | Solo datos clínicos | 0,704 | 0,695 |
 | Imagen y datos clínicos | 0,710 | 0,705 |
-| Solo cohorte (referencia) | 0,523 | 0,544 |
 
 Con el umbral, en el test: sensibilidad 30 %, especificidad 76 %, precisión 35 % y, de media en las dos clases, precisión 0,53,
-recall 0,53 y F1 0,53. El test se evaluó **una sola vez**, con el modelo ya cerrado (`figuras/test/`). La imagen apenas añade a los
-datos clínicos (+0,010 en el test). Según Grad-CAM, la red mira sobre todo la zona del tumor, aunque no solo: el 41 % de su mapa
-cae en la caja del tumor, frente al 34 % de un mapa uniforme.
-
-Cada decisión, con sus cifras y su justificación, está en [`notas/DECISIONES.md`](notas/DECISIONES.md).
+recall 0,53 y F1 0,53 (en validación: 41 %, 70 %, 36 % y 0,55 / 0,56 / 0,55). El test se evaluó **una sola vez**, con el modelo ya
+cerrado ([`figuras/test/`](figuras/test/)). La imagen apenas añade a los datos clínicos (+0,010 en el test). Según Grad-CAM, la red
+mira sobre todo la zona del tumor, aunque no solo: el 41 % de su mapa cae en la caja del tumor, frente al 34 % de un mapa uniforme.
 
 ## La app
 
-Página estática en GitHub Pages (carpeta `docs/`). Las 15 redes, exportadas a ONNX, se ejecutan **en el navegador** con
-ONNX Runtime Web, con la misma lectura de los PNG que en Python. Permite cargar una muestra o elegir un ejemplo, ver las tres fases y
-el realce, y muestra la probabilidad, la clase, el umbral, el checksum del modelo, el dispositivo, el tiempo de respuesta y los
-resultados de validación y test. La vista **Verificación** comprueba que la página reproduce las
-probabilidades de Python.
+Página estática en GitHub Pages (carpeta [`docs/`](docs/)). Las 15 redes, exportadas a ONNX, se ejecutan **en el navegador** con
+ONNX Runtime Web, con la misma lectura de los PNG que en Python; las imágenes no salen del ordenador de quien la usa.
+
+- **Predecir:** una casilla para cada fase (PRE, EARLY y LATE; el nombre del fichero da igual) o un ejemplo de la galería. Visor con
+  las fases, las tres a la vez, el realce y un comparador. El informe da la probabilidad, la clase, el umbral, si la decisión
+  aguanta un 10 % más o menos de brillo, el control de calidad de la entrada (formato, orden de las fases, brillo frente al
+  entrenamiento), el checksum del modelo, el dispositivo y el tiempo de respuesta. Historial de la sesión descargable en CSV.
+- **Modelo:** métricas de validación y test, comparación con los datos clínicos, arquitectura, umbral, calibración y curvas de
+  entrenamiento con la parada temprana.
+- **Verificación:** comprueba que la página reproduce las probabilidades de Python en doce cortes (diferencia máxima 5·10⁻⁸).
+- **Acerca de:** qué es la pCR, cómo funciona el modelo y sus limitaciones.
+
+Los ejemplos de la galería son pacientes de **entrenamiento** (nunca del test): la mayoría de las redes ya las vieron, así que no
+miden el rendimiento.
 
 ## Estructura
 
 ```
-├── utils_caso.py            lectura del dataset y de los PNG
-├── modelos.py               la red (RedBase)
-├── parada.py                parada temprana y elección de la época
-├── entrenar.py              entrena una red (un fold y una semilla)
-├── umbral.py                agregación, calibración de Platt y umbral, con la validación
-├── predecir.py              el modelo final: 15 redes, calibración y umbral (lo usan el test y la app)
-├── evaluar_test.py          validación y test: CNN, datos clínicos, combinación y referencia
-├── clinicas.py              variables clínicas de la comparación
-├── cajas_tumor.py           caja del tumor llevada a los PNG
-├── mapas_gradcam.py         dónde mira el modelo (Grad-CAM)
-├── curvas_entrenamiento.py  figuras de las curvas de entrenamiento
-├── graficas.py              utilidades de gráficas
-├── exportar_web.py          modelos ONNX y cortes de la verificación de la app (necesita PyTorch)
-├── galeria_web.py           cortes de la galería de ejemplos de la app: el tumor se ve bien
-├── datos_web.py             datos de la app (no necesita PyTorch)
-├── descargar_datos.py       descarga el dataset
-├── ver_muestras.py          visor de muestras del dataset
-├── analisis/                análisis puntuales: comparación de experimentos, cohortes, estabilidad, control positivo...
-├── modelo/                  el modelo final: 15 pesos .pt, predicciones de validación y umbral_final.json
-├── referencia/              curvas por época de todos los experimentos
-├── figuras/                 figuras de validación, test, entrenamiento, Grad-CAM y estabilidad
-├── docs/                    la app web (GitHub Pages)
-├── documentation/           material del caso
-├── notas/                   DECISIONES.md y HOJA_DE_RUTA.md
-├── GUIA.md                  guía del caso
-└── requirements.txt
+├── docs/                la app web (GitHub Pages): index.html, app.js, estilos.css, modelos/ (ONNX), datos/ y ejemplos/
+├── modelo/              el modelo final: 15 pesos .pt, sus predicciones de validación y umbral_final.json
+├── figuras/             figuras de datos, entrenamiento, validación, test, Grad-CAM y estabilidad
+├── referencia/          curvas por época de todos los experimentos
+├── analisis/            estudios puntuales: comparación de experimentos, cohortes, estabilidad, Grad-CAM...
+├── notas/               DECISIONES.md (cada decisión, con sus cifras) y HOJA_DE_RUTA.md
+├── documentation/       enunciado oficial y figuras del caso (material del curso)
+├── GUIA.md              guía del caso (material del curso)
+├── *.py                 los scripts del proyecto (tabla de abajo)
+├── requirements.txt
+└── LICENSE
 ```
+
+| Etapa | Script | Qué hace |
+|---|---|---|
+| Datos | `descargar_datos.py` | descarga el dataset en `breastdcedl/` (material del curso) |
+| | `utils_caso.py` | lectura del dataset, de los folds y de los PNG (material del curso) |
+| | `ver_muestras.py` | visor de muestras del dataset (material del curso) |
+| | `cajas_tumor.py` | la caja del tumor de `patients.csv`, llevada a los PNG |
+| Entrenamiento | `modelos.py` | la red (`RedBase`) |
+| | `parada.py` | parada temprana y elección de la época |
+| | `entrenar.py` | entrena una red (un fold y una semilla) |
+| | `curvas_entrenamiento.py`, `graficas.py` | figuras de las curvas y utilidades de gráficas |
+| Modelo final | `umbral.py` | calibración de Platt y umbral, con la validación |
+| | `predecir.py` | el modelo final: 15 redes, calibración y umbral (lo usan el test y la app) |
+| Evaluación | `clinicas.py` | variables clínicas del modelo de comparación |
+| | `evaluar_test.py` | validación y test: CNN, datos clínicos y combinación |
+| App | `exportar_web.py` | modelos ONNX y cortes de la verificación (necesita PyTorch) |
+| | `datos_web.py` | métricas, curvas y rango de brillo del entrenamiento (sin PyTorch) |
+| | `galeria_web.py` | galería de ejemplos (sin PyTorch) |
 
 Los datos (`breastdcedl/`) y las salidas intermedias de los entrenamientos (`resultados/`) no se suben al repositorio.
 
 ## Cómo reproducirlo
+
+Python 3.12 o posterior. PyTorch se instala según el hardware (ver la nota de [`requirements.txt`](requirements.txt)).
 
 ```bash
 pip install -r requirements.txt
@@ -104,13 +116,14 @@ python umbral.py                           # calibración y umbral con la valida
 python predecir.py --verificar 20          # comprueba que el modelo reproduce la validación
 python predecir.py --muestra ISPY1_1001_z012
 python evaluar_test.py                     # ensayo con la validación; con --test, el test (una sola vez)
-python mapas_gradcam.py                    # Grad-CAM
+
 python exportar_web.py                     # la app: modelos ONNX y cortes de la verificación
-python galeria_web.py                      # la app: cortes de la galería de ejemplos (sin PyTorch)
-python datos_web.py                        # la app: métricas, curvas y resultados
+python datos_web.py                        # la app: métricas, curvas y resultados (lee los PNG: un minuto)
+python galeria_web.py                      # la app: galería de ejemplos
 ```
 
-Los scripts de `analisis/` se ejecutan desde la raíz, por ejemplo `python analisis/comparar.py bn_normal_c128_lr3e-05`.
+Los scripts de `analisis/` se ejecutan desde la raíz, por ejemplo `python analisis/comparar.py bn_normal_c128_lr3e-05` o
+`python analisis/mapas_gradcam.py`.
 
 ## Limitaciones
 
@@ -119,6 +132,7 @@ Los scripts de `analisis/` se ejecutan desde la raíz, por ejemplo `python anali
 - Sensible al brillo de la imagen; probado solo con PNG del conjunto BreastDCEDL.
 - Tres cohortes con escáneres y protocolos distintos, sin armonizar.
 
-## Datos
+## Datos y licencia
 
-BreastDCEDL (Fridman y colaboradores). Consulta la licencia del conjunto de datos en su fuente oficial antes de reutilizarlo.
+Imágenes desidentificadas derivadas de **BreastDCEDL** (Fridman y colaboradores), con licencia CC BY-NC 4.0: uso docente y de
+investigación. Este repositorio se publica con la misma licencia, [CC BY-NC 4.0](LICENSE).

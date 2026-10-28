@@ -1025,7 +1025,7 @@ imagen + clínico frente a clínico: Duke 0,731 / 0,739, I-SPY1 0,805 / 0,784, I
    cuando en validación daba 0,62; en Duke va mejor que el modelo clínico. Muestras muy pequeñas; coherente con la sensibilidad al
    brillo y al escáner ya documentada. No se toca nada después del test.
 
-### Dónde mira el modelo final: Grad-CAM (2026-10-26, `mapas_gradcam.py`, `figuras/mapas/`)
+### Dónde mira el modelo final: Grad-CAM (2026-10-26, `analisis/mapas_gradcam.py`, `figuras/mapas/`)
 
 Descriptivo, después del test (no se decide nada con esto). Grad-CAM sobre la ReLU del último bloque (128 @ 16×16 sobre el
 cuadrado central), hacia la clase predicha, normalizado a [0, 1] y promediado entre redes.

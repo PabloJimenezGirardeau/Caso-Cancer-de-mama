@@ -15,9 +15,9 @@ Dos partes:
     2. FIGURA de los cuatro casos del TEST que ya muestra evaluar_test.py (el acierto y el fallo mas claros de cada clase),
        con las 15 redes, como en la app. Es descriptivo: el test ya esta evaluado y aqui no se decide nada.
 
-Uso (en el PC; necesita PyTorch):
-    python mapas_gradcam.py           GPU si la hay
-    python mapas_gradcam.py --cpu     en la CPU (si la GPU se cuelga; tarda un par de minutos)
+Uso (en el PC, desde la raiz del proyecto; necesita PyTorch):
+    python analisis/mapas_gradcam.py           GPU si la hay
+    python analisis/mapas_gradcam.py --cpu     en la CPU (si la GPU se cuelga; tarda un par de minutos)
 
 Salida en figuras/mapas/:
     gradcam_casos_test.png    los cuatro casos: imagen con la caja del tumor, mapa encima y realce
@@ -29,8 +29,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
 
 import numpy as np
 import pandas as pd
@@ -43,7 +46,7 @@ import utils_caso as uc
 from cajas_tumor import caja_en_png
 from predecir import ModeloFinal, cargar_corte
 
-RAIZ = Path(__file__).resolve().parent
+RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
 LADO, RECORTE = 256, 128
 INI = (LADO - RECORTE) // 2                 # el cuadrado central va de la fila/columna 64 a la 191
 COHORTES = ("duke", "spy1", "spy2")
