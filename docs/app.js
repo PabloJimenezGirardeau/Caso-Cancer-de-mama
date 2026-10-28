@@ -1165,7 +1165,9 @@ function montarGaleria() {
     return;
   }
   if (!EJEMPLOS.length) { g.innerHTML = '<p class="ayuda" style="grid-column:1/-1">Los ejemplos se generan con galeria_web.py.</p>'; return; }
-  $("ejemplos-nota").textContent = "Pacientes de entrenamiento en las que el tumor se ve bien, elegidas sin mirar lo que predice el modelo. La mayoría de las redes ya las vieron.";
+  const conPcr = EJEMPLOS.filter((e) => e.pCR === 1).length;
+  $("ejemplos-nota").textContent = `Pacientes de entrenamiento en las que el tumor se ve bien, elegidas al azar y con la proporción real de pCR ` +
+    `(${conPcr} de ${EJEMPLOS.length}), sin mirar lo que predice el modelo. La mayoría de las redes ya las vieron.`;
   EJEMPLOS.forEach((e, i) => {
     const b = document.createElement("button"); b.className = "ejemplo"; b.type = "button";
     b.innerHTML = `<img src="${e.rutas.EARLY}" alt="" loading="lazy"><span>pCR = ${e.pCR}</span>`;

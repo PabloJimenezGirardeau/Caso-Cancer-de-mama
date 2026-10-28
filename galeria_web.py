@@ -8,7 +8,10 @@ Criterio (solo con las imagenes y la caja del tumor de patients.csv; NO mira lo 
     4. imagen limpia: lo que mas realza (el 1 % de puntos con mas realce) cae al menos la mitad en la caja; brillo
        medio de PRE <= 0,18 (sin imagenes con un brillo fuera de lo normal); ruido <= 0,065 (diferencia mediana con
        la imagen suavizada, relativa al brillo del tejido); tejido >= 25 % de la imagen; saturado <= 3 %;
-    5. en cada grupo cohorte x pCR, los 2 de mas contraste: 6 con pCR = 1 y 6 con pCR = 0, 4 de cada cohorte.
+    5. entre las limpias, 12 AL AZAR (semilla fija, un solo sorteo) con la proporcion real de pCR del entrenamiento
+       (29 %: 4 con pCR = 1 y 8 con pCR = 0). Una primera version cogia las de mas contraste y 6 de cada clase, pero
+       justo con los tumores de mucho contraste el modelo detecta peor la pCR (35 % frente a 52 % en validacion), asi
+       que la galeria no era representativa.
 
 La pagina reconoce estos cortes como ejemplos y, al predecir, compara con la pCR real usando las 3 redes que no
 vieron a la paciente (su fold). La Verificacion sigue usando los cortes de exportar_web.py, que llevan guardada la
@@ -34,8 +37,8 @@ from cajas_tumor import caja_en_png, localizar
 RAIZ = Path(__file__).resolve().parent
 WEB = RAIZ / "docs"
 INI, FIN = 64, 191                    # cuadrado central de 128x128 (filas y columnas incluidas)
-POR_GRUPO = 2
-COHORTES = ("spy2", "spy1", "duke")
+N_EJEMPLOS = 12
+SEMILLA = 0
 
 
 class Caja:
@@ -110,26 +113,34 @@ def main() -> None:
         if mejor and limpia(mejor[1]):
             candidatas.append((pacientes[pid]["dataset"], *mejor))
 
+    # proporcion real de pCR (por paciente) en el entrenamiento, y sorteo entre las limpias de cada clase
+    prevalencia = sum(int(lista[0]["pCR"]) for lista in cortes.values()) / len(cortes)
+    n_pcr = round(N_EJEMPLOS * prevalencia)
+    rng = np.random.default_rng(SEMILLA)
+    elegidas = []
+    for pcr, n in ((1, n_pcr), (0, N_EJEMPLOS - n_pcr)):
+        grupo = sorted((c for c in candidatas if int(c[1]["pCR"]) == pcr), key=lambda c: c[1]["patient_id"])
+        sorteo = sorted(rng.choice(len(grupo), size=n, replace=False))
+        print(f"pCR={pcr}: {len(grupo)} limpias -> {[grupo[i][1]['sample_id'] for i in sorteo]}")
+        elegidas += [grupo[i] for i in sorteo]
+    print(f"Proporcion de pCR en el entrenamiento: {prevalencia:.1%} -> {n_pcr} de {N_EJEMPLOS}")
+
     ejemplos = []
-    for pcr in (1, 0):
-        for cohorte in COHORTES:
-            grupo = sorted((c for c in candidatas if c[0] == cohorte and int(c[1]["pCR"]) == pcr),
-                           key=lambda c: -c[2]["contraste"])
-            print(f"{cohorte} pCR={pcr}: {len(grupo)} limpias -> {[c[1]['sample_id'] for c in grupo[:POR_GRUPO]]}")
-            for _, f, d in grupo[:POR_GRUPO]:
-                rutas = {}
-                for fase, col in (("PRE", "path_pre"), ("EARLY", "path_early"), ("LATE", "path_late")):
-                    destino = WEB / "ejemplos" / f"{f['sample_id']}_{fase}.png"
-                    shutil.copyfile(base_img / f[col], destino)
-                    rutas[fase] = f"ejemplos/{destino.name}"
-                ejemplos.append({"sample_id": f["sample_id"], "patient_id": f["patient_id"], "cohorte": cohorte,
-                                 "fold": int(f["fold"]), "pCR": int(f["pCR"]), "rutas": rutas,
-                                 "medidas": {k: round(v, 4) for k, v in d.items()}})
+    for cohorte, f, d in elegidas:
+        rutas = {}
+        for fase, col in (("PRE", "path_pre"), ("EARLY", "path_early"), ("LATE", "path_late")):
+            destino = WEB / "ejemplos" / f"{f['sample_id']}_{fase}.png"
+            shutil.copyfile(base_img / f[col], destino)
+            rutas[fase] = f"ejemplos/{destino.name}"
+        ejemplos.append({"sample_id": f["sample_id"], "patient_id": f["patient_id"], "cohorte": cohorte,
+                         "fold": int(f["fold"]), "pCR": int(f["pCR"]), "rutas": rutas,
+                         "medidas": {k: round(v, 4) for k, v in d.items()}})
 
     galeria = {
         "generado": datetime.now().isoformat(timespec="seconds"),
-        "criterio": "Pacientes de ENTRENAMIENTO en las que el tumor se ve bien (ver galeria_web.py). Elegidas sin "
-                    "mirar lo que predice el modelo; la mayoria de las 15 redes las vieron al entrenar.",
+        "criterio": "Pacientes de ENTRENAMIENTO en las que el tumor se ve bien (ver galeria_web.py), elegidas al azar "
+                    "con la proporcion real de pCR, sin mirar lo que predice el modelo; la mayoria de las 15 redes las "
+                    "vieron al entrenar.",
         "candidatas": len(candidatas),
         "ejemplos": ejemplos,
     }
