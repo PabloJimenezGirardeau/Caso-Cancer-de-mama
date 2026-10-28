@@ -91,6 +91,7 @@
             <div><div class="ranura-titulo">LATE <span>contraste tardío</span></div>
               <div class="ranura-estado" data-estado="LATE">Arrastra o elige un PNG</div><div class="chips" data-chips="LATE"></div></div>
           </label>
+          <p class="aviso-orden" id="aviso-orden" role="status" hidden></p>
           <div class="botones">
             <button class="boton boton-principal" id="predecir" disabled>Predecir</button>
             <button class="boton boton-secundario" id="limpiar">Limpiar</button>
@@ -112,6 +113,7 @@
               <button data-fase-visor="PRE" aria-pressed="false">PRE</button>
               <button data-fase-visor="EARLY" aria-pressed="true">EARLY</button>
               <button data-fase-visor="LATE" aria-pressed="false">LATE</button>
+              <button data-fase-visor="TRES" aria-pressed="false">Las tres</button>
               <button data-fase-visor="REALCE" aria-pressed="false">Realce</button>
               <button data-fase-visor="COMPARAR" aria-pressed="false">Comparar</button>
             </div>
@@ -132,6 +134,7 @@
             <div class="ov ov-tr" id="ov-tr"></div>
             <div class="ov ov-bl" id="ov-bl"></div>
             <div class="ov ov-br" id="ov-br"></div>
+            <div class="ov-tres" id="ov-tres" hidden><span class="ov"></span><span class="ov"></span><span class="ov"></span></div>
             <div class="cortina" id="cortina" hidden><span></span></div>
             <canvas class="lupa" id="lupa" hidden></canvas>
           </div>
@@ -167,6 +170,7 @@
                 <span class="dictamen-clase"><b id="r-clase"></b><small id="r-clase-texto"></small></span>
               </div>
               <p class="dictamen-frase" id="r-frase"></p>
+              <p class="dictamen-ajuste" id="r-ajuste" hidden></p>
             </section>
             <svg class="escala" id="g-medidor" viewBox="0 0 360 86" role="img" aria-label="Probabilidad frente al umbral y a las pacientes de validación"></svg>
             <p class="escala-nota" id="r-percentil"></p>

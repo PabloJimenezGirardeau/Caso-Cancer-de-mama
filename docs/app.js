@@ -150,21 +150,67 @@ function desviacion(arr) {
   return Math.sqrt(s_ / arr.length);
 }
 
-// Control de calidad para el informe: las comprobaciones de predecir.avisos, también cuando pasan
+// Orden de las fases: en el tejido (PRE > 0,1), PRE es la fase más oscura en el 99,5 % de los cortes de entrenamiento
+// (D.calidad, de datos_web.py). Si no lo es, seguramente alguna imagen está en la casilla equivocada. EARLY y LATE no
+// tienen un orden fijo entre sí (LATE brilla más en el 79 %), así que intercambiarlas no se puede detectar.
+function ordenFases(f) {
+  const tejido = new Uint8Array(f.PRE.length);
+  let n = 0;
+  for (let i = 0; i < f.PRE.length; i++) if (f.PRE[i] > 0.1) { tejido[i] = 1; n++; }
+  if (n < 100) return null;
+  const pre = mediaDe(f.PRE, tejido);
+  return { menos: ["EARLY", "LATE"].filter((k) => mediaDe(f[k], tejido) <= pre) };
+}
+const pctPreOscura = () => (D.calidad ? pct(D.calidad.pre_mas_oscura, 1) : "casi todos");
+function avisoOrden(f) {
+  const el = $("aviso-orden"), o = f ? ordenFases(f) : null;
+  el.hidden = !o;
+  if (!o) return;
+  el.classList.toggle("mal", o.menos.length > 0);
+  el.innerHTML = o.menos.length
+    ? `<span><b>¿Está cada imagen en su casilla?</b> En el tejido, ${o.menos.join(" y ")} ${o.menos.length > 1 ? "brillan" : "brilla"} menos que PRE, ` +
+      `y PRE es la fase más oscura en el ${pctPreOscura()} de los cortes de entrenamiento. Se puede predecir igualmente.</span>`
+    : `<span>PRE es la fase más oscura, como en el ${pctPreOscura()} de los cortes de entrenamiento.</span>`;
+}
+// Brillo medio de la zona de interés (lo único que mira la red) en cada fase
+function brilloZona(f) {
+  const b = {};
+  for (const k of FASES) {
+    let s_ = 0;
+    for (let y = INI; y < INI + RECORTE; y++) for (let x = INI; x < INI + RECORTE; x++) s_ += f[k][y * LADO + x];
+    b[k] = s_ / (RECORTE * RECORTE);
+  }
+  return b;
+}
+
+// Control de calidad para el informe: las comprobaciones de predecir.avisos (también cuando pasan), el orden de las
+// fases y el brillo frente al entrenamiento
 function controlCalidad(f) {
   const tejido = new Uint8Array(f.PRE.length);
   let n = 0;
   for (let i = 0; i < f.PRE.length; i++) if (f.PRE[i] > 0.1) { tejido[i] = 1; n++; }
   const lista = [{ ok: true, texto: "Tres PNG de 256 × 256 en escala de grises, sin valores no finitos" }];
   if (n < 100) lista.push({ ok: false, texto: "La imagen PRE es casi toda negra: ¿es un corte de resonancia de mama?" });
-  else if (mediaDe(f.EARLY, tejido) <= mediaDe(f.PRE, tejido)) {
-    lista.push({ ok: false, texto: "En el tejido, EARLY no es más brillante que PRE: ¿están las fases en el orden correcto?" });
-  } else lista.push({ ok: true, texto: "En el tejido, EARLY es más brillante que PRE, como en todas las pacientes del conjunto" });
+  else {
+    const { menos } = ordenFases(f);
+    lista.push(menos.length
+      ? { ok: false, texto: `En el tejido, ${menos.join(" y ")} no ${menos.length > 1 ? "son más brillantes" : "es más brillante"} que PRE: ¿está cada imagen en su casilla?` }
+      : { ok: true, texto: `En el tejido, PRE es la fase más oscura, como en el ${pctPreOscura()} de los cortes de entrenamiento` });
+  }
   const uniformes = FASES.filter((k) => desviacion(f[k]) < 1e-3), blancas = FASES.filter((k) => mediaDe(f[k]) > 0.8);
   lista.push(uniformes.length ? { ok: false, texto: `La fase ${uniformes.join(" y ")} es una imagen prácticamente uniforme` }
                               : { ok: true, texto: "Ninguna fase es una imagen uniforme" });
   lista.push(blancas.length ? { ok: false, texto: `La fase ${blancas.join(" y ")} es casi toda blanca: la predicción no es fiable` }
                             : { ok: true, texto: "Ninguna fase está saturada en blanco" });
+  const rango = D.calidad && D.calidad.brillo_zona;
+  if (rango) {
+    const b = brilloZona(f), fuera = FASES.filter((k) => b[k] < rango[k][0] || b[k] > rango[k][1]);
+    lista.push(fuera.length
+      ? { ok: false, texto: "El brillo de la zona de interés se sale de lo habitual en el entrenamiento: " +
+          fuera.map((k) => `${k} ${coma(b[k], 2)} (lo habitual, de ${coma(rango[k][0], 2)} a ${coma(rango[k][1], 2)})`).join("; ") +
+          ". El modelo es sensible al brillo: la predicción es menos fiable" }
+      : { ok: true, texto: "El brillo de la zona de interés está dentro de lo habitual en el entrenamiento (el 99 % de los cortes)" });
+  }
   return lista;
 }
 
@@ -275,6 +321,15 @@ async function predecirCorte(f, { alRed = null, pausa = 0 } = {}) {
   return { probabilidad: p, clase, media: m, probs, segundos: ms / 1000 };
 }
 
+// La misma predicción con la imagen un 10 % más oscura y un 10 % más clara, como en analisis/diagnostico_estabilidad.py
+// (allí cambian de clase el 13-16 % de las pacientes de validación). Si alguna cruza el umbral, la decisión es ajustada.
+async function predecirBrillo(f, r) {
+  if (DEMO) { const d = 0.01 + 0.025 * hash01(f); return { oscura: limitar(r.probabilidad - d, 0, 1), clara: limitar(r.probabilidad + 0.9 * d, 0, 1) }; }
+  const variante = (k) => Object.fromEntries(FASES.map((fase) => [fase, f[fase].map((v) => v * k)]));
+  const oscura = await predecirCorte(variante(0.9)), clara = await predecirCorte(variante(1.1));
+  return { oscura: oscura.probabilidad, clara: clara.probabilidad };
+}
+
 // ------------------------------------------------------------------------------------------------ imagenes
 const INFERNO = [[0, 0, 4], [40, 11, 84], [101, 21, 110], [159, 42, 99], [212, 72, 66], [245, 125, 21], [250, 193, 39], [252, 255, 164]];
 function colorInferno(t) {
@@ -282,13 +337,13 @@ function colorInferno(t) {
   const i = Math.min(Math.floor(x), INFERNO.length - 2), r = x - i;
   return INFERNO[i].map((c, k) => Math.round(c + r * (INFERNO[i + 1][k] - c)));
 }
-function pintarGris(ctx, datos) {
+function pintarGris(ctx, datos, x0 = 0) {
   const img = ctx.createImageData(LADO, LADO);
   for (let i = 0, j = 0; i < datos.length; i++, j += 4) {
     const v = Math.round(limitar(datos[i], 0, 1) * 255);
     img.data[j] = img.data[j + 1] = img.data[j + 2] = v; img.data[j + 3] = 255;
   }
-  ctx.putImageData(img, 0, 0);
+  ctx.putImageData(img, x0, 0);
 }
 // Realce = EARLY - PRE (la operacion que, segun la guia, hace visible el tumor). El color se escala con el percentil 99:
 // si se escalara con el pixel mas brillante (a veces un vaso o el borde de la mama), casi toda la imagen saldria negra.
@@ -327,8 +382,9 @@ function nombreMuestra() {
 }
 
 const DESCRIPCION = { PRE: "Antes del contraste", EARLY: "Contraste temprano", LATE: "Contraste tardío", REALCE: "EARLY menos PRE",
-                      COMPARAR: "" };
-const NOMBRE_VISTA = { REALCE: "Realce" };
+                      COMPARAR: "", TRES: "En el orden del modelo" };
+const NOMBRE_VISTA = { REALCE: "Realce", TRES: "Las tres fases" };
+const HUECO = 8;     // separación entre las tres imágenes de "Las tres", en píxeles del lienzo
 // Anotaciones de las esquinas del visor, como en una estacion de radiologia
 function ponerAnotaciones(etiqueta, titulo = null) {
   if (etiqueta === "COMPARAR") {
@@ -336,7 +392,7 @@ function ponerAnotaciones(etiqueta, titulo = null) {
     $("ov-tr").innerHTML = `<b>${estado.par[1]}</b><br>${DESCRIPCION[estado.par[1]]}`;
   } else {
     $("ov-tl").innerHTML = `<b>${titulo || NOMBRE_VISTA[etiqueta] || etiqueta}</b><br>${titulo ? "Llegada del contraste" : DESCRIPCION[etiqueta]}`;
-    $("ov-tr").innerHTML = "256 × 256<br>8 bits por píxel";
+    $("ov-tr").innerHTML = etiqueta === "TRES" ? "256 × 256 cada una<br>8 bits por píxel" : "256 × 256<br>8 bits por píxel";
   }
   const lineas = [];
   if ($("ver-recorte").checked) lineas.push('<span class="anot">Zona de interés</span>', "128 × 128");
@@ -346,26 +402,51 @@ function ponerAnotaciones(etiqueta, titulo = null) {
 function quitarAnotaciones() { ["ov-tl", "ov-tr", "ov-bl", "ov-br"].forEach((k) => { $(k).innerHTML = ""; }); }
 
 function dibujarVisor(datos, etiqueta, titulo = null) {
-  const ctx = $("visor").getContext("2d");
-  if (etiqueta === "REALCE") pintarRealce(ctx, estado.fases.PRE, estado.fases.EARLY);
+  const lienzo = $("visor"), tres = etiqueta === "TRES", ancho = tres ? 3 * LADO + 2 * HUECO : LADO;
+  if (lienzo.width !== ancho) lienzo.width = ancho;          // "Las tres": un lienzo con las tres imágenes en fila
+  const ctx = lienzo.getContext("2d"), origenes = tres ? FASES.map((_, j) => j * (LADO + HUECO)) : [0];
+  if (tres) {
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, ancho, LADO);
+    FASES.forEach((k, j) => pintarGris(ctx, estado.fases[k], origenes[j]));
+    ctx.fillStyle = "#3a424d";
+    for (let j = 1; j < FASES.length; j++) ctx.fillRect(origenes[j] - HUECO / 2 - 1, 0, 2, LADO);
+  } else if (etiqueta === "REALCE") pintarRealce(ctx, estado.fases.PRE, estado.fases.EARLY);
   else if (etiqueta === "COMPARAR") pintarComparar(ctx);
   else pintarGris(ctx, datos || estado.fases[etiqueta]);
-  if (estado.foco > 0) {      // mientras se calcula: solo cuenta la zona de interés, el resto se oscurece
-    ctx.save(); ctx.fillStyle = `rgba(0, 0, 0, ${0.68 * estado.foco})`;
-    ctx.fillRect(0, 0, LADO, INI); ctx.fillRect(0, INI + RECORTE, LADO, LADO - INI - RECORTE);
-    ctx.fillRect(0, INI, INI, RECORTE); ctx.fillRect(INI + RECORTE, INI, LADO - INI - RECORTE, RECORTE); ctx.restore();
+  for (const x0 of origenes) {
+    ctx.save(); ctx.translate(x0, 0);
+    if (estado.foco > 0) {      // mientras se calcula: solo cuenta la zona de interés, el resto se oscurece
+      ctx.fillStyle = `rgba(0, 0, 0, ${0.68 * estado.foco})`;
+      ctx.fillRect(0, 0, LADO, INI); ctx.fillRect(0, INI + RECORTE, LADO, LADO - INI - RECORTE);
+      ctx.fillRect(0, INI, INI, RECORTE); ctx.fillRect(INI + RECORTE, INI, LADO - INI - RECORTE, RECORTE);
+    }
+    pintarRecorte(ctx);
+    ctx.restore();
   }
-  pintarRecorte(ctx);
   ponerAnotaciones(etiqueta, titulo);
+  rotulosTres(tres);
   const partes = [];
   if (etiqueta === "REALCE") partes.push('<span><span class="barra-realce"></span> Realce: cuánto más brilla cada punto en EARLY que en PRE (oscuro, nada; claro, mucho). Lo que capta el contraste, como el tumor, se ilumina.</span>');
   if (etiqueta === "COMPARAR") partes.push("<span>Arrastra sobre la imagen para mover la cortina.</span>");
+  if (tres) partes.push("<span>Las tres fases, en el orden en que las recibe el modelo. Con el contraste, el tumor se ilumina en EARLY y LATE; en PRE apenas destaca.</span>");
   $("leyenda-visor").innerHTML = partes.join("");
   $("cortina").hidden = etiqueta !== "COMPARAR";
   const imagen = rectanguloImagen(), cortina = $("cortina");
   cortina.style.left = `${imagen.x + estado.cortina * imagen.lado}px`;
   cortina.style.top = `${imagen.y}px`; cortina.style.height = `${imagen.lado}px`;
   if (estado.puntero) dibujarLupa(estado.puntero);
+}
+// Rótulo de cada fase en la esquina de su imagen (si la imagen es estrecha, solo el nombre de la fase)
+function rotulosTres(tres) {
+  const caja = $("ov-tres");
+  caja.hidden = !tres;
+  if (!tres) return;
+  const im = rectanguloImagen(), w = $("visor").width, panel = (im.ancho * LADO) / w;
+  [...caja.children].forEach((el, j) => {
+    el.innerHTML = panel >= 170 ? `<b>${FASES[j]}</b><br>${DESCRIPCION[FASES[j]]}` : `<b>${FASES[j]}</b>`;
+    el.style.left = `${im.x + (j * (LADO + HUECO) * im.ancho) / w + 8}px`;
+    el.style.top = `${im.y + 6}px`;
+  });
 }
 function mostrarFase(fase) {
   estado.faseVisor = fase;
@@ -405,25 +486,26 @@ function miniatura(destino, datos) {
   return c;
 }
 
-// La imagen se dibuja cuadrada y centrada dentro de la ventana del visor, que puede ser mas alta o mas ancha que ella:
-// su posicion (dentro de la ventana) y su lado en pantalla
+// La imagen se dibuja lo mas grande posible y centrada dentro de la ventana del visor (cuadrada, o las tres en fila):
+// su posicion dentro de la ventana y su tamaño en pantalla
 function rectanguloImagen() {
-  const caja = $("visor").getBoundingClientRect(), lado = Math.min(caja.width, caja.height);
-  return { caja, x: (caja.width - lado) / 2, y: (caja.height - lado) / 2, lado };
+  const lienzo = $("visor"), caja = lienzo.getBoundingClientRect(), r = lienzo.width / lienzo.height;
+  const ancho = Math.min(caja.width, caja.height * r), alto = ancho / r;
+  return { caja, x: (caja.width - ancho) / 2, y: (caja.height - alto) / 2, ancho, alto, lado: alto };
 }
 
 // ---- lupa: amplia x3 lo que se ve en el visor ----
 function dibujarLupa(ev) {
   const lupa = $("lupa"), visor = $("visor");
   if (!$("ver-lupa").checked || !estado.fases || !ev) { lupa.hidden = true; return; }
-  const { caja, x: ox, y: oy, lado: ladoImagen } = rectanguloImagen();
+  const { caja, x: ox, y: oy, ancho, alto } = rectanguloImagen();
   const x = ev.clientX - caja.left, y = ev.clientY - caja.top, ix = x - ox, iy = y - oy;
-  if (ix < 0 || iy < 0 || ix > ladoImagen || iy > ladoImagen) { lupa.hidden = true; return; }
+  if (ix < 0 || iy < 0 || ix > ancho || iy > alto) { lupa.hidden = true; return; }
   lupa.hidden = false;
   const tam = lupa.offsetWidth || 150, zoom = 3, dpr = window.devicePixelRatio || 1;
   lupa.style.left = `${x - tam / 2}px`; lupa.style.top = `${y - tam / 2}px`;
   if (lupa.width !== Math.round(tam * dpr)) { lupa.width = lupa.height = Math.round(tam * dpr); }
-  const k = LADO / ladoImagen, lado = (tam / zoom) * k;
+  const k = visor.height / alto, lado = (tam / zoom) * k;
   const ctx = lupa.getContext("2d");
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, lupa.width, lupa.height);
   ctx.imageSmoothingEnabled = false;
@@ -607,10 +689,11 @@ function prepararMuestra() {
   $("visor-vacio").hidden = ok; $("play").disabled = !ok;
   resultadoInicial();
   $("r-muestra").textContent = ok ? `${nombreMuestra()}: lista para predecir` : "Sin muestra cargada";
+  avisoOrden(ok ? estado.fases : null);
   if (ok) { mostrarFase(estado.faseVisor); graficaCinetica(estado.fases); }
   else {
-    $("visor").getContext("2d").clearRect(0, 0, LADO, LADO);
-    quitarAnotaciones(); $("cortina").hidden = true; $("leyenda-visor").innerHTML = ""; cineticaVacia();
+    const lienzo = $("visor"); lienzo.getContext("2d").clearRect(0, 0, lienzo.width, lienzo.height);
+    quitarAnotaciones(); $("ov-tres").hidden = true; $("cortina").hidden = true; $("leyenda-visor").innerHTML = ""; cineticaVacia();
   }
   actualizarBotonPredecir();
 }
@@ -793,11 +876,13 @@ async function predecir() {
     procesoMarcar(2, "activo");
     const r = await predecirCorte(fases, { alRed: pvRedesIniciar(), pausa: t(75) });
     await esperar(t(250)); procesoMarcar(2, "hecho"); fundirFoco(0, t(500));
+    const brillo = predecirBrillo(fases, r);      // mientras se anima la calibración
     procesoMarcar(3, "activo"); await pvCalibracion(r, t(800)); await esperar(t(200)); procesoMarcar(3, "hecho");
     procesoMarcar(4, "activo");
     $("proceso-decision").textContent = `${r.clase === "pCR" ? "pCR = 1" : "pCR = 0"}: ${coma(r.probabilidad, 3)} frente al umbral ${coma(D.modelo.umbral, 3)}`;
     await pvDecision(r, t(800)); await esperar(t(650)); procesoMarcar(4, "hecho");
     $("proceso").classList.add("saliendo"); await esperar(t(300));
+    r.brillo = await brillo;
     mostrarResultado(r, fases);
     const res = $("resultado"); res.classList.remove("entrando"); void res.offsetWidth; res.classList.add("entrando");
     anadirHistorial(r, fases);
@@ -854,9 +939,27 @@ function mostrarReal(r) {
   v.textContent = c.acierta15 ? "✓ Acierta" : "✗ Falla";
   $("r-real-texto").textContent = `pCR real = ${c.real ? 1 : 0}: ${c.real ? "tuvo respuesta completa" : "no tuvo respuesta completa"}.`;
   $("r-real-nota").innerHTML = `Es una paciente de entrenamiento: 12 de las 15 redes la vieron al entrenar. Las 3 que no la vieron (fold ${c.fold}) ` +
-    `dan <b>${coma(c.p3, 3)}</b> calibrada, es decir, <b>pCR = ${c.clase3 ? 1 : 0}</b>: ` +
+    `dan <b>${cifraUmbral(c.p3)}</b> calibrada, es decir, <b>pCR = ${c.clase3 ? 1 : 0}</b>: ` +
     `${c.acierta3 === c.acierta15 ? "también " : "en cambio, "}${c.acierta3 ? "aciertan" : "fallan"}. ` +
     "Así se midió el modelo en validación.";
+}
+
+// Una probabilidad con 3 decimales, o con 4 si está tan cerca del umbral que con 3 parecería igual
+const cifraUmbral = (p) => coma(p, Math.abs(p - D.modelo.umbral) < 0.0005 ? 4 : 3);
+
+// Distancia al umbral y si la clase aguanta un 10 % más o menos de brillo
+function mostrarAjuste(r, u) {
+  const el = $("r-ajuste"), b = r.brillo;
+  el.hidden = !b;
+  r.ajustada = null;
+  if (!b) return;
+  const valores = [r.probabilidad, b.oscura, b.clara], lo = Math.min(...valores), hi = Math.max(...valores);
+  const ajustada = valores.some((v) => (v >= u) !== (r.probabilidad >= u)), d = Math.abs(r.probabilidad - u), distancia = coma(d, d < 0.0005 ? 4 : 3);
+  r.ajustada = ajustada;
+  el.className = `dictamen-ajuste${ajustada ? " ajustada" : ""}`;
+  el.innerHTML = ajustada
+    ? `<span class="insignia-ajuste">Decisión ajustada</span>Está a ${distancia} del umbral: con un 10 % más o menos de brillo, la probabilidad iría de ${coma(lo, 3)} a ${coma(hi, 3)} y cambiaría de clase.`
+    : `Está a ${distancia} del umbral. Con un 10 % más o menos de brillo iría de ${coma(lo, 3)} a ${coma(hi, 3)}: la clase se mantiene.`;
 }
 
 function mostrarResultado(r, fases) {
@@ -870,6 +973,7 @@ function mostrarResultado(r, fases) {
   $("r-clase-texto").textContent = pcr ? "respuesta completa probable" : "respuesta completa poco probable";
   $("r-frase").textContent = `La probabilidad calibrada ${pcr ? "supera el" : "queda por debajo del"} umbral de ${coma(u, 3)}.`;
   medidor(r.probabilidad, u);
+  mostrarAjuste(r, u);
   mostrarReal(r);
   const menores = pac.filter(([p]) => p < r.probabilidad).length;
   $("r-percentil").textContent = `Arriba, las 1.097 pacientes de validación. Esta muestra supera la probabilidad del ${pct(menores / pac.length)} de ellas.`;
@@ -897,7 +1001,8 @@ function anadirHistorial(r, fases, nombreDado = null) {
   const n = estado.historial.length + 1, hora = new Date().toLocaleTimeString("es-ES");
   const nombre = nombreDado || nombreMuestra();
   const fila = { n, hora, nombre, probabilidad: r.probabilidad, clase: r.clase, ms: r.segundos * 1000, checksum: DEMO ? "maqueta" : estado.checksumWeb,
-                 real: r.real ? (r.real.real ? 1 : 0) : null, acierta: r.real ? r.real.acierta15 : null };
+                 real: r.real ? (r.real.real ? 1 : 0) : null, acierta: r.real ? r.real.acierta15 : null,
+                 ajustada: typeof r.ajustada === "boolean" ? r.ajustada : null };
   estado.historial.push(fila);
   const tbody = $("historial");
   if (n === 1) tbody.innerHTML = "";
@@ -914,9 +1019,9 @@ function anadirHistorial(r, fases, nombreDado = null) {
 }
 
 function descargarHistorial() {
-  const filas = [["n", "hora", "muestra", "probabilidad", "clase", "umbral", "pcr_real", "acierta", "tiempo_ms", "checksum"]];
+  const filas = [["n", "hora", "muestra", "probabilidad", "clase", "umbral", "decision_ajustada", "pcr_real", "acierta", "tiempo_ms", "checksum"]];
   for (const h of estado.historial) filas.push([h.n, h.hora, h.nombre, coma(h.probabilidad, 6), h.clase === "pCR" ? "pCR=1" : "pCR=0", coma(D.modelo.umbral, 6),
-    h.real === null ? "" : h.real, h.acierta === null ? "" : (h.acierta ? "si" : "no"), DEMO ? "" : coma(h.ms, 0), h.checksum]);
+    h.ajustada === null ? "" : (h.ajustada ? "si" : "no"), h.real === null ? "" : h.real, h.acierta === null ? "" : (h.acierta ? "si" : "no"), DEMO ? "" : coma(h.ms, 0), h.checksum]);
   const csv = filas.map((f) => f.join(";")).join("\r\n");
   const bom = String.fromCharCode(0xfeff);   // para que Excel lea bien las tildes
   const a = document.createElement("a");
@@ -1502,7 +1607,9 @@ function iniciar() {
   });
   ["pointerup", "pointercancel"].forEach((t) => marcoVisor.addEventListener(t, () => { estado.arrastrando = false; }));
   marcoVisor.addEventListener("pointerleave", () => { estado.puntero = null; $("lupa").hidden = true; });
-  window.addEventListener("resize", () => { if (estado.fases && estado.faseVisor === "COMPARAR") dibujarVisor(null, "COMPARAR"); });
+  window.addEventListener("resize", () => {
+    if (estado.fases && ["COMPARAR", "TRES"].includes(estado.faseVisor) && !estado.animando) dibujarVisor(null, estado.faseVisor);
+  });
   // historial y verificacion
   $("descargar").addEventListener("click", descargarHistorial);
   $("vaciar").addEventListener("click", () => { estado.historial = []; $("historial").innerHTML = '<tr><td colspan="9" class="vacio">Aún no hay predicciones en esta sesión.</td></tr>'; $("descargar").disabled = true; $("vaciar").disabled = true; });

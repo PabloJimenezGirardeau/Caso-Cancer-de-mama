@@ -10,6 +10,9 @@ fichero, sin servidor) con:
     comparacion  validacion y TEST de los cuatro modelos de evaluar_test.py (CNN solo imagen, solo datos clinicos,
                  imagen + datos clinicos, solo cohorte): metricas y la probabilidad de cada paciente (sin su
                  identificador), para las curvas ROC y la tabla de la vista Modelo
+    calidad      lo normal en los cortes de ENTRENAMIENTO, para el control de calidad de la app: el rango de brillo
+                 medio de la zona de interes (recorte central de 128) en cada fase y en cuantos cortes PRE es la
+                 fase mas oscura del tejido (lee los PNG: tarda alrededor de un minuto)
 
 Lo que SI necesita PyTorch (los modelos ONNX, los ejemplos y la verificacion) lo genera exportar_web.py en el PC.
 
@@ -69,6 +72,31 @@ def comparacion(conjunto: str) -> dict | None:
     }
 
 
+def calidad_entrenamiento() -> dict:
+    """Brillo medio de la zona de interes en cada fase (percentiles 0,5 y 99,5: el 99 % central de los cortes) y
+    proporcion de cortes en los que, en el tejido (PRE > 0,1), EARLY y LATE brillan mas que PRE. Solo entrenamiento."""
+    import numpy as np
+    from PIL import Image
+    base = next(b for b in (ce.RAIZ, ce.RAIZ / "breastdcedl") if (b / "dataset").is_dir())
+    leer = lambda ruta: np.asarray(Image.open(base / ruta).convert("L"), dtype=np.float32) / 255.0
+    with open(ce.RAIZ / "metadata" / "samples.csv", encoding="utf-8") as f:
+        filas = [r for r in csv.DictReader(f) if r["split"] == "train"]
+    brillo, pre_oscura = [], []
+    for r in filas:
+        x = np.stack([leer(r["path_pre"]), leer(r["path_early"]), leer(r["path_late"])])
+        brillo.append(x[:, 64:192, 64:192].mean(axis=(1, 2)))
+        tejido = x[0] > 0.1
+        if tejido.any():
+            m = [float(c[tejido].mean()) for c in x]
+            pre_oscura.append(m[1] > m[0] and m[2] > m[0])
+    brillo = np.array(brillo)
+    return {"cortes": len(filas),
+            "brillo_zona": {k: [round(float(np.percentile(brillo[:, j], 0.5)), 4), round(float(np.percentile(brillo[:, j], 99.5)), 4)]
+                            for j, k in enumerate(("PRE", "EARLY", "LATE"))},
+            "brillo_zona_como": "media de la zona de interes (128 x 128 central); percentiles 0,5 y 99,5 de los cortes de entrenamiento",
+            "pre_mas_oscura": round(float(np.mean(pre_oscura)), 4)}
+
+
 def main() -> None:
     cfg = json.loads((MODELO / "umbral_final.json").read_text(encoding="utf-8"))
     nombres = [f"{c}_fold{k}" for c in cfg["configuraciones"] for k in range(5)]
@@ -117,6 +145,7 @@ def main() -> None:
         "validacion": {"columnas": ["probabilidad", "pCR", "fold", "cohorte"], "pacientes": pacientes},
         "curvas": curvas,
         "comparacion": {"validacion": comparacion("validacion"), "test": comparacion("test")},
+        "calidad": calidad_entrenamiento(),
     }
     SALIDA.parent.mkdir(parents=True, exist_ok=True)
     SALIDA.write_text("// Generado por datos_web.py: no editar a mano.\nwindow.DATOS = "

@@ -169,6 +169,12 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 @keyframes girar { to { transform: rotate(360deg); } }
 .errores { margin-top: 12px; padding: 10px 12px; border-left: 3px solid var(--error); background: color-mix(in srgb, var(--error) 8%, transparent); color: var(--error); font-size: 14px; }
 .errores ul { margin: 0; padding-left: 16px; }
+/* orden de las fases, en cuanto están las tres: una línea discreta si PRE es la más oscura; un aviso si no */
+.aviso-orden { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px; margin: 12px 0 0; font-size: 13px; color: var(--texto-3); }
+.aviso-orden::before { content: "✓"; color: var(--ok); font-weight: 700; }
+.aviso-orden.mal { padding: 9px 12px 9px 9px; border-left: 3px solid var(--aviso); background: color-mix(in srgb, var(--aviso) 9%, transparent); color: var(--texto); font-size: 14px; }
+.aviso-orden.mal::before { content: "!"; color: var(--aviso); text-align: center; }
+.aviso-orden b { color: var(--aviso); }
 
 .lote-zona { position: relative; display: grid; gap: 2px; margin-top: 16px; padding: 12px; border: 1px dashed var(--linea-fuerte); border-radius: var(--radio); cursor: pointer; }
 .lote-zona:hover, .lote-zona.encima { border-color: var(--texto-3); background: var(--panel-2); }
@@ -225,6 +231,9 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .ov-tr { top: 10px; right: 12px; text-align: right; }
 .ov-bl { bottom: 10px; left: 12px; }
 .ov-br { bottom: 10px; right: 12px; text-align: right; }
+/* "Las tres": cada fase lleva su rótulo en la esquina de su imagen, como los visores de varias series */
+.ov-tres { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.ov-tres .ov { white-space: nowrap; }
 .cortina { position: absolute; z-index: 3; top: 0; height: 100%; width: 2px; margin-left: -1px; background: #fff; pointer-events: none; box-shadow: 0 0 10px rgba(0, 0, 0, .7); }
 .cortina span { position: absolute; top: 50%; left: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: rgba(0, 0, 0, .75); border: 2px solid #fff; }
 .cortina span::before, .cortina span::after { content: ""; position: absolute; top: 50%; margin-top: -4px; border: 4px solid transparent; }
@@ -258,6 +267,10 @@ main { max-width: 1680px; margin: 0 auto; padding: 20px 24px 40px; }
 .dictamen-clase b { font-size: 20px; font-weight: 800; color: var(--c); line-height: 1.1; }
 .dictamen-clase small { color: var(--texto-2); font-size: 14px; }
 .dictamen-frase { margin: 8px 0 0; color: var(--texto-2); font-size: 14px; }
+.dictamen-ajuste { margin: 6px 0 0; color: var(--texto-3); font-size: 13px; }
+.dictamen-ajuste.ajustada { color: var(--texto-2); font-size: 14px; }
+.insignia-ajuste { display: inline-block; margin-right: 6px; padding: 0 8px; border: 1px solid var(--aviso); border-radius: var(--radio);
+  color: var(--aviso); background: color-mix(in srgb, var(--aviso) 10%, transparent); font-weight: 700; }
 .escala { display: block; width: 100%; max-width: 460px; height: auto; margin: 14px 0 0; overflow: visible; }
 .escala text { fill: var(--texto-3); font-size: 11px; font-family: var(--letra); }
 .escala .marca-texto { fill: var(--texto); font-weight: 700; }
