@@ -52,6 +52,10 @@ const sigmoide = (z) => 1 / (1 + Math.exp(-z));
 const limitar = (v, a, b) => Math.min(Math.max(v, a), b);
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 const miles = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+const tasaLegible = (lr) => {   // 3e-05 -> "3·10⁻⁵"
+  const [m, e] = Number(lr).toExponential().split("e"), sup = { "-": "⁻", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+  return `${m.replace(".", ",")}·10${String(Number(e)).split("").map((c) => sup[c]).join("")}`;
+};
 const NS = "http://www.w3.org/2000/svg";
 function s(etiqueta, atributos = {}, padre = null) {
   const e = document.createElementNS(NS, etiqueta);
@@ -721,14 +725,14 @@ function mostrarResultado(r, fases) {
   contarHasta($("r-prob"), r.probabilidad);
   $("r-clase").textContent = pcr ? "pCR = 1" : "pCR = 0";
   $("r-clase-texto").textContent = pcr ? "respuesta completa probable" : "respuesta completa poco probable";
-  $("r-frase").textContent = `La probabilidad calibrada ${pcr ? "llega al" : "queda por debajo del"} umbral de ${coma(u, 3)}.`;
+  $("r-frase").textContent = `La probabilidad calibrada ${pcr ? "supera el" : "queda por debajo del"} umbral de ${coma(u, 3)}.`;
   medidor(r.probabilidad, u);
   const menores = pac.filter(([p]) => p < r.probabilidad).length;
   $("r-percentil").textContent = `Arriba, las 1.097 pacientes de validación. Esta muestra supera la probabilidad del ${pct(menores / pac.length)} de ellas.`;
   const cerca = pac.filter(([p]) => Math.abs(p - r.probabilidad) <= 0.02);
   const hallazgos = [
-    `Probabilidad calibrada de <b>${coma(r.probabilidad, 3)}</b>, ${pcr ? "por encima del" : "por debajo del"} umbral de <b>${coma(u, 3)}</b>.`,
-    `Las quince redes dan entre <b>${coma(Math.min(...r.probs), 3)}</b> y <b>${coma(Math.max(...r.probs), 3)}</b> antes de calibrar.`,
+    `Las quince redes dan entre <b>${coma(Math.min(...r.probs), 3)}</b> y <b>${coma(Math.max(...r.probs), 3)}</b>; su media es <b>${coma(r.media, 3)}</b>.`,
+    `La calibración de Platt lleva esa media a <b>${coma(r.probabilidad, 3)}</b>, la probabilidad que se compara con el umbral.`,
     cerca.length >= 10
       ? `De las ${cerca.length} pacientes de validación con una probabilidad parecida (±0,02), el <b>${pct(cerca.filter(([, y]) => y).length / cerca.length)}</b> tuvo pCR, frente al ${pct(PREVALENCIA)} del total.`
       : "Hay pocas pacientes de validación con una probabilidad tan extrema como esta.",
@@ -1254,7 +1258,7 @@ function montarModelo() {
   dibujarCurvas(0);
   const ep = e.epocas_elegidas;
   const fila = (k, val) => `<dt>${k}</dt><dd>${val}</dd>`;
-  $("ficha-entrenamiento").innerHTML = fila("Optimizador", `${e.optimizador}, tasa ${String(e.lr).replace(".", ",")}`) + fila("Lote", e.lote) +
+  $("ficha-entrenamiento").innerHTML = fila("Optimizador", `${e.optimizador}, tasa ${tasaLegible(e.lr)}`) + fila("Lote", e.lote) +
     fila("Pérdida", "entropía cruzada binaria, sin ponderar") +
     fila("Parada", `AUC de validación en media móvil de 3 épocas, paciencia 10, máximo ${e.epocas_max}`) +
     fila("Épocas elegidas", `de ${Math.min(...ep)} a ${Math.max(...ep)}, media ${coma(mediaDe(ep), 1)}`) + fila("Semillas", e.semillas.join(", ")) +
@@ -1364,7 +1368,7 @@ function iniciar() {
   $("r-dispositivo").textContent = DEMO ? "maqueta, sin modelos" : "CPU de tu navegador (WebAssembly, ONNX Runtime)";
   const en = D.modelo.entrenamiento, mv = D.modelo.metricas_validacion, mt = D.comparacion && D.comparacion.test;
   $("r-entrenamiento").textContent = `${D.modelo.redes.length} redes (3 semillas × 5 folds) de ${miles(en.parametros)} parámetros; ` +
-    `${en.optimizador}, tasa ${String(en.lr).replace(".", ",")}, lote ${en.lote}, recorte central ${en.recorte} × ${en.recorte}, ` +
+    `${en.optimizador}, tasa ${tasaLegible(en.lr)}, lote ${en.lote}, recorte central ${en.recorte} × ${en.recorte}, ` +
     `parada temprana con paciencia 10`;
   const u = mv.con_el_umbral;
   $("r-metricas").textContent = `AUC ${coma(mv.auc)} en validación (1.097 pacientes)` +

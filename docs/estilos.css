@@ -453,6 +453,8 @@ tbody tr:hover td { background: var(--acento-suave); }
   .panel-informe > .informe-cabecera { grid-column: 1 / -1; }
   .panel-informe > .datos-tecnicos { grid-column: 2; grid-row: 2 / span 2; margin-top: 0; padding-top: 0; border-top: 0; }
   .panel-informe > .nota-informe { grid-column: 2; }
+  .escala { max-width: 600px; }
+  .ficha.ficha-informe { grid-template-columns: max-content minmax(0, 1fr); }
   #resultado:not([hidden]) { display: contents; }
   #resultado > .dictamen, #resultado > .escala, #resultado > .escala-nota, #resultado > .informe-bloque { grid-column: 1; }
   #resultado > .informe-bloque:last-child { grid-column: 2; grid-row: 4 / span 2; align-self: start; }
