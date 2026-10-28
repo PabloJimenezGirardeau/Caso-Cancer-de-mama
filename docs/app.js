@@ -1262,12 +1262,24 @@ function cerrarPortada(vista) {
 }
 
 // ------------------------------------------------------------------------------------------------ vista Modelo
+// Pacientes del bloque Umbral: [probabilidad calibrada, pCR] en validación (fuera de fold) o en el test. El umbral se
+// eligió en validación; en el test solo se mira cómo funciona.
+let CONJUNTO_UMBRAL = "validacion";
+function paresUmbral() {
+  if (CONJUNTO_UMBRAL === "test" && D.comparacion && D.comparacion.test) {
+    const c = D.comparacion.test, j = c.columnas.indexOf("recorte"), jy = c.columnas.indexOf("pCR");
+    return c.filas.map((f) => [f[j], f[jy]]);
+  }
+  return D.validacion.pacientes.map(([p, y]) => [p, y]);
+}
+let PARES_UMBRAL = null;
+
 function metricasUmbral(u) {
-  // las probabilidades de validacion estan guardadas con 6 decimales: se compara a esa precision
+  // las probabilidades estan guardadas con 6 decimales: se compara a esa precision
   // (el umbral elegido coincide con la probabilidad de una paciente)
   u = Math.round(u * 1e6) / 1e6;
   let vp = 0, fn = 0, vn = 0, fp = 0;
-  for (const [p, y] of D.validacion.pacientes) { if (y) { p >= u ? vp++ : fn++; } else { p >= u ? fp++ : vn++; } }
+  for (const [p, y] of PARES_UMBRAL || paresUmbral()) { if (y) { p >= u ? vp++ : fn++; } else { p >= u ? fp++ : vn++; } }
   const div = (a, b) => (b ? a / b : 0), sens = div(vp, vp + fn), esp = div(vn, vn + fp), prec = div(vp, vp + fp), vpn = div(vn, vn + fn);
   const f1p = div(2 * prec * sens, prec + sens), f1n = div(2 * vpn * esp, vpn + esp);
   return { vp, fn, vn, fp, sens, esp, prec, vpn, f1eq: (f1p + f1n) / 2, acc: div(vp + vn, vp + fn + vn + fp) };
@@ -1294,7 +1306,8 @@ function dibujarRoc(u) {
   const m = metricasUmbral(u);
   s("circle", { cx: x(1 - m.esp), cy: y(m.sens), r: 7, style: "fill:var(--anotacion-texto);stroke:var(--consola);stroke-width:3",
                 "data-tip": `umbral ${coma(u, 3)}<br>sensibilidad ${pct(m.sens)}, especificidad ${pct(m.esp)}` }, svg);
-  s("text", { class: "marca-texto", x: x(0.55), y: y(0.12), texto: `AUC ${coma(D.modelo.metricas_validacion.auc, 3)}` }, svg);
+  const auc = CONJUNTO_UMBRAL === "test" ? D.comparacion.test.modelos.recorte.auc : D.modelo.metricas_validacion.auc;
+  s("text", { class: "marca-texto", x: x(0.55), y: y(0.12), texto: `AUC ${coma(auc, 3)}` }, svg);
 }
 
 function matrizHtml(vn, fp, fn, vp) {
@@ -1420,9 +1433,14 @@ function dibujarRocComparada(conj) {
   const u = c.con_el_umbral;
   s("circle", { cx: x(1 - u.especificidad), cy: y(u.sensibilidad), r: 6, style: "fill:var(--anotacion-texto);stroke:var(--consola);stroke-width:2.5",
                 "data-tip": `<b>CNN con el umbral ${coma(c.umbral, 3)}</b><br>sensibilidad ${pct(u.sensibilidad)}, especificidad ${pct(u.especificidad)}` }, svg);
-  $("l-roc-comp").innerHTML = MODELOS.map((n) => {
-    const m = c.modelos[n];
-    return `<span><i class="linea" style="--c:${COLOR_MODELO[n]}"></i>${NOMBRE_MODELO[n]} <b>${coma(m.auc, 3)}</b></span>`;
+  $("l-roc-comp").innerHTML = MODELOS.map((n) => `<span><i class="linea" style="--c:${COLOR_MODELO[n]}"></i>${NOMBRE_MODELO[n]}</span>`).join("");
+  const otro = conj === "test" ? "validacion" : "test", nombreOtro = otro === "test" ? "En el test" : "En validación";
+  $("modelos-auc").innerHTML = MODELOS.map((n) => {
+    const m = c.modelos[n], mo = D.comparacion[otro] && D.comparacion[otro].modelos[n];
+    return `<div class="modelo-auc${n === "recorte" ? " principal" : ""}" style="--c:${COLOR_MODELO[n]}">` +
+      `<span class="modelo-auc-nombre"><i></i>${NOMBRE_MODELO[n]}</span>` +
+      `<b class="modelo-auc-valor">${coma(m.auc, 3)}<small>AUC</small></b>` +
+      `<span class="modelo-auc-detalle">IC95 ${coma(m.auc_ic95[0], 2)} a ${coma(m.auc_ic95[1], 2)}${mo ? `. ${nombreOtro}: <b>${coma(mo.auc, 3)}</b>` : ""}</span></div>`;
   }).join("");
 }
 
@@ -1511,15 +1529,27 @@ function montarModelo() {
     document.querySelectorAll("#selector-conjunto button").forEach((b) => b.addEventListener("click", () => pintarComparacion(b.dataset.conjunto)));
     pintarComparacion("test");
   } else $("comparacion").hidden = true;
-  ROC = curvaRocDe(D.validacion.pacientes.map(([p, y]) => [p, y]));
   const des = $("u-deslizador");
+  let umbralActual = m.umbral;     // el valor exacto: el deslizador redondea a milésimas (0,316 en vez de 0,31589)
+  const ponerConjuntoUmbral = (conj) => {
+    CONJUNTO_UMBRAL = conj; PARES_UMBRAL = paresUmbral(); ROC = curvaRocDe(PARES_UMBRAL);
+    document.querySelectorAll("[data-conjunto-umbral]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.conjuntoUmbral === conj)));
+    $("u-nota").textContent = conj === "test"
+      ? `Test: ${D.comparacion.test.pacientes_n} pacientes que el modelo nunca vio. El umbral se eligió en validación; aquí solo se mira cómo funciona.`
+      : "Validación: 1.097 pacientes, cada una predicha por las redes que no la vieron al entrenar.";
+    actualizarUmbral(umbralActual);
+  };
+  if (D.comparacion && D.comparacion.test) {
+    document.querySelectorAll("[data-conjunto-umbral]").forEach((b) => b.addEventListener("click", () => ponerConjuntoUmbral(b.dataset.conjuntoUmbral)));
+  } else $("selector-umbral").hidden = true;
+  PARES_UMBRAL = paresUmbral(); ROC = curvaRocDe(PARES_UMBRAL);
   des.value = String(m.umbral);
-  des.addEventListener("input", () => actualizarUmbral(Number(des.value)));
+  des.addEventListener("input", () => { umbralActual = Number(des.value); actualizarUmbral(umbralActual); });
   document.querySelectorAll("[data-umbral]").forEach((b) => b.addEventListener("click", () => {
     const val = b.dataset.umbral === "eq" ? m.umbral : b.dataset.umbral === "des" ? m.umbral_desescalar : Number(b.dataset.umbral);
-    des.value = String(val); actualizarUmbral(val);
+    umbralActual = val; des.value = String(val); actualizarUmbral(val);
   }));
-  actualizarUmbral(m.umbral);
+  ponerConjuntoUmbral("validacion");
   dibujarCalibracion();
   // índice de la vista Modelo: lleva a cada sección
   document.querySelectorAll("#indice-modelo [data-ir]").forEach((b) => b.addEventListener("click",

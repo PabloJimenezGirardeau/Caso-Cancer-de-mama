@@ -265,6 +265,7 @@
         </div>
         <p class="bloque-texto">Tres modelos sobre las mismas pacientes: la CNN solo con la imagen, una regresión solo con los datos
           clínicos y la combinación de ambas.</p>
+        <div class="modelos-auc" id="modelos-auc"></div>
         <div class="comparacion">
           <div>
             <svg class="grafica" id="g-roc-comp" viewBox="0 0 320 310" role="img" aria-label="Curvas ROC de los tres modelos"></svg>
@@ -289,11 +290,16 @@
 
       <section class="bloque dos" id="umbral">
         <div>
-          <div class="bloque-cabecera"><h2>Umbral</h2><span class="ayuda">validación, 1.097 pacientes</span></div>
+          <div class="bloque-cabecera"><h2>Umbral</h2>
+            <div class="segmentos" id="selector-umbral" role="group" aria-label="Pacientes con los que se calculan la matriz y las métricas">
+              <button data-conjunto-umbral="validacion" aria-pressed="true">Validación, 1.097</button>
+              <button data-conjunto-umbral="test" aria-pressed="false">Test, 176</button>
+            </div></div>
           <div class="deslizador">
             <div class="deslizador-cabecera"><label for="u-deslizador">Mueve el umbral</label><b id="u-valor">0,316</b></div>
             <input type="range" id="u-deslizador" min="0.08" max="0.55" step="0.001" value="0.316">
             <div class="atajos"><button data-umbral="eq">Equilibrado, el elegido</button><button data-umbral="des">Desescalar, especificidad ≥ 95 %</button><button data-umbral="0.5">0,5 por defecto</button></div>
+            <p class="ayuda" id="u-nota"></p>
           </div>
           <div class="dos dos-interno">
             <svg class="grafica" id="g-roc" viewBox="0 0 300 300" role="img" aria-label="Curva ROC"></svg>
