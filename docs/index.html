@@ -52,7 +52,6 @@
     <nav class="menu" aria-label="Vistas">
       <button data-vista="predecir" aria-current="page" title="Predecir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="3.5"/></svg><span>Predecir</span></button>
       <button data-vista="modelo" title="Modelo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="M7.5 15l3.5-4 3 2.5 5-6.5"/></svg><span>Modelo</span></button>
-      <button data-vista="verificacion" title="Verificación"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Verificación</span></button>
       <button data-vista="acerca" title="Acerca de"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>Acerca de</span></button>
     </nav>
     <div class="lateral-pie">
@@ -337,65 +336,171 @@
       </section>
     </section>
 
-    <!-- ================================================= VERIFICACION ================================================= -->
-    <section class="vista" id="vista-verificacion" aria-label="Verificación">
-      <header class="cabecera-vista">
-        <h1>¿Da lo mismo que Python?</h1>
-        <p class="resumen">La página pasa doce cortes de pacientes de entrenamiento por el mismo cálculo que el programa de Python del proyecto y compara las
-          probabilidades. Si coinciden, lo que ves aquí es el modelo evaluado.</p>
-      </header>
-      <section class="bloque dos">
-        <div>
-          <div class="sello" id="sello"><div class="icono">?</div><div><h3>Sin verificar</h3>
-            <p class="texto-suave">Pulsa el botón para comprobarlo con los doce cortes.</p></div></div>
-          <button class="boton boton-principal boton-ancho-auto" id="verificar" disabled>Verificar los doce cortes</button>
-          <div class="tabla-contenedor"><table id="t-verificacion" hidden></table></div>
-        </div>
-        <div>
-          <h2>El cálculo, paso a paso</h2>
-          <ol class="pasos">
-            <li><b>Lectura.</b> Cada fase es un PNG de 256 × 256 que se pasa a escala de grises de 8 bits con la misma fórmula que Pillow y se divide entre 255. Sin redimensionar ni normalizar.</li>
-            <li><b>Apilado.</b> Las tres fases forman la entrada en el orden del entrenamiento: PRE, EARLY y LATE.</li>
-            <li><b>Quince redes.</b> Cada red, en modo evaluación, recorta los 128 × 128 píxeles centrales y da una probabilidad.</li>
-            <li><b>Calibración.</b> Media de las quince probabilidades y escalado de Platt con los parámetros de validación.</li>
-            <li><b>Decisión.</b> pCR = 1 si la probabilidad calibrada llega al umbral.</li>
-          </ol>
-          <dl class="ficha ficha-separada" id="ficha-checksum"></dl>
-          <p class="ayuda">Las imágenes se leen como datos en tu navegador: no se suben a ningún servidor y no se ejecuta nada de lo que cargas.</p>
-        </div>
-      </section>
-    </section>
-
     <!-- ================================================= ACERCA DE ================================================= -->
     <section class="vista" id="vista-acerca" aria-label="Acerca de">
-      <article class="prosa">
+      <header class="cabecera-vista">
         <h1>Sobre este trabajo</h1>
-        <h2>Qué es la pCR</h2>
-        <p>La respuesta patológica completa es que, tras la quimioterapia previa a la cirugía, el patólogo no encuentre tumor invasivo
-          en la mama ni en los ganglios. Saberlo antes ayudaría a ajustar el tratamiento.</p>
+        <p class="resumen">Un modelo de redes convolucionales, entrenado desde cero con resonancias de mama del conjunto BreastDCEDL,
+          estima antes del tratamiento la probabilidad de que una paciente tenga una respuesta patológica completa a la
+          quimioterapia. Es un trabajo académico de Aprendizaje automático: sirve para aprender, no para decidir sobre pacientes.</p>
+        <div class="kpis kpis-4">
+          <article class="kpi"><div class="kpi-nombre">Pacientes</div><div class="kpi-valor">1.273</div><div class="kpi-detalle">1.097 para entrenar y 176 de test</div></article>
+          <article class="kpi"><div class="kpi-nombre">Cohortes</div><div class="kpi-valor">3</div><div class="kpi-detalle">I-SPY1, I-SPY2 y Duke</div></article>
+          <article class="kpi"><div class="kpi-nombre">Redes en el modelo</div><div class="kpi-valor">15</div><div class="kpi-detalle">5 folds × 3 semillas, entrenadas desde cero</div></article>
+          <article class="kpi"><div class="kpi-nombre">AUC en el test</div><div class="kpi-valor">0,591</div><div class="kpi-detalle">0,573 en validación</div></article>
+        </div>
+      </header>
+      <nav class="indice" id="indice-acerca" aria-label="Secciones de la página">
+        <button data-ir="a-pcr">La pCR</button>
+        <button data-ir="a-datos">Los datos</button>
+        <button data-ir="a-modelo">El modelo</button>
+        <button data-ir="a-uso">Cómo usarla</button>
+        <button data-ir="a-limites">Limitaciones</button>
+        <button data-ir="a-creditos">Reproducibilidad y créditos</button>
+      </nav>
+
+      <section class="bloque" id="a-pcr">
+        <div class="bloque-cabecera"><h2>Qué es la pCR y por qué importa</h2></div>
+        <p class="bloque-texto">Muchas pacientes con cáncer de mama reciben quimioterapia <b>antes</b> de la cirugía (neoadyuvante). Hay
+          respuesta patológica completa (pCR) cuando, al analizar el tejido extirpado, el patólogo no encuentra tumor invasivo ni en la
+          mama ni en los ganglios. Las pacientes que la alcanzan suelen tener mejor pronóstico.</p>
         <ol class="linea-tiempo">
           <li><b>Resonancia</b><span>Antes del tratamiento. Es lo que ve el modelo.</span></li>
           <li><b>Quimioterapia</b><span>Neoadyuvante, antes de operar.</span></li>
           <li><b>Cirugía</b><span>Se extirpa el tejido.</span></li>
           <li><b>Anatomía patológica</b><span>¿Queda tumor? pCR = 0 o pCR = 1.</span></li>
         </ol>
-        <h2>Cómo funciona</h2>
-        <p>Una red convolucional propia, entrenada desde cero, sin modelos preentrenados, con las tres fases de la resonancia DCE: antes
-          del contraste (PRE), poco después (EARLY) y un rato después (LATE). Mira los 128 × 128 píxeles centrales, donde suele estar el
-          tumor. El modelo final promedia quince redes, tres semillas por cada uno de los cinco folds de validación cruzada, y calibra la
-          probabilidad.</p>
-        <h2>Limitaciones</h2>
-        <ul>
-          <li>Capacidad de discriminación limitada: AUC 0,573 en validación y 0,591 en el test, con 176 pacientes nuevas. Un modelo con
-            datos clínicos (receptores, edad y volumen) predice mejor, 0,695 en el test, y la imagen apenas le añade (+0,010).</li>
-          <li>Un solo corte 2D: se pierde la forma tridimensional del tumor.</li>
-          <li>Sensible al brillo de la imagen. Solo se ha probado con imágenes del conjunto BreastDCEDL; con imágenes de otro hospital o
-            de otro procesado, la predicción no es fiable.</li>
-          <li>Datos de tres cohortes con escáneres y protocolos distintos, sin armonizar.</li>
+        <p class="bloque-texto bloque-texto-final">Hoy solo se sabe al final, tras la cirugía. Predecirla con la resonancia inicial
+          ayudaría a ajustar el tratamiento: intensificarlo en quien probablemente no responderá o desescalarlo en quien sí. Esa es la
+          pregunta que intenta responder este modelo, solo con la imagen tomada antes de empezar.</p>
+      </section>
+
+      <section class="bloque dos" id="a-datos">
+        <div>
+          <div class="bloque-cabecera"><h2>Los datos</h2><span class="ayuda">BreastDCEDL</span></div>
+          <p class="bloque-texto">Resonancias magnéticas de mama con contraste dinámico (DCE) del conjunto público BreastDCEDL (Fridman y
+            colaboradores, 2026), que reúne pacientes de tres estudios con escáneres y protocolos distintos. El caso usa 1.273 de sus
+            pacientes, separadas en entrenamiento y test <b>por paciente</b>: una misma paciente nunca está en los dos lados.</p>
+          <div class="tabla-contenedor">
+            <table class="tabla-cohortes">
+              <thead><tr><th>Cohorte</th><th>Pacientes</th><th>Con pCR</th><th>Entrenamiento</th><th>Test</th></tr></thead>
+              <tbody>
+                <tr><td>I-SPY1</td><td>139</td><td>38 (27 %)</td><td>104</td><td>35</td></tr>
+                <tr><td>I-SPY2, con ACRIN 6698</td><td>883</td><td>284 (32 %)</td><td>784</td><td>99</td></tr>
+                <tr><td>Duke</td><td>251</td><td>53 (21 %)</td><td>209</td><td>42</td></tr>
+                <tr class="total"><td>Total</td><td>1.273</td><td>375 (29 %)</td><td>1.097</td><td>176</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="ayuda">Cada paciente aporta hasta 10 cortes: 10.945 en entrenamiento y 1.758 en el test. El entrenamiento se reparte en
+            5 folds de validación cruzada; el test se evaluó una sola vez, al final.</p>
+        </div>
+        <div>
+          <div class="bloque-cabecera"><h2>Las tres fases de un corte</h2></div>
+          <div class="fases-figura" id="a-fases"></div>
+          <p class="bloque-texto">Cada muestra es el mismo corte en tres momentos: <b>PRE</b>, antes de inyectar el contraste;
+            <b>EARLY</b>, poco después, cuando más realza; y <b>LATE</b>, un rato después, cuando el contraste empieza a irse. Los tumores
+            captan el contraste antes y más que el tejido sano: por eso se iluminan en EARLY. Son PNG de 256 × 256 píxeles en escala de
+            grises, recortados alrededor del tumor.</p>
+          <p class="ayuda" id="a-fases-nota"></p>
+        </div>
+      </section>
+
+      <section class="bloque dos" id="a-modelo">
+        <div>
+          <div class="bloque-cabecera"><h2>Cómo predice</h2></div>
+          <ol class="pasos">
+            <li><b>Lectura.</b> Cada fase se pasa a escala de grises y se divide entre 255, igual que al entrenar. Sin redimensionar ni
+              normalizar.</li>
+            <li><b>Recorte.</b> La red mira solo los 128 × 128 píxeles centrales, donde está el tumor en la gran mayoría de los cortes.</li>
+            <li><b>Quince redes.</b> Cada una da su probabilidad y se promedian.</li>
+            <li><b>Calibración.</b> El escalado de Platt, ajustado con la validación, convierte esa media en una probabilidad que se
+              puede leer como tal.</li>
+            <li><b>Decisión.</b> pCR = 1 si la probabilidad llega al umbral de 0,316, el que equilibra la F1 de las dos clases en
+              validación.</li>
+          </ol>
+        </div>
+        <div>
+          <div class="bloque-cabecera"><h2>La red y su entrenamiento</h2></div>
+          <dl class="ficha ficha-izq">
+            <dt>Arquitectura</dt><dd>4 bloques de convolución 3 × 3 + BatchNorm + ReLU + max pooling (16, 32, 64 y 128 filtros), media
+              global, capa densa de 64 con dropout y una salida</dd>
+            <dt>Parámetros</dt><dd>106.001 por red, entrenada desde cero, sin modelos preentrenados</dd>
+            <dt>Entrenamiento</dt><dd>Adam con tasa 3·10⁻⁵, lotes de 128, entropía cruzada binaria</dd>
+            <dt>Parada temprana</dt><dd>AUC por paciente en validación, media móvil de 3 épocas, paciencia 10</dd>
+            <dt>Conjunto</dt><dd>5 folds × 3 semillas = 15 redes</dd>
+            <dt>Entrada</dt><dd>Solo la imagen; los datos clínicos (receptores, edad y volumen) se usan únicamente para comparar</dd>
+          </dl>
+          <p class="ayuda separado-poco">Las métricas, las curvas de entrenamiento y la comparación con los datos clínicos están en la
+            vista <button class="enlace" data-ir-vista="modelo">Modelo</button>.</p>
+        </div>
+      </section>
+
+      <section class="bloque dos" id="a-uso">
+        <div>
+          <div class="bloque-cabecera"><h2>Cómo usarla</h2></div>
+          <ol class="pasos">
+            <li><b>Carga las tres fases</b> de un corte, una en cada casilla: PRE, EARLY y LATE. El nombre del fichero da igual. También
+              puedes elegir un ejemplo de la galería.</li>
+            <li><b>Comprueba el orden</b> en el visor, con "Las tres". Si PRE no es la fase más oscura, la app avisa antes de predecir.</li>
+            <li><b>Pulsa Predecir.</b> Verás el cálculo paso a paso y, después, el informe.</li>
+            <li><b>Repite</b> con otras muestras: el historial guarda cada resultado y se puede descargar en CSV.</li>
+          </ol>
+        </div>
+        <div>
+          <div class="bloque-cabecera"><h2>Cómo leer el informe</h2></div>
+          <dl class="ficha ficha-izq">
+            <dt>Probabilidad</dt><dd>Calibrada, de 0 a 1. Con estos datos casi todas quedan entre 0,2 y 0,4</dd>
+            <dt>Clase</dt><dd>pCR = 1 si llega al umbral de 0,316; si no, pCR = 0</dd>
+            <dt>Decisión ajustada</dt><dd>La misma predicción con un 10 % más y menos de brillo: si cambia de clase, el resultado es frágil</dd>
+            <dt>Control de calidad</dt><dd>Formato de los PNG, orden de las fases y brillo frente al entrenamiento</dd>
+            <dt>Resultado real</dt><dd>Solo en los ejemplos de la galería, que son pacientes de entrenamiento</dd>
+          </dl>
+          <p class="nota-esperar"><b>Qué esperar.</b> En el test acierta unas 6 de cada 10 pacientes. Reconoce bien a las que no
+            responden (76 %), pero solo detecta 3 de cada 10 de las que sí (30 %). Su resultado es una estimación débil, no un
+            diagnóstico.</p>
+        </div>
+      </section>
+
+      <section class="bloque" id="a-limites">
+        <div class="bloque-cabecera"><h2>Limitaciones</h2></div>
+        <ul class="limites">
+          <li><b>Discriminación limitada.</b> AUC de 0,591 en el test (IC95 0,50-0,68): el intervalo roza el azar. Un modelo con datos
+            clínicos predice mejor (0,695) y la imagen apenas le añade (+0,010).</li>
+          <li><b>Un solo corte 2D.</b> Se pierde la forma tridimensional del tumor y cómo cambia de un corte a otro.</li>
+          <li><b>Sensible al brillo.</b> Con un 10 % más o menos de brillo, entre el 13 % y el 16 % de las pacientes cambian de clase.
+            Solo se ha probado con PNG de BreastDCEDL.</li>
+          <li><b>Datos heterogéneos.</b> Tres estudios, más de 22 centros y escáneres distintos, sin armonizar la intensidad.</li>
+          <li><b>Imagen anterior al tratamiento.</b> La respuesta se aprecia mejor en resonancias durante o después de la quimioterapia,
+            que este modelo no usa.</li>
+          <li><b>Sin validación clínica.</b> Uso exclusivamente educativo: no debe usarse para tomar decisiones sobre pacientes.</li>
         </ul>
-        <h2>Uso</h2>
-        <p>Exclusivamente educativo, sin validez clínica. Datos: BreastDCEDL (Fridman y colaboradores).</p>
-      </article>
+      </section>
+
+      <section class="bloque dos" id="a-creditos">
+        <div>
+          <div class="bloque-cabecera"><h2>Reproducibilidad</h2></div>
+          <ul class="lista-simple">
+            <li>La página lee los PNG con la misma fórmula que Python (escala de grises de Pillow, entre 255) y el recorte va dentro de la
+              red: no puede hacerlo distinto que en el entrenamiento.</li>
+            <li>Las 15 redes se exportaron de PyTorch a ONNX. Con 12 cortes se comprobó que la página da las mismas probabilidades que el
+              programa de Python: diferencia máxima de 0,00000005.</li>
+            <li>Checksum del modelo, la huella de las 15 redes, el umbral y la calibración: <span class="mono" id="a-checksum">—</span>.</li>
+            <li>Las imágenes se procesan en tu navegador: no se suben a ningún servidor.</li>
+          </ul>
+        </div>
+        <div>
+          <div class="bloque-cabecera"><h2>Créditos y licencia</h2></div>
+          <dl class="ficha ficha-izq">
+            <dt>Autor</dt><dd>Pablo Jiménez Girardeau</dd>
+            <dt>Asignatura</dt><dd>Aprendizaje automático, 4.º curso, Universidad Alfonso X el Sabio (UAX)</dd>
+            <dt>Datos</dt><dd>BreastDCEDL: Fridman y colaboradores, <i>Scientific Data</i> 13:264 (2026). Cohortes I-SPY1, I-SPY2 y Duke</dd>
+            <dt>Licencia</dt><dd>CC BY-NC 4.0: uso no comercial, con atribución</dd>
+            <dt>Código</dt><dd><a href="https://github.com/PabloJimenezGirardeau/Caso-Cancer-de-mama" target="_blank" rel="noopener">github.com/PabloJimenezGirardeau/Caso-Cancer-de-mama</a></dd>
+            <dt>Uso</dt><dd>Exclusivamente educativo, sin validez clínica</dd>
+          </dl>
+        </div>
+      </section>
     </section>
   </main>
 

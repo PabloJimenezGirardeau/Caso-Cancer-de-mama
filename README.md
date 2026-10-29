@@ -55,8 +55,9 @@ ONNX Runtime Web, con la misma lectura de los PNG que en Python; las imágenes n
   entrenamiento), el checksum del modelo, el dispositivo y el tiempo de respuesta. Historial de la sesión descargable en CSV.
 - **Modelo:** métricas de validación y test, comparación con los datos clínicos, arquitectura, umbral, calibración y curvas de
   entrenamiento con la parada temprana.
-- **Verificación:** comprueba que la página reproduce las probabilidades de Python en doce cortes (diferencia máxima 5·10⁻⁸).
-- **Acerca de:** qué es la pCR, cómo funciona el modelo y sus limitaciones.
+- **Acerca de:** qué es la pCR y por qué importa, los datos por cohorte, cómo predice el modelo, cómo usar la app y leer el
+  informe, limitaciones, reproducibilidad (la página da las mismas probabilidades que Python: diferencia máxima 5·10⁻⁸ en doce
+  cortes) y créditos.
 
 Los ejemplos de la galería son pacientes de **entrenamiento** (nunca del test): la mayoría de las redes ya las vieron, así que no
 miden el rendimiento.
@@ -95,7 +96,7 @@ miden el rendimiento.
 | `src/evaluacion/` | `umbral.py` | calibración de Platt y umbral, con la validación |
 | | `predecir.py` | el modelo final: 15 redes, calibración y umbral (lo usan el test y la app) |
 | | `evaluar_test.py` | validación y test: CNN, datos clínicos y combinación |
-| `src/web/` | `exportar_web.py` | modelos ONNX y cortes de la verificación (necesita PyTorch) |
+| `src/web/` | `exportar_web.py` | modelos ONNX y cortes de comprobación frente a Python (necesita PyTorch) |
 | | `datos_web.py` | métricas, curvas y rango de brillo del entrenamiento (sin PyTorch) |
 | | `galeria_web.py` | galería de ejemplos (sin PyTorch) |
 
@@ -124,7 +125,7 @@ python src/evaluacion/predecir.py --verificar 20    # comprueba que el modelo re
 python src/evaluacion/predecir.py --muestra ISPY1_1001_z012
 python src/evaluacion/evaluar_test.py               # ensayo con la validación; con --test, el test (una sola vez)
 
-python src/web/exportar_web.py                      # la app: modelos ONNX y cortes de la verificación
+python src/web/exportar_web.py                      # la app: modelos ONNX y cortes de comprobación
 python src/web/datos_web.py                         # la app: métricas, curvas y resultados (lee los PNG: un minuto)
 python src/web/galeria_web.py                       # la app: galería de ejemplos
 ```

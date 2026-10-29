@@ -269,9 +269,8 @@ async function cargarModelo() {
     const ok = estado.checksumWeb === W.checksum_web;
     ponerEstado(ok ? `Modelo listo: ${W.modelos.length} redes, checksum ${estado.checksumWeb}` : `Checksum distinto (${estado.checksumWeb})`, ok ? "listo" : "fallo", 1);
     estado.listo = true;
-    $("verificar").disabled = false;
     const marca = `${estado.checksumWeb} <span class="${ok ? "bien" : "mal"}">${ok ? "✓" : "✗"}</span>`;
-    $("cs-calc").innerHTML = marca; $("r-checksum").innerHTML = marca;
+    $("r-checksum").innerHTML = marca; $("a-checksum").innerHTML = marca;
     actualizarBotonPredecir();
   } catch (e) {
     console.error(e);
@@ -1553,9 +1552,13 @@ function montarModelo() {
   }));
   ponerConjuntoUmbral("validacion");
   dibujarCalibracion();
-  // índice de la vista Modelo: lleva a cada sección
-  document.querySelectorAll("#indice-modelo [data-ir]").forEach((b) => b.addEventListener("click",
-    () => $(b.dataset.ir).scrollIntoView({ behavior: SIN_MOVIMIENTO ? "auto" : "smooth", block: "start" })));
+  // índices de las vistas: llevan a cada sección
+  document.querySelectorAll(".indice [data-ir]").forEach((b) => b.addEventListener("click", () => {
+    seccionElegida = b.dataset.ir;
+    $(b.dataset.ir).scrollIntoView({ behavior: SIN_MOVIMIENTO ? "auto" : "smooth", block: "start" });
+    marcarIndice();
+  }));
+  ["wheel", "touchstart", "keydown"].forEach((ev) => window.addEventListener(ev, () => { seccionElegida = null; }, { passive: true }));
   window.addEventListener("scroll", marcarIndice, { passive: true });
   marcarIndice();
   $("selector-fold").innerHTML = D.curvas.map((c) => `<button data-fold="${c.fold}" aria-pressed="false">fold ${c.fold}</button>`).join("");
@@ -1571,51 +1574,18 @@ function montarModelo() {
     fila("Entrenado con", `${e.dispositivo_entrenamiento}, ${coma(e.segundos_por_epoca, 1)} s por época`) + fila("PyTorch", e.version_torch);
 }
 
-// ------------------------------------------------------------------------------------------------ vista Verificacion
-function montarVerificacion() {
-  const fila = (k, val) => `<dt>${k}</dt><dd class="mono">${val}</dd>`;
-  $("ficha-checksum").innerHTML = fila("Checksum PyTorch", D.modelo.checksum_pytorch) +
-    fila("Checksum web esperado", W ? W.checksum_web : "—") + fila("Checksum web calculado", '<span id="cs-calc">—</span>') +
-    fila("ONNX frente a PyTorch", W ? `${W.onnx_frente_a_pytorch.toExponential(1)} en el logit` : "—") +
-    "";
-  if (DEMO) {
-    $("sello").querySelector("h3").textContent = "No disponible en la maqueta";
-    $("sello").querySelector(".texto-suave").textContent = "La verificación necesita los modelos. Funciona en la página publicada.";
+// ------------------------------------------------------------------------------------------------ vista Acerca de
+// Las tres fases de un ejemplo real de la galería y el checksum (se completa al cargar los modelos)
+function montarAcerca() {
+  const caja = $("a-fases"), e = EJEMPLOS[0];
+  if (!e) caja.hidden = true;
+  else {
+    caja.innerHTML = FASES.map((k) => `<figure><img src="${e.rutas[k]}" alt="Fase ${k} del corte ${e.sample_id}" loading="lazy">` +
+      `<figcaption><b>${k}</b> ${DESCRIPCION[k].toLowerCase()}</figcaption></figure>`).join("");
+    $("a-fases-nota").textContent = `Corte ${e.sample_id}, de una paciente de entrenamiento.`;
   }
-}
-
-const etiquetaClase = (c) => (c === "pCR" ? "pCR = 1" : "pCR = 0");
-// La marca del sello, para dibujarla trazo a trazo al terminar
-const MARCA_SELLO = {
-  bien: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path pathLength="1" d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
-  mal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path pathLength="1" d="M7 7l10 10M17 7L7 17"/></svg>',
-};
-async function verificar() {
-  const tabla = $("t-verificacion"), sello = $("sello"), icono = sello.querySelector(".icono"), nota = sello.querySelector(".texto-suave");
-  $("verificar").disabled = true;
-  sello.className = "sello verificando"; icono.textContent = ""; sello.querySelector("h3").textContent = "Verificando…";
-  // la tabla se rellena corte a corte, para que se vea avanzar
-  tabla.hidden = false;
-  tabla.innerHTML = '<thead><tr><th>Corte</th><th>Python</th><th>Esta página</th><th>Diferencia</th><th>Clase</th><th></th></tr></thead><tbody></tbody>';
-  const cuerpo = tabla.querySelector("tbody");
-  let peor = 0, ok = true, n = 0;
-  for (const e of W.ejemplos) {
-    let fila;
-    try {
-      const f = {}; for (const k of FASES) f[k] = leerFase(await bajar(e.rutas[k]), k).x;
-      const r = await predecirCorte(f), dif = Math.abs(r.probabilidad - e.probabilidad_python), bien = dif < TOLERANCIA && r.clase === e.clase_python;
-      peor = Math.max(peor, dif); ok = ok && bien;
-      fila = `<tr class="fila-nueva"><td>${e.sample_id}</td><td class="num">${e.probabilidad_python.toFixed(6)}</td><td class="num">${r.probabilidad.toFixed(6)}</td><td class="num">${dif.toExponential(1)}</td><td>${e.clase_python === r.clase ? etiquetaClase(r.clase) : `${etiquetaClase(e.clase_python)} / ${etiquetaClase(r.clase)}`}</td><td class="${bien ? "bien" : "mal"}">${bien ? "✓" : "✗"}</td></tr>`;
-    } catch (err) { ok = false; fila = `<tr class="fila-nueva"><td>${e.sample_id}</td><td colspan="5" class="mal">${err.message}</td></tr>`; }
-    cuerpo.insertAdjacentHTML("beforeend", fila);
-    nota.textContent = `${++n} de ${W.ejemplos.length} cortes comprobados…`;
-  }
-  // al terminar: el sello salta, la marca se dibuja y sale una onda del círculo
-  sello.className = `sello ${ok ? "bien" : "mal"}`; void sello.offsetWidth; sello.classList.add("recien");
-  icono.innerHTML = MARCA_SELLO[ok ? "bien" : "mal"];
-  sello.querySelector("h3").textContent = ok ? "La página reproduce el cálculo de Python" : "Hay diferencias con Python";
-  sello.querySelector(".texto-suave").textContent = `${W.ejemplos.length} cortes. Diferencia máxima de probabilidad: ${peor.toExponential(1)} (tolerancia ${TOLERANCIA.toExponential(0)}).`;
-  $("verificar").disabled = false;
+  $("a-checksum").textContent = DEMO ? "no disponible en la maqueta" : (W ? W.checksum_web : "—");
+  document.querySelectorAll("[data-ir-vista]").forEach((b) => b.addEventListener("click", () => cambiarVista(b.dataset.irVista)));
 }
 
 // ------------------------------------------------------------------------------------------------ arranque
@@ -1627,14 +1597,23 @@ function cambiarVista(v) {
   marcarIndice();
 }
 
-// Índice de la vista Modelo: marca la sección en la que estás (la última cuyo título ya ha pasado bajo el índice)
+// Índice de la vista activa (Modelo o Acerca de): marca la sección en la que estás (la última cuyo título ya ha pasado bajo él)
+// La sección pulsada en el índice se queda marcada mientras siga en pantalla, aunque la página no pueda bajar hasta ella
+// (las últimas secciones, cortas, nunca llegan arriba); se olvida en cuanto la persona se desplaza por su cuenta.
+let seccionElegida = null;
 function marcarIndice() {
-  if (!$("vista-modelo").classList.contains("activa")) return;
-  const enlaces = [...document.querySelectorAll("#indice-modelo [data-ir]")];
+  const indice = document.querySelector(".vista.activa .indice");
+  if (!indice) return;
+  const enlaces = [...indice.querySelectorAll("[data-ir]")];
   const alFinal = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
   let actual = enlaces[0];
   for (const b of enlaces) if ($(b.dataset.ir).getBoundingClientRect().top <= 140) actual = b;
   if (alFinal) actual = enlaces[enlaces.length - 1];
+  const elegido = seccionElegida && enlaces.find((b) => b.dataset.ir === seccionElegida);
+  if (elegido) {
+    const r = $(seccionElegida).getBoundingClientRect();
+    if (r.top < window.innerHeight && r.bottom > 0) actual = elegido; else seccionElegida = null;
+  }
   enlaces.forEach((b) => b.setAttribute("aria-current", String(b === actual)));
 }
 
@@ -1642,7 +1621,7 @@ function iniciar() {
   if (!D) { document.body.insertAdjacentHTML("afterbegin", '<div class="franja-demo">Falta datos/datos.js: ejecuta python src/web/datos_web.py</div>'); return; }
   $("franja-demo").hidden = !DEMO;
   document.querySelectorAll(".menu button").forEach((b) => b.addEventListener("click", () => cambiarVista(b.dataset.vista)));
-  const inicial = location.hash.slice(1); if (["predecir", "modelo", "verificacion", "acerca"].includes(inicial)) cambiarVista(inicial);
+  const inicial = location.hash.slice(1); if (["predecir", "modelo", "acerca"].includes(inicial)) cambiarVista(inicial);
   // ranuras: un fichero va a su fase; varios a la vez se reparten por el nombre (o van al lote)
   document.querySelectorAll('.ranura input[type="file"]').forEach((input) => {
     const fase = input.dataset.fase, ranura = input.closest(".ranura");
@@ -1681,10 +1660,9 @@ function iniciar() {
   window.addEventListener("resize", () => {
     if (estado.fases && ["COMPARAR", "TRES"].includes(estado.faseVisor) && !estado.animando) dibujarVisor(null, estado.faseVisor);
   });
-  // historial y verificacion
+  // historial
   $("descargar").addEventListener("click", descargarHistorial);
   $("vaciar").addEventListener("click", () => { estado.historial = []; $("historial").innerHTML = '<tr><td colspan="9" class="vacio">Aún no hay predicciones en esta sesión.</td></tr>'; $("descargar").disabled = true; $("vaciar").disabled = true; });
-  $("verificar").addEventListener("click", verificar);
   // portada
   $("portada-empezar").addEventListener("click", () => cerrarPortada("predecir"));
   $("portada-modelo").addEventListener("click", () => cerrarPortada("modelo"));
@@ -1706,7 +1684,7 @@ function iniciar() {
   resultadoInicial();
   montarGaleria();
   montarModelo();
-  montarVerificacion();
+  montarAcerca();
   cargarModelo();
   let vista = null;
   try { vista = sessionStorage.getItem("portada"); } catch (e) {}
