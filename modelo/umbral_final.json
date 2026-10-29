@@ -1,0 +1,132 @@
+{
+  "configuraciones": [
+    "bn_normal_c128_lr3e-05",
+    "bn_normal_c128_lr3e-05_s1",
+    "bn_normal_c128_lr3e-05_s2"
+  ],
+  "agregacion": "media de los cortes de cada paciente",
+  "criterio": "equilibrado: maximo F1 equilibrada",
+  "umbral": 0.315889092639977,
+  "metricas_validacion": {
+    "umbral": 0.315889092639977,
+    "VP": 132,
+    "FN": 190,
+    "VN": 545,
+    "FP": 230,
+    "sensibilidad": 0.40993788819875776,
+    "especificidad": 0.7032258064516129,
+    "precision": 0.36464088397790057,
+    "vpn": 0.7414965986394558,
+    "f1_pcr": 0.3859649122807017,
+    "f1_no_pcr": 0.7218543046357616,
+    "f1_equilibrada": 0.5539096084582317,
+    "accuracy": 0.6171376481312671
+  },
+  "umbral_equilibrado": 0.315889092639977,
+  "umbral_desescalar": 0.36059498850270927,
+  "auc_validacion": 0.5725866559807654,
+  "auc_ic95": [
+    0.5341523231105743,
+    0.6087574866177656
+  ],
+  "ap": 0.34243209147483955,
+  "brier": 0.20509684582028984,
+  "brier_referencia": 0.20736923190702414,
+  "auc_por_fold": {
+    "semilla 42": [
+      0.6023185483870968,
+      0.5750975960550647,
+      0.592378145067902,
+      0.5748045977011494,
+      0.5728374768851449
+    ],
+    "semilla 1": [
+      0.596875,
+      0.5428395315389357,
+      0.5994315191072743,
+      0.560367816091954,
+      0.5945140743784673
+    ],
+    "semilla 2": [
+      0.5835685483870967,
+      0.5501335524964044,
+      0.6044846825981682,
+      0.5751724137931035,
+      0.5719128826792685
+    ],
+    "promedio": [
+      0.605141129032258,
+      0.5578385042120403,
+      0.6041688598799874,
+      0.5773793103448276,
+      0.5832134785288678
+    ]
+  },
+  "otros_criterios": {
+    "desescalar (especificidad >= 0.95)": {
+      "umbral": 0.36059498850270927,
+      "VP": 18.0,
+      "FN": 304.0,
+      "VN": 737.0,
+      "FP": 38.0,
+      "sensibilidad": 0.055900621118012424,
+      "especificidad": 0.9509677419354838,
+      "precision": 0.32142857142857145,
+      "vpn": 0.7079731027857828,
+      "f1_pcr": 0.09523809523809525,
+      "f1_no_pcr": 0.8116740088105726,
+      "f1_equilibrada": 0.4534560520243339,
+      "accuracy": 0.6882406563354604
+    },
+    "maximo F1 de pCR": {
+      "umbral": 0.1808424683596288,
+      "VP": 321.0,
+      "FN": 1.0,
+      "VN": 15.0,
+      "FP": 760.0,
+      "sensibilidad": 0.9968944099378882,
+      "especificidad": 0.01935483870967742,
+      "precision": 0.2969472710453284,
+      "vpn": 0.9375,
+      "f1_pcr": 0.4575908766928012,
+      "f1_no_pcr": 0.03792667509481669,
+      "f1_equilibrada": 0.24775877589380893,
+      "accuracy": 0.3062898814949863
+    },
+    "maximo F1 equilibrada": {
+      "umbral": 0.315889092639977,
+      "VP": 132.0,
+      "FN": 190.0,
+      "VN": 545.0,
+      "FP": 230.0,
+      "sensibilidad": 0.40993788819875776,
+      "especificidad": 0.7032258064516129,
+      "precision": 0.36464088397790057,
+      "vpn": 0.7414965986394558,
+      "f1_pcr": 0.3859649122807017,
+      "f1_no_pcr": 0.7218543046357616,
+      "f1_equilibrada": 0.5539096084582317,
+      "accuracy": 0.6171376481312671
+    },
+    "Youden (sens + espec - 1)": {
+      "umbral": 0.3022939414127066,
+      "VP": 174.0,
+      "FN": 148.0,
+      "VN": 459.0,
+      "FP": 316.0,
+      "sensibilidad": 0.5403726708074534,
+      "especificidad": 0.5922580645161291,
+      "precision": 0.3551020408163265,
+      "vpn": 0.7561779242174629,
+      "f1_pcr": 0.42857142857142855,
+      "f1_no_pcr": 0.6642547033285093,
+      "f1_equilibrada": 0.546413065949969,
+      "accuracy": 0.577028258887876
+    }
+  },
+  "calibracion": {
+    "metodo": "Platt unico al final, a nivel de corte: p = sigmoide(a * logit(p_promedio) + b), donde p_promedio es la media de las probabilidades de los modelos para ese corte; la probabilidad de la paciente es la media de sus cortes calibrados",
+    "a": 0.6098993481998592,
+    "b": -0.37668924705648904
+  }
+}
