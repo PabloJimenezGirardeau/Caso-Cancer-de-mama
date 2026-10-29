@@ -5,8 +5,8 @@ Para cada paciente dibuja el corte central (EARLY), el realce (EARLY - PRE) y, e
 comparar. La caja solo se dibuja: la red no la recibe.
 
 Uso:
-    python analisis/mapas_atencion.py                                   # bn_normal_aten_lr0.0001, fold 0, 8 pacientes
-    python analisis/mapas_atencion.py --config bn_normal_aten_lr0.0001_s1 --fold 3 --pacientes 12
+    python src/analisis/mapas_atencion.py                                   # bn_normal_aten_lr0.0001, fold 0, 8 pacientes
+    python src/analisis/mapas_atencion.py --config bn_normal_aten_lr0.0001_s1 --fold 3 --pacientes 12
 Busca el .pt en resultados/ (y en modelo/). Salida: figuras/atencion/<config>_fold<k>.png
 """
 
@@ -16,16 +16,16 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
 import numpy as np
 import torch
 
-import modelos as mo
-import utils_caso as uc
-from cajas_tumor import caja_en_png, localizar
+from entrenamiento import modelos as mo
+from datos import utils_caso as uc
+from datos.cajas_tumor import caja_en_png, localizar
 
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 
 
 def main() -> None:

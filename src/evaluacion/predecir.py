@@ -14,15 +14,15 @@ Pipeline fijado en la fase 4 (DECISIONES.md, `modelo/umbral_final.json`):
 Los modelos anteriores (2.1 sin recorte y recorte con lr 1e-4) ya no estan en el repositorio: quedan en el historial de git.
 
 Uso como modulo:
-    from predecir import ModeloFinal
+    from evaluacion.predecir import ModeloFinal
     modelo = ModeloFinal()                                  # carga modelo/ una sola vez
     r = modelo.predecir_corte("pre.png", "early.png", "late.png")   # rutas, bytes o ficheros abiertos
     print(r["probabilidad"], r["clase"])
 
 Uso desde la terminal:
-    python predecir.py --muestra ISPY1_1001_z012            # un corte del dataset, por su sample_id
-    python predecir.py --pre a.png --early b.png --late c.png
-    python predecir.py --verificar 20                       # comprueba que reproduce las probabilidades de
+    python src/evaluacion/predecir.py --muestra ISPY1_1001_z012            # un corte del dataset, por su sample_id
+    python src/evaluacion/predecir.py --pre a.png --early b.png --late c.png
+    python src/evaluacion/predecir.py --verificar 20                       # comprueba que reproduce las probabilidades de
                                                             # validacion guardadas por cada uno de los 15 modelos
 """
 
@@ -39,9 +39,12 @@ import numpy as np
 import torch
 from PIL import Image
 
-import modelos as mo
+import sys
 
-RAIZ = Path(__file__).resolve().parent
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
+
+from entrenamiento import modelos as mo
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/evaluacion/
 CARPETA_MODELO = RAIZ / "modelo"
 LADO = 256
 TAMANO_MAX_BYTES = 5 * 2**20          # 5 MB por PNG: muy por encima de lo normal (~30-80 KB)

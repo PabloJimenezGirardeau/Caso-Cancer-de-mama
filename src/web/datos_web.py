@@ -17,7 +17,7 @@ fichero, sin servidor) con:
 Lo que SI necesita PyTorch (los modelos ONNX, los ejemplos y la verificacion) lo genera exportar_web.py en el PC.
 
 Uso:
-    python datos_web.py
+    python src/web/datos_web.py
 """
 
 from __future__ import annotations
@@ -28,9 +28,12 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-import curvas_entrenamiento as ce
+import sys
 
-RAIZ = Path(__file__).resolve().parent
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
+
+from entrenamiento import curvas_entrenamiento as ce
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/web/
 MODELO = RAIZ / "modelo"
 SALIDA = RAIZ / "docs" / "datos" / "datos.js"
 

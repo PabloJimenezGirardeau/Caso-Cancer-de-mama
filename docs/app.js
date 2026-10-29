@@ -1164,7 +1164,7 @@ function montarGaleria() {
     }
     return;
   }
-  if (!EJEMPLOS.length) { g.innerHTML = '<p class="ayuda" style="grid-column:1/-1">Los ejemplos se generan con galeria_web.py.</p>'; return; }
+  if (!EJEMPLOS.length) { g.innerHTML = '<p class="ayuda" style="grid-column:1/-1">Los ejemplos se generan con src/web/galeria_web.py.</p>'; return; }
   const conPcr = EJEMPLOS.filter((e) => e.pCR === 1).length;
   $("ejemplos-nota").textContent = `Pacientes de entrenamiento en las que el tumor se ve bien, elegidas al azar y con la proporción real de pCR ` +
     `(${conPcr} de ${EJEMPLOS.length}), sin mirar lo que predice el modelo. La mayoría de las redes ya las vieron.`;
@@ -1639,7 +1639,7 @@ function marcarIndice() {
 }
 
 function iniciar() {
-  if (!D) { document.body.insertAdjacentHTML("afterbegin", '<div class="franja-demo">Falta datos/datos.js: ejecuta python datos_web.py</div>'); return; }
+  if (!D) { document.body.insertAdjacentHTML("afterbegin", '<div class="franja-demo">Falta datos/datos.js: ejecuta python src/web/datos_web.py</div>'); return; }
   $("franja-demo").hidden = !DEMO;
   document.querySelectorAll(".menu button").forEach((b) => b.addEventListener("click", () => cambiarVista(b.dataset.vista)));
   const inicial = location.hash.slice(1); if (["predecir", "modelo", "verificacion", "acerca"].includes(inicial)) cambiarVista(inicial);

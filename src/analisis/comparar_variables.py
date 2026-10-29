@@ -14,7 +14,7 @@ se rellena con la media y se añade un indicador de hueco. pCR, split y test no 
 nunca: son la respuesta y el reparto.
 
 Uso:
-    python analisis/comparar_variables.py
+    python src/analisis/comparar_variables.py
 """
 
 from __future__ import annotations
@@ -23,19 +23,19 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
-import clinicas
-import utils_caso as uc
-from comparar import resumen
-from entrenar import localizar
+from datos import clinicas
+from datos import utils_caso as uc
+from analisis.comparar import resumen
+from entrenamiento.entrenar import localizar
 
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 GRUPOS = {
     "adquisicion (escaner)": ["n_xy", "n_z", "n_times", "pre", "post_early", "post_late", "slice_thick", "xy_spacing"],
     "coordenadas del recorte": ["mask_start", "mask_end", "sraw", "eraw", "scol", "ecol"],

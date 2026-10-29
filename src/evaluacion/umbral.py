@@ -37,8 +37,8 @@ Salida, en resultados/:
     umbral_<nombre>.json            umbral elegido y metricas (lo usaran el test y la app)
 
 Uso (no necesita GPU):
-    python umbral.py
-    python umbral.py --configs bn_normal_lr0.0001                  # una sola semilla
+    python src/evaluacion/umbral.py
+    python src/evaluacion/umbral.py --configs bn_normal_lr0.0001                  # una sola semilla
 """
 
 from __future__ import annotations
@@ -51,9 +51,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import graficas
+import sys
 
-RAIZ = Path(__file__).resolve().parent
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
+
+from entrenamiento import graficas
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/evaluacion/
 REFERENCIA = RAIZ / "referencia"
 POR_DEFECTO = ["bn_normal_c128_lr3e-05", "bn_normal_c128_lr3e-05_s1", "bn_normal_c128_lr3e-05_s2"]   # modelo final (C)
 CRITERIOS = {"equilibrado": "maximo F1 equilibrada", "desescalar": "desescalar"}   # --criterio: inicio de la clave

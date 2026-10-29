@@ -1,5 +1,8 @@
 # Decisiones del proyecto
 
+> **Nota (2026-10-29):** el código se reorganizó en `src/` por etapas (ver el README). Los comandos de este diario son de
+> antes: `python entrenar.py` es ahora `python src/entrenamiento/entrenar.py`, `python comparar.py` es `python src/analisis/comparar.py`, etc.
+
 Cada decisión con su motivo y lo que se descartó, para poder justificarla en el informe y
 en la defensa. Se actualiza según avanzamos.
 

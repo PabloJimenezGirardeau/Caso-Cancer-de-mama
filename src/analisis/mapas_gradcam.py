@@ -16,8 +16,8 @@ Dos partes:
        con las 15 redes, como en la app. Es descriptivo: el test ya esta evaluado y aqui no se decide nada.
 
 Uso (en el PC, desde la raiz del proyecto; necesita PyTorch):
-    python analisis/mapas_gradcam.py           GPU si la hay
-    python analisis/mapas_gradcam.py --cpu     en la CPU (si la GPU se cuelga; tarda un par de minutos)
+    python src/analisis/mapas_gradcam.py           GPU si la hay
+    python src/analisis/mapas_gradcam.py --cpu     en la CPU (si la GPU se cuelga; tarda un par de minutos)
 
 Salida en figuras/mapas/:
     gradcam_casos_test.png    los cuatro casos: imagen con la caja del tumor, mapa encima y realce
@@ -33,7 +33,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
 import numpy as np
 import pandas as pd
@@ -41,12 +41,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-import graficas
-import utils_caso as uc
-from cajas_tumor import caja_en_png
-from predecir import ModeloFinal, cargar_corte
+from entrenamiento import graficas
+from datos import utils_caso as uc
+from datos.cajas_tumor import caja_en_png
+from evaluacion.predecir import ModeloFinal, cargar_corte
 
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 LADO, RECORTE = 256, 128
 INI = (LADO - RECORTE) // 2                 # el cuadrado central va de la fila/columna 64 a la 191
 COHORTES = ("duke", "spy1", "spy2")

@@ -41,9 +41,9 @@ Salida, en resultados/ (los nombres incluyen la perdida y el fold):
     *_resumen.json      configuracion, resultado, dispositivo y tiempos
 
 Ejemplos:
-    python entrenar.py --perdida normal                      # entrenamiento real
-    python entrenar.py --perdida ponderada
-    python entrenar.py --perdida normal --muestra-rapida 20 --epocas 3 --num-workers 0   # prueba rapida
+    python src/entrenamiento/entrenar.py --perdida normal                      # entrenamiento real
+    python src/entrenamiento/entrenar.py --perdida ponderada
+    python src/entrenamiento/entrenar.py --perdida normal --muestra-rapida 20 --epocas 3 --num-workers 0   # prueba rapida
 
 En el PC con GPU AMD (ROCm) hay que exportar antes:
     export HSA_OVERRIDE_GFX_VERSION=10.3.0
@@ -70,14 +70,15 @@ import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader
 
-import graficas
-import modelos as mo
-import parada as pa
-import utils_caso as uc
+import sys
 
-RAIZ = Path(__file__).resolve().parent
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
-
+from entrenamiento import graficas
+from entrenamiento import modelos as mo
+from entrenamiento import parada as pa
+from datos import utils_caso as uc
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/entrenamiento/
 # --------------------------------------------------------------------------- #
 # Utilidades
 # --------------------------------------------------------------------------- #
@@ -149,7 +150,7 @@ def localizar(subcarpeta: str, raiz: Path) -> Path:
         if (base / subcarpeta).is_dir():
             return base
     raise FileNotFoundError(f"No encuentro '{subcarpeta}/' en {raiz} ni en {raiz / 'breastdcedl'}. "
-                            "Descarga los datos con `python descargar_datos.py` o usa --raiz.")
+                            "Descarga los datos con `python src/datos/descargar_datos.py` o usa --raiz.")
 
 
 def muestra_estratificada(filas, n_pacientes: int):
@@ -245,7 +246,7 @@ def objetivos_caja(filas, raiz_meta: Path) -> tuple[torch.Tensor, torch.Tensor]:
     caja de patients.csv llevada al PNG (cajas_tumor.caja_en_png: ventana del MinCrop y giro de 90 grados).
     valida = 0 si la paciente no tiene caja utilizable (imagen original menor de 256): ese corte no cuenta en la
     perdida de atencion. Las cajas solo se usan para ENTRENAR; la red no las recibe como entrada."""
-    from cajas_tumor import caja_en_png
+    from datos.cajas_tumor import caja_en_png
     pacientes = uc.cargar_patients(raiz_meta).set_index("pid")
     bordes = np.arange(CELDAS + 1) * (256 // CELDAS)                 # 0, 16, ..., 256
     por_paciente = {}

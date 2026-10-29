@@ -9,8 +9,7 @@ entrenamiento, la regularización, el umbral de decisión y su justificación.
 
 Uso típico desde la carpeta `breastdcedl/`:
 
-    import utils_caso as uc
-
+    from datos import utils_caso as uc
     samples = uc.cargar_samples()
     tr, va = uc.particion(samples, fold_val=0)
 
@@ -28,8 +27,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-RAIZ = Path(__file__).resolve().parent
-
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/datos/
 FASES = ("PRE", "EARLY", "LATE")
 METODOS_AGREGACION = ("mean", "max", "median", "voto")
 

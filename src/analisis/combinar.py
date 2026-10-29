@@ -29,8 +29,8 @@ Salida, en resultados/:
     combinar_<nombre>_resumen.json   AUC por fold y coeficientes
 
 Uso:
-    python analisis/combinar.py              # solo el modelo clinico (no necesita la CNN)
-    python analisis/combinar.py bn_normal    # clinico, CNN y combinado (lee bn_normal_fold<k>_probs_val_final.csv)
+    python src/analisis/combinar.py              # solo el modelo clinico (no necesita la CNN)
+    python src/analisis/combinar.py bn_normal    # clinico, CNN y combinado (lee bn_normal_fold<k>_probs_val_final.csv)
 """
 
 from __future__ import annotations
@@ -40,20 +40,20 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
-import clinicas
-import graficas
-import utils_caso as uc
-from comparar import resumen
-from entrenar import localizar
+from datos import clinicas
+from entrenamiento import graficas
+from datos import utils_caso as uc
+from analisis.comparar import resumen
+from entrenamiento.entrenar import localizar
 
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 REFERENCIA = RAIZ / "referencia"
 NOMBRES = {"clinico": "solo clinico", "cnn": "solo CNN", "combinado": "CNN + clinico"}
 

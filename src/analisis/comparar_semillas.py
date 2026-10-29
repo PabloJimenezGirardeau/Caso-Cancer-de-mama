@@ -6,7 +6,7 @@ a fold: diferencia media e IC95 (t de Student, 4 grados de libertad). Regla (DEC
 diferencia media supera +0,02 y su IC95 excluye el 0.
 
 Uso:
-    python analisis/comparar_semillas.py bn_normal_c128_lr0.0001 bn_normal_aten_lr0.0001
+    python src/analisis/comparar_semillas.py bn_normal_c128_lr0.0001 bn_normal_aten_lr0.0001
 Lee *_epocas.csv de resultados/ y, si no estan, de referencia/.
 """
 
@@ -17,11 +17,10 @@ import csv
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
-import comparar as co
-
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+from analisis import comparar as co
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 SEMILLAS = {"42": "", "1": "_s1", "2": "_s2"}
 
 
@@ -128,7 +127,7 @@ def main() -> None:
              + (" (el IC excluye el 0, pero la mejora no llega al margen)" if excluye else "")))
 
     # --- curvas de perdida (indicadores fijados el 2026-10-22, DECISIONES.md) ---
-    from curvas_entrenamiento import referencias_por_fold
+    from entrenamiento.curvas_entrenamiento import referencias_por_fold
     refs = referencias_por_fold()
     curvas = {n: resumen_curvas(args.carpeta, n, familias[n], refs) for n in (args.actual, args.candidato)}
     print("\nCURVAS DE PERDIDA (media de los 15 modelos)")

@@ -14,7 +14,7 @@ juntas (IC95), AP, y con el criterio de desescalar (especificidad >= 0,95) la se
 su estabilidad fold a fold. El test no se toca.
 
 Uso (no necesita GPU; funciona en cualquier ordenador con el repositorio):
-    python analisis/comparar_agregacion.py
+    python src/analisis/comparar_agregacion.py
 """
 
 from __future__ import annotations
@@ -24,16 +24,16 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
 import numpy as np
 import pandas as pd
 
-from comparar import resumen
-from umbral import (auc, barrido, cargar_config, elegir_umbrales, intervalo_auc, logit, metricas,
+from analisis.comparar import resumen
+from evaluacion.umbral import (auc, barrido, cargar_config, elegir_umbrales, intervalo_auc, logit, metricas,
                     precision_recall, sigmoide)
 
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 
 
 def agregar(cortes: pd.DataFrame, metodo: str, umbral_voto: float) -> pd.DataFrame:

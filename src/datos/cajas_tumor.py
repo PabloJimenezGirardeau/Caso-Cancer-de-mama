@@ -12,7 +12,7 @@ Calcula, para las pacientes de entrenamiento (el test no se mira), cuanto del tu
 de 128x128 que mira el modelo, y dibuja ejemplos.
 
 Uso:
-    python cajas_tumor.py            -> figuras/datos/cajas_tumor.png y el resumen en pantalla
+    python src/datos/cajas_tumor.py            -> figuras/datos/cajas_tumor.png y el resumen en pantalla
 """
 
 from __future__ import annotations
@@ -21,9 +21,12 @@ from pathlib import Path
 
 import numpy as np
 
-import utils_caso as uc
+import sys
 
-RAIZ = Path(__file__).resolve().parent
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
+
+from datos import utils_caso as uc
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/datos/
 LADO, RECORTE = 256, 128
 
 

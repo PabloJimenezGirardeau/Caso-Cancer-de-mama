@@ -13,7 +13,7 @@ de pCR de los cortes de entrenamiento (calculada desde samples.csv). Una red por
 nada util de la imagen.
 
 Uso (no necesita GPU ni PyTorch):
-    python curvas_entrenamiento.py
+    python src/entrenamiento/curvas_entrenamiento.py
 """
 
 from __future__ import annotations
@@ -22,10 +22,13 @@ import csv
 import math
 from pathlib import Path
 
-import graficas
-import parada
+import sys
 
-RAIZ = Path(__file__).resolve().parent
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
+
+from entrenamiento import graficas
+from entrenamiento import parada
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/entrenamiento/
 REFERENCIA = RAIZ / "referencia"
 SALIDA = RAIZ / "figuras" / "entrenamiento"
 FAMILIAS = {"recorte": ("bn_normal_c128_lr0.0001", "recorte 128, lr 1e-4 (modelo final anterior)"),

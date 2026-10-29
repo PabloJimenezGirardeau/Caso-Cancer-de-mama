@@ -15,8 +15,8 @@ Cada paciente se predice con los 3 modelos de SU fold (los que no la vieron). La
 con --sin-imagenes se hacen solo 1, 3 y 4 (segundos).
 
 Uso:
-    python analisis/diagnostico_estabilidad.py
-    python analisis/diagnostico_estabilidad.py --sin-imagenes
+    python src/analisis/diagnostico_estabilidad.py
+    python src/analisis/diagnostico_estabilidad.py --sin-imagenes
 """
 
 from __future__ import annotations
@@ -26,17 +26,16 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
 import numpy as np
 import pandas as pd
 
-import comparar as co
-import graficas
-import umbral as um
-import utils_caso as uc
-
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+from analisis import comparar as co
+from entrenamiento import graficas
+from evaluacion import umbral as um
+from datos import utils_caso as uc
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 CARPETA = RAIZ / "modelo"
 SALIDA = RAIZ / "figuras" / "estabilidad"
 SEMILLAS = {"": "42", "_s1": "1", "_s2": "2"}
@@ -175,7 +174,7 @@ def main() -> None:
     # ---------- 2. robustez a cambios irrelevantes (y TTA con volteo) ----------
     if not args.sin_imagenes:
         import torch
-        from predecir import ModeloFinal, cargar_corte
+        from evaluacion.predecir import ModeloFinal, cargar_corte
         modelo = ModeloFinal(CARPETA)          # GPU si la hay (en el PC), si no CPU
         base_img = localizar("dataset")
         samples = uc.cargar_samples(localizar("metadata")).set_index("sample_id").loc[d.sample_id]

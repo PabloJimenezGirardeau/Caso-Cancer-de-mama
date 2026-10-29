@@ -4,13 +4,13 @@
 Tres modos de uso, pensados para explicar el dataset en clase:
 
     # 1. Una muestra: las tres fases DCE y el mapa de realce
-    python ver_muestras.py muestra ISPY1_1001_z012
+    python src/datos/ver_muestras.py muestra ISPY1_1001_z012
 
     # 2. Todos los cortes de una paciente, en rejilla
-    python ver_muestras.py paciente ISPY1_1001
+    python src/datos/ver_muestras.py paciente ISPY1_1001
 
     # 3. Comparativa entre una paciente con pCR=0 y otra con pCR=1
-    python ver_muestras.py comparar
+    python src/datos/ver_muestras.py comparar
 
 Sin --salida las figuras se abren en pantalla; con --salida se guardan en PNG.
 """
@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-RAIZ = Path(__file__).resolve().parent
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/datos/
 FASES = ("PRE", "EARLY", "LATE")
 
 

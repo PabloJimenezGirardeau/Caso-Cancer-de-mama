@@ -12,8 +12,8 @@ que epoca habria elegido el early stopping. El argumento es el nombre de la conf
 `_fold<k>_epocas.csv` final: para `bn_normal_fold0_epocas.csv`... es `bn_normal`.
 
 Uso:
-    python analisis/comparar.py bn_normal                        # una configuracion: tabla por fold
-    python analisis/comparar.py bn_normal bn_normal_lr0.0001     # dos: ademas, la diferencia EMPAREJADA
+    python src/analisis/comparar.py bn_normal                        # una configuracion: tabla por fold
+    python src/analisis/comparar.py bn_normal bn_normal_lr0.0001     # dos: ademas, la diferencia EMPAREJADA
 
 Comparacion emparejada: se resta, fold a fold, el AUC de validacion en la epoca elegida de las dos
 configuraciones. Un fold dificil lo es para las dos, asi que el ruido del reparto de pacientes se cancela
@@ -29,11 +29,10 @@ import math
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
-import parada as pa
-
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+from entrenamiento import parada as pa
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 REFERENCIA = RAIZ / "referencia"      # copias en git de los resultados importantes (la base, etc.)
 # valor de la t de Student para un intervalo de confianza del 95 %, segun los grados de libertad
 T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262}

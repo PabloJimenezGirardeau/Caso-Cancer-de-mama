@@ -18,7 +18,7 @@ vieron a la paciente (su fold). La Verificacion sigue usando los cortes de expor
 probabilidad calculada con PyTorch.
 
 Uso:
-    python galeria_web.py      -> docs/ejemplos/<sample_id>_{PRE,EARLY,LATE}.png y docs/datos/galeria.js
+    python src/web/galeria_web.py      -> docs/ejemplos/<sample_id>_{PRE,EARLY,LATE}.png y docs/datos/galeria.js
 """
 
 from __future__ import annotations
@@ -32,9 +32,13 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageFilter
 
-from cajas_tumor import caja_en_png, localizar
+import sys
 
-RAIZ = Path(__file__).resolve().parent
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
+
+from datos.cajas_tumor import caja_en_png, localizar
+
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/web/
 WEB = RAIZ / "docs"
 INI, FIN = 64, 191                    # cuadrado central de 128x128 (filas y columnas incluidas)
 N_EJEMPLOS = 12

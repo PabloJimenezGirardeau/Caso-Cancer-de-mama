@@ -6,8 +6,8 @@ ve en un corte 2D, no a un error del codigo. Se reutilizan entrenar.py (una epoc
 cambia la etiqueta, que pasa a ser 1 si la paciente es de Duke.
 
 Uso (CPU o GPU):
-    python analisis/control_positivo.py                     # fold 0, 4 epocas, recorte 128 como el modelo final
-    python analisis/control_positivo.py --epocas 6 --muestra-rapida 300
+    python src/analisis/control_positivo.py                     # fold 0, 4 epocas, recorte 128 como el modelo final
+    python src/analisis/control_positivo.py --epocas 6 --muestra-rapida 300
 """
 
 from __future__ import annotations
@@ -16,17 +16,16 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-import entrenar as en
-import modelos as mo
-import utils_caso as uc
-
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+from entrenamiento import entrenar as en
+from entrenamiento import modelos as mo
+from datos import utils_caso as uc
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 
 
 def main() -> None:

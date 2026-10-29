@@ -5,14 +5,14 @@ Este fichero es autonomo: puedes descargarlo suelto y ejecutarlo en una carpeta
 vacia. Se baja el indice, la documentacion y las 38.109 imagenes.
 
     pip install requests
-    python descargar_datos.py
+    python src/datos/descargar_datos.py
 
 Opciones utiles:
 
-    python descargar_datos.py --destino C:\\bdcedl     ruta corta (Windows)
-    python descargar_datos.py --solo-test              solo el conjunto de prueba
-    python descargar_datos.py --pacientes 5            5 pacientes, para probar
-    python descargar_datos.py --hilos 32               mas paralelismo
+    python src/datos/descargar_datos.py --destino C:\\bdcedl     ruta corta (Windows)
+    python src/datos/descargar_datos.py --solo-test              solo el conjunto de prueba
+    python src/datos/descargar_datos.py --pacientes 5            5 pacientes, para probar
+    python src/datos/descargar_datos.py --hilos 32               mas paralelismo
 
 Es reanudable: si se corta, vuelve a lanzarlo y solo bajara lo que falte.
 """

@@ -21,11 +21,11 @@ Lo que se deduce de los numeros de la diapositiva (105.761 parametros):
 
 Uso:
 
-    import modelos as mo
+    from entrenamiento import modelos as mo
     modelo = mo.RedBase()
     logits = modelo(x)        # x: (N, 3, 256, 256)  ->  logits: (N,)
 
-Ejecutar este fichero (`python modelos.py`) imprime el tamaño y los parametros
+Ejecutar este fichero (`python src/entrenamiento/modelos.py`) imprime el tamaño y los parametros
 de cada capa y comprueba que el total es 105.761.
 """
 

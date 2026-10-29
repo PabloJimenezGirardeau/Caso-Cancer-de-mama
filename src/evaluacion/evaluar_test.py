@@ -2,11 +2,11 @@
 
 Dos modos, con las MISMAS cifras y figuras:
 
-    python evaluar_test.py            ENSAYO con la validacion de los 5 folds (no toca el test). Cada paciente la
+    python src/evaluacion/evaluar_test.py            ENSAYO con la validacion de los 5 folds (no toca el test). Cada paciente la
                                       predicen los modelos que no la vieron al entrenar (sus *_probs_val.csv). Es
                                       algo optimista: la calibracion y el umbral se eligieron con estos mismos datos.
                                       Salida en figuras/validacion/.
-    python evaluar_test.py --test     EL TEST (176 pacientes, fold -1). UNA SOLA VEZ, cuando lo decida el usuario:
+    python src/evaluacion/evaluar_test.py --test     EL TEST (176 pacientes, fold -1). UNA SOLA VEZ, cuando lo decida el usuario:
                                       si ya existe figuras/test/metricas.json, se niega a repetirlo. Cada corte pasa por
                                       predecir.ModeloFinal, lo mismo que en la app. Salida en figuras/test/.
 
@@ -53,12 +53,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import clinicas
-import graficas
-import umbral as um
-import utils_caso as uc
+import sys
 
-RAIZ = Path(__file__).resolve().parent
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
+
+from datos import clinicas
+from entrenamiento import graficas
+from evaluacion import umbral as um
+from datos import utils_caso as uc
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/evaluacion/
 # Clave interna "recorte" = el modelo PRINCIPAL (modelo/: CNN solo imagen, recorte 128 con lr 3e-5, decidido el 2026-10-24)
 CARPETA_CNN = RAIZ / "modelo"
 NOMBRES = {"recorte": "CNN solo imagen (principal)", "clinico": "solo datos clínicos",
@@ -102,7 +105,7 @@ def cnn_validacion(carpeta: Path, cortes: pd.DataFrame) -> np.ndarray:
 
 def cnn_test(cortes: pd.DataFrame, base_img: Path, lote: int = 128) -> tuple[np.ndarray, str]:
     """Probabilidad calibrada de cada corte del test con predecir.ModeloFinal (lo mismo que la app)."""
-    from predecir import ModeloFinal, cargar_corte
+    from evaluacion.predecir import ModeloFinal, cargar_corte
     modelo = ModeloFinal(CARPETA_CNN)
     salida = []
     for i in range(0, len(cortes), lote):

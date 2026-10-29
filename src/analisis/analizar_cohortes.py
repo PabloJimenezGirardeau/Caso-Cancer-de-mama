@@ -29,8 +29,8 @@ la red por TIPO de paciente):
   - tamano: tercios del volumen tumoral (tum_vol). Dice si la red solo funciona con tumores grandes.
 
 Uso (no necesita GPU):
-    python analisis/analizar_cohortes.py bn_normal --probs media10                  # cohorte, subtipo y tamaño
-    python analisis/analizar_cohortes.py base_normal_aug --grupo cohorte
+    python src/analisis/analizar_cohortes.py bn_normal --probs media10                  # cohorte, subtipo y tamaño
+    python src/analisis/analizar_cohortes.py base_normal_aug --grupo cohorte
 """
 
 from __future__ import annotations
@@ -41,11 +41,11 @@ from collections import defaultdict
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # para importar los modulos de la raiz del proyecto
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # src/: para importar los paquetes del proyecto
 
 import numpy as np
 
-RAIZ = Path(__file__).resolve().parent.parent   # la raiz del proyecto: este script esta en analisis/
+RAIZ = Path(__file__).resolve().parents[2]   # la raiz del proyecto: este fichero esta en src/analisis/
 COHORTES = ("duke", "spy1", "spy2")
 SUBTIPOS = ("HR+/HER2-", "HR+/HER2+", "HR-/HER2+", "triple negativo")
 TAMANOS = ("pequeño", "mediano", "grande")
