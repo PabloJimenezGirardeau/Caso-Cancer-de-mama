@@ -535,25 +535,27 @@ tbody tr:hover td { background: var(--acento-suave); }
 .descuadre.visible { opacity: 1; }
 
 /* ---- portada: la sala a oscuras y una imagen que se ilumina ---- */
+/* fija: sin desplazamiento; la imagen, la curva y los márgenes se ajustan a la altura de la ventana para que quepa todo */
 .portada {
-  position: fixed; inset: 0; z-index: 100; overflow-y: auto; display: grid; place-items: center; padding: 40px 32px; opacity: 0; transition: opacity .35s ease;
+  --lado-portada: clamp(220px, calc((100vh - 160px) / 1.3), 460px);
+  position: fixed; inset: 0; z-index: 100; overflow: hidden; overscroll-behavior: contain; display: grid; place-items: center; padding: clamp(16px, 4vh, 40px) 32px; opacity: 0; transition: opacity .35s ease;
   background: radial-gradient(1000px 620px at 82% -6%, rgba(255, 106, 31, .11), transparent 60%), var(--portada-fondo);
 }
 .portada.visible { opacity: 1; }
 .portada-contenido { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 64px; align-items: center; width: 100%; max-width: 1180px; }
-.portada h1 { max-width: 15ch; text-wrap: balance; font-size: clamp(2.75rem, 5.4vw, 4.4rem); font-weight: 800; line-height: 1.03; letter-spacing: -.022em; word-spacing: .02em; }
+.portada h1 { max-width: 15ch; text-wrap: balance; font-size: clamp(2.4rem, min(5.4vw, 8.5vh), 4.4rem); font-weight: 800; line-height: 1.03; letter-spacing: -.022em; word-spacing: .02em; }
 /* el signo de apertura cuelga en el margen: la R queda alineada con el texto de debajo */
 .portada h1 .colgado { position: absolute; transform: translateX(-100%); }
-.portada-entrada { max-width: 34em; margin: 22px 0 0; font-size: 19px; line-height: 1.55; color: var(--texto-2); }
-.portada-resultado { max-width: 34em; margin: 18px 0 0; padding: 12px 16px; border: 1px solid var(--linea); border-left: 2px solid var(--naranja); border-radius: 12px; background: var(--panel); font-size: 15px; color: var(--texto); }
-.portada-botones { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 30px; }
+.portada-entrada { max-width: 34em; margin: clamp(12px, 2.6vh, 22px) 0 0; font-size: 19px; line-height: 1.55; color: var(--texto-2); }
+.portada-resultado { max-width: 34em; margin: clamp(10px, 2vh, 18px) 0 0; padding: 12px 16px; border: 1px solid var(--linea); border-left: 2px solid var(--naranja); border-radius: 12px; background: var(--panel); font-size: 15px; color: var(--texto); }
+.portada-botones { display: flex; flex-wrap: wrap; gap: 10px; margin-top: clamp(16px, 3.4vh, 30px); }
 .portada-botones .boton { flex: 0 0 auto; padding: 12px 22px; font-size: 15px; }
-.portada-nota { margin: 24px 0 0; font-size: 12px; color: var(--texto-3); }
+.portada-nota { margin: clamp(12px, 2.6vh, 24px) 0 0; font-size: 12px; color: var(--texto-3); }
 .portada-visual { margin: 0; display: grid; justify-items: center; gap: 14px; }
-.visor-portada { flex: none; width: min(100%, 460px); min-height: 0; aspect-ratio: 1; margin: 0; border-radius: 20px; border: 1px solid var(--linea); box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
-.portada-curva { max-width: 460px; }
-.portada-curva-titulo { width: min(100%, 460px); margin: 6px 0 -10px; font-size: 13px; color: var(--texto-2); }
-.portada-visual figcaption { max-width: 460px; font-size: 13px; color: var(--texto-3); text-align: center; }
+.visor-portada { flex: none; width: min(100%, var(--lado-portada)); min-height: 0; aspect-ratio: 1; margin: 0; border-radius: 20px; border: 1px solid var(--linea); box-shadow: 0 24px 60px rgba(0, 0, 0, .55); }
+.portada-curva { max-width: var(--lado-portada); }
+.portada-curva-titulo { width: min(100%, var(--lado-portada)); margin: 6px 0 -10px; font-size: 13px; color: var(--texto-2); }
+.portada-visual figcaption { max-width: var(--lado-portada); font-size: 13px; color: var(--texto-3); text-align: center; }
 
 /* ---- escritorio: la fila de trabajo cabe en la pantalla; el visor siempre se ve entero y, si la muestra o el informe
    tienen más contenido, se desplazan dentro de su columna ---- */
