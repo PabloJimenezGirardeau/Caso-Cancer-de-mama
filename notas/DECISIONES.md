@@ -626,7 +626,8 @@ calibrado, 10.945 cortes):
 
 ## Experimento complementario: recorte central 128×128 (decidido el 2026-10-20, ANTES del test)
 
-**Origen:** idea de la arquitectura de un compañero (no se copia su código ni su red; solo se prueba la idea con nuestra red).
+**Origen:** idea surgida al comparar enfoques con compañeros del curso; se prueba con nuestra red y nuestro código, con una
+regla fijada antes de ver el resultado.
 **Qué:** la configuración final (2.1) con `--recorte 128`: la red solo mira el cuadrado central de 128×128 del corte de 256×256
 (las imágenes ya son recortes centrados en el tumor, así que el centro es sobre todo tumor). Dentro de la red (la app lo aplicaría
 igual); mismos 106.001 parámetros; mapa final de 8×8. Verificado: la salida no cambia si se modifica lo que hay fuera del centro.
@@ -900,9 +901,10 @@ entero y saltó los terminados.)
 
 ## Experimentos: cabeza simple y tasa de aprendizaje más baja (decididos el 2026-10-23, ANTES de ver resultados)
 
-**Motivo (decisión del usuario):** buscar curvas que se separen más tarde y bajen suaves juntas hasta entonces. Al analizar las
-gráficas de un compañero se vio que sus curvas no son mejores (escala 0,3-0,9; su validación nunca baja de la referencia sin
-imagen), pero su red tiene una cabeza más simple (128 → 1, sin la capa de 64): menos sitio para memorizar en la parte que decide,
+**Motivo (decisión del usuario):** buscar curvas que se separen más tarde y bajen suaves juntas hasta entonces. Al comparar
+nuestras curvas con las de otros compañeros se vio que las suyas no eran mejores (escala 0,3-0,9; su validación nunca bajaba de
+la referencia sin imagen), pero alguna red usaba una cabeza más simple (128 → 1, sin la capa de 64): menos sitio para memorizar
+en la parte que decide,
 sin tocar las convoluciones. Y una tasa de aprendizaje más baja da pasos más pequeños (curvas más suaves, separación más tarde);
 al bajarla de 3e-4 a 1e-4 ya mejoró algo.
 **Tres experimentos sobre el recorte 128** (3 semillas × 5 folds cada uno; `--cabeza simple`: dropout 0,5 + lineal 128 → 1,
@@ -961,7 +963,7 @@ calibración y su umbral equilibrado recalculados con `umbral.py`); el recorte c
 
 ### Añadido a `evaluar_test.py` antes del test (2026-10-24): referencia "solo cohorte" y comprobación de fuga
 
-- **Solo cohorte** (idea tomada del documento de un compañero): a cada paciente, la tasa de pCR de su cohorte (duke 21 %, spy1 25 %,
+- **Solo cohorte** (idea surgida al comparar trabajos con compañeros del curso): a cada paciente, la tasa de pCR de su cohorte (duke 21 %, spy1 25 %,
   spy2 32 %), calculada con las pacientes de entrenamiento (en validación, con los otros 4 folds). No mira la imagen. Como la red
   reconoce la cohorte en la imagen con facilidad (control positivo, AUC 0,92), es la referencia que dice si el modelo aprende algo
   más que el hospital. Entra en las curvas ROC y precisión-recall y en la diferencia de AUC con bootstrap emparejado.

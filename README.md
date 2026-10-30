@@ -8,8 +8,7 @@ del tratamiento. Trabajo académico sobre el conjunto de datos **BreastDCEDL**.
 
 Se abre en el navegador del ordenador, sin instalar nada: carga las tres fases de un corte (o un ejemplo) y predice.
 
-**Presentación:** [`presentacion/Presentacion_pCR.pdf`](presentacion/Presentacion_pCR.pdf) · **Decisiones:**
-[`notas/DECISIONES.md`](notas/DECISIONES.md) · **Licencia:** [CC BY-NC 4.0](LICENSE)
+**Presentación:** [`presentacion/Presentacion_pCR.pdf`](presentacion/Presentacion_pCR.pdf) · **Licencia:** [CC BY-NC 4.0](LICENSE)
 
 > Uso exclusivamente educativo. Sin validez clínica: no debe usarse para tomar decisiones sobre pacientes.
 
