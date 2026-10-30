@@ -4,8 +4,12 @@ Una red convolucional propia, entrenada desde cero en PyTorch, estima la probabi
 a la quimioterapia neoadyuvante a partir de **un solo corte** de resonancia magnética con contraste dinámico (DCE), tomado antes
 del tratamiento. Trabajo académico sobre el conjunto de datos **BreastDCEDL**.
 
-**App:** https://pablojimenezgirardeau.github.io/Caso-Cancer-de-mama/ · **Decisiones:** [`notas/DECISIONES.md`](notas/DECISIONES.md) ·
-**Licencia:** [CC BY-NC 4.0](LICENSE)
+### App web: [pablojimenezgirardeau.github.io/Caso-Cancer-de-mama](https://pablojimenezgirardeau.github.io/Caso-Cancer-de-mama/)
+
+Se abre en el navegador del ordenador, sin instalar nada: carga las tres fases de un corte (o un ejemplo) y predice.
+
+**Presentación:** [`presentacion/Presentacion_pCR.pdf`](presentacion/Presentacion_pCR.pdf) · **Decisiones:**
+[`notas/DECISIONES.md`](notas/DECISIONES.md) · **Licencia:** [CC BY-NC 4.0](LICENSE)
 
 > Uso exclusivamente educativo. Sin validez clínica: no debe usarse para tomar decisiones sobre pacientes.
 
@@ -46,7 +50,8 @@ mira sobre todo la zona del tumor, aunque no solo: el 41 % de su mapa cae en la 
 
 ## La app
 
-Página estática en GitHub Pages (carpeta [`docs/`](docs/)). Las 15 redes, exportadas a ONNX, se ejecutan **en el navegador** con
+Página estática en GitHub Pages: [abrir la app](https://pablojimenezgirardeau.github.io/Caso-Cancer-de-mama/) (carpeta
+[`docs/`](docs/)). Las 15 redes, exportadas a ONNX, se ejecutan **en el navegador** con
 ONNX Runtime Web, con la misma lectura de los PNG que en Python; las imágenes no salen del ordenador de quien la usa.
 
 - **Predecir:** una casilla para cada fase (PRE, EARLY y LATE; el nombre del fichero da igual) o un ejemplo de la galería. Visor con
@@ -76,6 +81,7 @@ miden el rendimiento.
 ├── figuras/             figuras de datos, entrenamiento, validación, test, Grad-CAM y estabilidad
 ├── referencia/          curvas por época de todos los experimentos
 ├── notas/               DECISIONES.md (cada decisión, con sus cifras) y HOJA_DE_RUTA.md
+├── presentacion/        las 5 diapositivas de la defensa (.pptx y .pdf) y el script que las genera con PowerPoint
 ├── documentation/       enunciado oficial y figuras del caso (material del curso)
 ├── GUIA.md              guía del caso (material del curso)
 ├── requirements.txt
