@@ -8,6 +8,8 @@ del tratamiento. Trabajo académico sobre el conjunto de datos **BreastDCEDL**.
 
 Se abre en el navegador del ordenador, sin instalar nada: carga las tres fases de un corte (o un ejemplo) y predice.
 
+[![La app prediciendo una paciente de la galería: probabilidad 0,262, pCR = 0, acierta](figuras/app/app_predecir.jpg)](https://pablojimenezgirardeau.github.io/Caso-Cancer-de-mama/)
+
 **Presentación:** [`presentacion/Presentacion_pCR.pdf`](presentacion/Presentacion_pCR.pdf) · **Licencia:** [CC BY-NC 4.0](LICENSE)
 
 > Uso exclusivamente educativo. Sin validez clínica: no debe usarse para tomar decisiones sobre pacientes.
@@ -77,7 +79,7 @@ miden el rendimiento.
 │   └── analisis/        estudios puntuales: comparación de experimentos, cohortes, estabilidad, Grad-CAM...
 ├── docs/                la app web (GitHub Pages): index.html, app.js, estilos.css, modelos/ (ONNX), datos/ y ejemplos/
 ├── modelo/              el modelo final: 15 pesos .pt, sus predicciones de validación y umbral_final.json
-├── figuras/             figuras de datos, entrenamiento, validación, test, Grad-CAM y estabilidad
+├── figuras/             figuras de datos, entrenamiento, validación, test, Grad-CAM, estabilidad y la captura de la app
 ├── referencia/          curvas por época de todos los experimentos
 ├── notas/               DECISIONES.md (cada decisión, con sus cifras) y HOJA_DE_RUTA.md
 ├── presentacion/        las 5 diapositivas de la defensa (.pptx y .pdf) y el script que las genera con PowerPoint
