@@ -310,8 +310,8 @@ Si pregunta por el recorte: mejora en los cinco folds y el intervalo excluye el 
     $null = Texto $s ($pL + $pW - 92) ((GY 0.72) - 2) 90 14 @((Frag "entrenamiento" 10 "7A828E" $FS)) 3 1
     $null = Texto $s ($pL + $pW - 92) ((GY (Num $curva[$n - 1].auc_val)) + 8) 90 14 @((Frag "validación" 10 $AZUL $FS)) 3 1
     $null = Texto $s 48 324 404 72 @((Frag "Adam, tasa 3·10⁻⁵, lotes de 128; 5 folds × 3 semillas = 15 redes.`rParada: AUC suavizado con media móvil de 3 épocas; se para tras 10 épocas sin mejorar." 10.5 $TEXTO)) 1 1 0.95
-    $null = Caja $s 48 400 404 80 $PANEL 10
-    $null = Texto $s 62 400 376 80 @((Frag "Sobreajuste controlado" 12 $TINTA $FS), (Frag "`rEn la época elegida, entrenamiento − validación: 0,004 de media en los 15 modelos (solo 1 pasa del límite de 0,15). Descartadas por memorizar: tasa 3·10⁻⁴ y conv + conv (4 de 5 folds)." 10.5 $TEXTO)) 1 3 0.95 2
+    $null = Caja $s 48 380 404 100 $PANEL 10
+    $null = Texto $s 62 380 376 100 @((Frag "Por qué paro en la época 21" 12 $TINTA $FS), (Frag "`rDespués, el entrenamiento sigue subiendo y la validación no: lo que mejora es memorizar. Me quedo con la red de ese momento, no con la última." 10.5 $TEXTO)) 1 3 0.95 2
     # resultados internos (validacion)
     $null = Texto $s 480 112 216 18 @((Frag "AUC de validación por fold" 11.5 $GRIS)) 1 1
     $null = Texto $s 480 130 230 42 @((Frag "0,586 ± 0,020" 30 $TINTA $FS)) 1 1
@@ -348,20 +348,21 @@ Si pregunta por el recorte: mejora en los cinco folds y el intervalo excluye el 
     $null = Caja $s 480 380 432 100 $AZUL_TINTE 10
     $null = Texto $s 496 380 400 100 @((Frag "Umbral elegido: 0,316" 12 $AZUL $FS), (Frag "`rEs el que maximiza la F1 equilibrada en validación: la media de la F1 de pCR y la de no pCR, que no premia decir siempre «no». Con él, detecta el 41 % de las pCR y acierta el 70 % de las no pCR." 10.5 $TINTA)) 1 3 0.95 3
     Notas $s @"
-Entreno con Adam, tasa 3·10⁻⁵ y lotes de 128, en 5 folds y 3 semillas: 15 redes. La parada temprana vigila el AUC de validación suavizado con una media móvil de 3 épocas y para tras 10 sin mejorar. En este fold, entrenamiento y validación suben juntos y, desde la época 21, la validación se queda plana: me quedo con la red de la época 21. En esa época la diferencia entre entrenamiento y validación es de 0,09 aquí y de 0,004 de media en las 15 redes: es baja sobre todo porque muchas apenas aprenden. Resultado interno: 0,586 ± 0,020 por fold y 0,573 con todas las pacientes: por encima del azar, pero con poco margen.
+Entreno con Adam, tasa 3·10⁻⁵ y lotes de 128, en 5 folds y 3 semillas: 15 redes. La parada temprana vigila el AUC de validación suavizado con una media móvil de 3 épocas y para tras 10 sin mejorar. En este fold, entrenamiento y validación suben juntos y, desde la época 21, la validación se queda plana: lo que mejora después es memorizar, así que me quedo con la red de la época 21. Resultado interno: 0,586 ± 0,020 por fold y 0,573 con todas las pacientes: por encima del azar, pero con poco margen.
 
 La red da una probabilidad y, para decidir, necesito un umbral. Lo elijo con la validación: el que maximiza la F1 equilibrada, 0,316, que no premia decir siempre «no pCR». Con él, detecta el 41 % de las pCR y acierta el 70 % de las no pCR.
 
 Si pregunta por el fold: es el más ilustrativo; en 10 de los 15 entrenamientos la curva de entrenamiento apenas se separa del azar, porque la señal es débil.
+Si pregunta por el sobreajuste: en la época elegida, entrenamiento − validación es 0,09 en este fold y 0,004 de media en las 15 redes (límite 0,15); es baja sobre todo porque muchas apenas aprenden.
 Si pregunta por la pérdida ponderada: no ordena mejor (AUC 0,554 frente a 0,567); solo mueve el umbral.
 Si pregunta por un umbral más exigente (especificidad del 95 %): lo probé para desescalar; detecta el 6 % de las pCR, la precisión sigue en el 32 % y en el test no detectó ninguna de las 53.
 "@
 
     # ========================== 5. test, aplicacion web, limitaciones y conclusiones ==========================
     $s = $pres.Slides.Item(6)
-    Cabecera $s 5 "Test, aplicación web, limitaciones y conclusiones" "La imagen supera al azar, pero los datos clínicos predicen más"
+    Cabecera $s 5 "Test, aplicación web, limitaciones y conclusiones" "La imagen tiene señal, pero débil: los datos clínicos predicen más"
     $null = Texto $s 48 112 440 18 @((Frag "Test: 176 pacientes, evaluado una sola vez" 12 $TINTA $FS)) 1 1
-    # AUC del test con su intervalo (punto e intervalo), frente a los datos clinicos y la bibliografia
+    # AUC del test con su intervalo (punto e intervalo), frente a los datos clinicos
     function AX([double]$v) { 214 + ($v - 0.40) / 0.40 * 256 }
     foreach ($v in @(0.4, 0.5, 0.6, 0.7, 0.8)) {
         $xv = AX $v
@@ -370,18 +371,16 @@ Si pregunta por un umbral más exigente (especificidad del 95 %): lo probé para
         $null = Texto $s ($xv - 30) 226 60 14 @((Frag $etq 10 $GRIS)) 2 1
     }
     $aucs = @(
-        @("Fridman et al. 2025", 0.72, 0, 0, "4B5563", 0),
         @("Imagen + clínicos", 0.705, 0.618, 0.785, "8A93A0", 0),
         @("Solo clínicos", 0.695, 0.603, 0.778, "8A93A0", 0),
         @("CNN, solo imagen", 0.591, 0.497, 0.681, $AZUL, 1))
-    for ($i = 0; $i -lt 4; $i++) {
+    for ($i = 0; $i -lt 3; $i++) {
         $nomA, $va, $lo, $hi, $col, $nuestro = $aucs[$i]
-        $ya = 146 + $i * 21
+        $ya = 152 + $i * 28
         $null = Texto $s 48 ($ya - 8) 118 16 @((Frag $nomA 10.5 $(if ($nuestro) { $AZUL } else { $TEXTO }) $(if ($nuestro) { $FS } else { $F }))) 1 3
         $null = Texto $s 166 ($ya - 8) 40 16 @((Frag ($va.ToString("0.000", $es).TrimEnd("0")) 11 $(if ($nuestro) { $AZUL } else { $TINTA }) $FS)) 3 3
-        if ($hi -gt 0) { $null = Linea $s (AX $lo) $ya (AX $hi) $ya $col 1.5 }
-        if ($i -eq 0) { $null = Caja $s ((AX $va) - 4.5) ($ya - 4.5) 9 9 $BLANCO 0 $col 1.75 9 }
-        else { $null = Caja $s ((AX $va) - 4.5) ($ya - 4.5) 9 9 $col 0 $BLANCO 1.5 9 }
+        $null = Linea $s (AX $lo) $ya (AX $hi) $ya $col 1.5
+        $null = Caja $s ((AX $va) - 4.5) ($ya - 4.5) 9 9 $col 0 $BLANCO 1.5 9
     }
     $null = Texto $s 48 244 440 16 @((Frag "AUC con su IC 95 %. En validación la CNN dio 0,573: el test no bajó." 10.5 $GRIS)) 1 1
     # matriz y metricas por clase
@@ -403,29 +402,38 @@ Si pregunta por un umbral más exigente (especificidad del 95 %): lo probé para
         $null = Texto $s 230 $yt 108 16 @((Frag $ft[0] 11 $colT)) 1 3
         for ($j = 0; $j -lt 3; $j++) { $null = Texto $s $cols[$j][0] $yt 52 16 @((Frag $ft[$j + 1] 11 $colV $letV)) 2 3 }
     }
-    $null = Texto $s 48 354 440 32 @((Frag "Por cohorte: Duke 0,73, I-SPY2 0,63, I-SPY1 0,29. Calibrada: Brier 0,208 (referencia 0,211)." 10.5 $TEXTO)) 1 1 0.95
-    $null = Texto $s 48 394 440 18 @((Frag "Limitaciones" 12 $TINTA $FS)) 1 1
-    $lim = Texto $s 48 414 440 70 @((Frag "Señal débil: con 176 pacientes, el intervalo roza el 0,5.`rUn solo corte 2D: se pierde la forma del tumor.`rSensible al brillo y al escáner: I-SPY1 ordena al revés.`rDetecta 3 de cada 10 pCR: no sirve para decidir un tratamiento." 11 $TEXTO)) 1 1 0.95 2
-    $pf = $lim.TextFrame.TextRange.ParagraphFormat
-    $pf.Bullet.Visible = -1; $pf.Bullet.Character = 8226; $pf.Bullet.Font.Color.RGB = (C $AZUL)
-    $lim.TextFrame.Ruler.Levels.Item(1).FirstMargin = 0; $lim.TextFrame.Ruler.Levels.Item(1).LeftMargin = 12
-    # la app, con un caso fallado
-    $cap = Imagen $s (Join-Path $rec "app_fallo.png") 512 112 400 250 8
+    # la app, con un caso de entrenamiento
+    $cap = Imagen $s (Join-Path $rec "app_fallo.png") 512 112 328 205 8
     $cap.Line.Visible = -1; $cap.Line.ForeColor.RGB = (C $GRIS_CLARO); $cap.Line.Weight = 0.75
-    $null = Texto $s 512 366 400 30 @((Frag "Caso fallado: ISPY1_1155 alcanzó la pCR y el modelo le da 0,313, a 0,003 del umbral. La app avisa de que la decisión es ajustada." 10.5 $GRIS)) 1 1 0.95
+    $null = Texto $s 512 321 400 28 @((Frag "Paciente de entrenamiento con pCR (ISPY1_1155): el modelo le da 0,313, a 0,003 del umbral. La app avisa de que la decisión es ajustada." 10.5 $GRIS)) 1 1 0.95
     $url = "https://pablojimenezgirardeau.github.io/Caso-Cancer-de-mama/"
-    $enlace = Texto $s 512 400 400 62 @((Frag "pablojimenezgirardeau.github.io/Caso-Cancer-de-mama" 11.5 $AZUL $FS), (Frag "`rMisma lectura y normalización que Python (PNG → gris → ÷ 255, recorte dentro de la red): diferencia máxima 5·10⁻⁸. Uso educativo, sin validez clínica." 10.5 $TEXTO)) 1 1 0.95 2
+    $enlace = Texto $s 512 351 400 32 @((Frag "pablojimenezgirardeau.github.io/Caso-Cancer-de-mama" 11.5 $AZUL $FS), (Frag "`rUso educativo, sin validez clínica." 10.5 $TEXTO)) 1 1 0.95 2
     $tramo = $enlace.TextFrame.TextRange.Paragraphs(1)
     $tramo.ActionSettings.Item(1).Hyperlink.Address = $url
     $tramo.Font.Color.RGB = (C $AZUL)
+    # limitaciones y conclusion
+    $null = Caja $s 48 390 404 90 $PANEL 10
+    $null = Texto $s 62 396 376 18 @((Frag "Limitaciones" 12 $TINTA $FS)) 1 1
+    $lim = Texto $s 62 416 376 60 @((Frag "Señal débil: con 176 pacientes, el intervalo roza el 0,5.`rUn solo corte 2D: se pierde la forma del tumor.`rSensible al brillo y al escáner." 11 $TEXTO)) 1 1 0.95 2
+    $pf = $lim.TextFrame.TextRange.ParagraphFormat
+    $pf.Bullet.Visible = -1; $pf.Bullet.Character = 8226; $pf.Bullet.Font.Color.RGB = (C $AZUL)
+    $lim.TextFrame.Ruler.Levels.Item(1).FirstMargin = 0; $lim.TextFrame.Ruler.Levels.Item(1).LeftMargin = 12
+    $null = Caja $s 480 390 432 90 $AZUL_TINTE 10
+    $null = Texto $s 496 390 400 90 @((Frag "En resumen" 12 $AZUL $FS), (Frag "`rLa imagen de antes del tratamiento tiene señal, pero débil. Con un solo corte no basta para decidir sobre una paciente." 11 $TINTA)) 1 3 0.95 3
     Notas $s @"
-El test, 176 pacientes evaluadas una sola vez: AUC 0,591, algo por encima de la validación, así que no la inflé al elegir. Con el umbral, la F1 media es 0,53, frente a 0,41 de decir siempre «no pCR». Los datos clínicos predicen más, 0,695, y la imagen apenas suma; los autores del conjunto obtienen 0,72 en este test.
+Llegamos al test: 176 pacientes que la red no había visto, evaluadas una sola vez. El AUC es 0,591, parecido al de validación, así que elegir con ella no infló el resultado. Tiene algo de señal, pero menos que los datos clínicos, 0,695.
 
-A la derecha, un fallo real: esta paciente tuvo pCR y el modelo queda a 0,003 del umbral; la app avisa de que la decisión es ajustada, y lee y normaliza igual que Python (diferencia máxima 5·10⁻⁸).
+Con el umbral, detecta 16 de las 53 pacientes con pCR, unas tres de cada diez; aun así, su F1 media es 0,53 frente a 0,41 de decir siempre «no pCR»: aprende algo, pero poco.
 
-Limitaciones: señal débil, un solo corte 2D y sensibilidad al brillo y al escáner, sobre todo en I-SPY1. En resumen: la imagen de antes del tratamiento tiene señal, pero débil; con un solo corte no basta para decidir sobre una paciente. Muchas gracias.
+En la app lo vemos con una paciente de entrenamiento que sí tuvo pCR: la red le da 0,313, a 0,003 del umbral, y la app avisa de que la decisión es ajustada.
 
-Si pregunta por el caso fallado: es una paciente de entrenamiento, usada para ilustrar; las 3 redes que no la vieron al entrenar (fold 3) le dan 0,352 y aciertan. El enlace de la diapositiva lleva a la app.
+Por eso las limitaciones: señal débil, un solo corte 2D que pierde la forma del tumor, y sensibilidad al brillo y al escáner. En resumen: la imagen de antes del tratamiento tiene señal, pero débil; con un solo corte no basta para decidir sobre una paciente. Muchas gracias.
+
+Si pregunta por el intervalo del test: llega a 0,497; la evidencia de que supera al azar es la validación (1.097 pacientes, intervalo 0,534-0,609) y el test la confirma en magnitud.
+Si pregunta por el caso: es una paciente de entrenamiento, usada para ilustrar; las 3 redes que no la vieron al entrenar (fold 3) le dan 0,352 y aciertan.
+Si pregunta por la bibliografía: los autores del conjunto (Fridman 2025) obtienen 0,72 en este mismo test.
+Si pregunta por cohortes: Duke 0,73, I-SPY2 0,63 e I-SPY1 0,29 (35 pacientes, ordena al revés). Calibrada: Brier 0,208 frente a 0,211 de la referencia.
+Si pregunta por la app: lee y normaliza igual que Python (diferencia máxima 5·10⁻⁸); uso educativo, sin validez clínica. El enlace de la diapositiva lleva a la app.
 "@
 
     $pres.Save()
