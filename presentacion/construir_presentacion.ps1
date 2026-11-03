@@ -197,23 +197,22 @@ Si pregunta: z012 es la altura del corte, no un instante de tiempo.
     $param = @(@(330, "464"), @(410, "4.672"), @(490, "18.560"), @(570, "73.984"), @(650, "0"), @(735, "8.256"), @(830, "65"))
     foreach ($pp in $param) { $null = Texto $s ($pp[0] - 35) 340 70 16 @((Frag $pp[1] 11 $TEXTO)) 2 3 }
     $porque = @(
-        @("Punto de partida", "La arquitectura de referencia del caso, sin pesos preentrenados."),
-        @("Tamaño", "Con la mitad de filtros tendía a aprender peor; con dos convoluciones por bloque memorizaba."),
-        @("BatchNorm", "Sin ella la red apenas aprendía: en dos folds se quedaba con la primera época."),
-        @("Recorte 128 × 128", "El tumor está en el centro: mejoró los 5 folds y quitó los sobreentrenados."))
+        @("Punto de partida", "Red de referencia del caso: 105.761 parámetros. Casi no aprendía: AUC ≈ 0,55."),
+        @("+ BatchNorm", "Sin ella apenas aprendía: en dos folds se quedaba con la primera época."),
+        @("Tamaño", "Menos filtros o dos convoluciones por bloque no mejoraron; detalle en la siguiente."),
+        @("+ Recorte 128 × 128", "El tumor está en el centro: mejoró los 5 folds y quitó los sobreentrenados."))
     for ($i = 0; $i -lt 4; $i++) {
         $x = 48 + $i * 219
         $null = Caja $s $x 384 207 76 $PANEL 10
         $null = Texto $s ($x + 12) 394 183 62 @((Frag $porque[$i][0] 12 $TINTA $FS), (Frag "`r$($porque[$i][1])" 10.5 $TEXTO)) 1 1 0.95 2
     }
     Notas $s @"
-La red es propia y pequeña: 106.001 parámetros, sin preentrenar. Entra el corte con sus tres fases, en gris y divididas entre 255: tres canales de tiempo, no colores. Dentro de la red se recorta el centro, 128 × 128, para que la app lo haga exactamente igual.
+Partí de la red de referencia: cuatro bloques de convolución con 16, 32, 64 y 128 filtros, una media global, una densa de 64 con dropout y una salida; 105.000 parámetros. La medí tal cual, y casi no aprendía: decía «no pCR» a casi todas y su AUC rozaba el azar. Le añadí BatchNorm, que mantiene estables los números entre capas, y entonces sí aprendió, pero memorizaba deprisa; lo moderé después con una tasa de aprendizaje más baja. Y como el tumor está en el centro del corte, hice que la red recortara el centro, 128 por 128: es el único cambio que mejoró de forma demostrable, y dejó de haber modelos sobreentrenados. Esta es la red resultante: 106.001 parámetros. Entra el corte con sus tres fases en gris, pasa por los cuatro bloques, la media global y la densa, y da una probabilidad. El resto de pruebas, en la siguiente.
 
-Cuatro bloques de convolución, BatchNorm, ReLU y max pooling, con 16, 32, 64 y 128 filtros: el mapa pasa de 64 a 8 píxeles. Después, media global, una densa de 64 con dropout y una neurona con sigmoide.
-
-Partí de la arquitectura de referencia y cada cambio lo medí con la validación: con la mitad de filtros tendía a aprender peor; con dos convoluciones por bloque memorizaba; sin BatchNorm apenas aprendía; y el recorte central, porque el tumor está en el centro, mejoró los cinco folds. Lo detallo en la siguiente.
-
-Dato por si pregunta: siete de cada diez parámetros están en el último bloque (73.984).
+Si pregunta por la tarjeta Tamaño: no mejoró nada. Solo si insiste: con la mitad de filtros el AUC bajó 0,026, dentro del ruido; con dos convoluciones por bloque bajó 0,016 y empeora de forma demostrable. Detalle en la siguiente.
+Si pregunta de dónde sale el recorte: de comparar enfoques con compañeros del curso; lo probé con una regla fijada antes (mejora de +0,02 y un intervalo sin el cero), dio +0,018 y lo adopté igualmente por el sobreajuste. Lo cuento en la siguiente.
+Si pregunta por el dropout: solo se apaga al entrenar; al predecir se usan todas las neuronas.
+Dato: BatchNorm añade 240 parámetros (105.761 a 106.001); siete de cada diez están en el último bloque (73.984).
 "@
 
     # ============================ 3. experimentos y decisiones ============================
@@ -310,7 +309,7 @@ Si pregunta por el recorte: mejora en los cinco folds y el intervalo excluye el 
     $null = Texto $s ($xe + 5) ((GY (($tElegida + $vElegida) / 2)) - 7) 110 14 @((Frag "diferencia $dif" 10 $TINTA $FS)) 1 3
     $null = Texto $s ($pL + $pW - 92) ((GY 0.72) - 2) 90 14 @((Frag "entrenamiento" 10 "7A828E" $FS)) 3 1
     $null = Texto $s ($pL + $pW - 92) ((GY (Num $curva[$n - 1].auc_val)) + 8) 90 14 @((Frag "validación" 10 $AZUL $FS)) 3 1
-    $null = Texto $s 48 324 404 72 @((Frag "Adam, tasa 3·10⁻⁵, lotes de 128, entropía cruzada; 5 folds × semillas 42, 1 y 2.`rParada: media móvil de 3 épocas, paciencia 10, máximo 60.`rLa pérdida ponderada no ordena mejor (AUC 0,554 frente a 0,567): solo mueve el umbral." 10.5 $TEXTO)) 1 1 0.95
+    $null = Texto $s 48 324 404 72 @((Frag "Adam, tasa 3·10⁻⁵, lotes de 128; 5 folds × 3 semillas = 15 redes.`rParada: AUC suavizado con media móvil de 3 épocas; se para tras 10 épocas sin mejorar." 10.5 $TEXTO)) 1 1 0.95
     $null = Caja $s 48 400 404 80 $PANEL 10
     $null = Texto $s 62 400 376 80 @((Frag "Sobreajuste controlado" 12 $TINTA $FS), (Frag "`rEn la época elegida, entrenamiento − validación: 0,004 de media en los 15 modelos (solo 1 pasa del límite de 0,15). Descartadas por memorizar: tasa 3·10⁻⁴ y conv + conv (4 de 5 folds)." 10.5 $TEXTO)) 1 3 0.95 2
     # resultados internos (validacion)
@@ -340,24 +339,22 @@ Si pregunta por el recorte: mejora en los cinco folds y el intervalo excluye el 
     for ($i = 0; $i -lt $nu; $i++) { $pts[$i, 0] = [single](UX (Num $f1u[$i].umbral)); $pts[$i, 1] = [single](VY (Num $f1u[$i].f1_equilibrada)) }
     $trazo = $s.Shapes.AddPolyline($pts)
     $trazo.Fill.Visible = 0; $trazo.Line.ForeColor.RGB = (C $AZUL); $trazo.Line.Weight = [single]2.25
-    $ue = 0.3159; $fe = 0.5525; $ud = 0.3606; $fd = 0.4535
-    $xe2 = UX $ue; $xd = UX $ud
+    $ue = 0.3159; $fe = 0.5525
+    $xe2 = UX $ue
     $null = Linea $s $xe2 $gT $xe2 ($gT + $gH) $AZUL 1.25 4
-    $null = Linea $s $xd $gT $xd ($gT + $gH) $GRIS 1.25 4
     $null = Caja $s ($xe2 - 4.5) ((VY $fe) - 4.5) 9 9 $AZUL 0 $BLANCO 1.5 9
-    $null = Caja $s ($xd - 4.5) ((VY $fd) - 4.5) 9 9 "4B5563" 0 $BLANCO 1.5 9
     $null = Texto $s ($xe2 - 150) 230 144 28 @((Frag "0,316 · máximo" 10.5 $AZUL $FS), (Frag "`rF1 equilibrada 0,55" 10 $GRIS)) 3 1 0.95
-    $null = Texto $s ($xd + 7) ((VY $fd) - 34) 124 28 @((Frag "0,361 · exigente" 10.5 "4B5563" $FS), (Frag "`respecificidad 95 %" 10 $GRIS)) 1 1 0.95
     # decision
     $null = Caja $s 480 380 432 100 $AZUL_TINTE 10
-    $null = Texto $s 496 380 400 100 @((Frag "Umbral 0,316: máxima F1 equilibrada" 12 $AZUL $FS), (Frag "`rEl error grave sería un falso positivo: quitar tratamiento a quien lo necesita. Exigirlo (especificidad 95 %) deja la precisión en el 32 % y en el test no detectó ninguna de las 53 pCR: no sirve para desescalar, así que se equilibran los dos errores. En validación: sensibilidad 41 %, especificidad 70 %." 10.5 $TINTA)) 1 3 0.95 3
+    $null = Texto $s 496 380 400 100 @((Frag "Umbral elegido: 0,316" 12 $AZUL $FS), (Frag "`rEs el que maximiza la F1 equilibrada en validación: la media de la F1 de pCR y la de no pCR, que no premia decir siempre «no». Con él, detecta el 41 % de las pCR y acierta el 70 % de las no pCR." 10.5 $TINTA)) 1 3 0.95 3
     Notas $s @"
-Entrené con Adam, tasa 3·10⁻⁵ y lotes de 128, en 5 folds y 3 semillas. La parada temprana vigila el AUC de validación suavizado con una media móvil de 3 épocas y para tras 10 sin mejorar. En este fold, entrenamiento y validación suben juntos y, desde la época 21, la validación se queda plana: me quedo con la 21. En los 15 modelos, la diferencia en la época elegida es de 0,004 de media. Resultado interno: 0,586 ± 0,020 por fold y 0,573 con todas las pacientes.
+Entreno con Adam, tasa 3·10⁻⁵ y lotes de 128, en 5 folds y 3 semillas: 15 redes. La parada temprana vigila el AUC de validación suavizado con una media móvil de 3 épocas y para tras 10 sin mejorar. En este fold, entrenamiento y validación suben juntos y, desde la época 21, la validación se queda plana: me quedo con la red de la época 21. En esa época la diferencia entre entrenamiento y validación es de 0,09 aquí y de 0,004 de media en las 15 redes: es baja sobre todo porque muchas apenas aprenden. Resultado interno: 0,586 ± 0,020 por fold y 0,573 con todas las pacientes: por encima del azar, pero con poco margen.
 
-La pérdida ponderada no ordena mejor, solo mueve el umbral. El umbral lo elijo con la validación: el de máxima F1 equilibrada, 0,316. El error grave sería un falso positivo, quitar tratamiento a quien lo necesita, pero evitarlo con especificidad del 95 % deja la precisión en el 32 %: no sirve para desescalar, así que equilibro los dos errores.
+La red da una probabilidad y, para decidir, necesito un umbral. Lo elijo con la validación: el que maximiza la F1 equilibrada, 0,316, que no premia decir siempre «no pCR». Con él, detecta el 41 % de las pCR y acierta el 70 % de las no pCR.
 
 Si pregunta por el fold: es el más ilustrativo; en 10 de los 15 entrenamientos la curva de entrenamiento apenas se separa del azar, porque la señal es débil.
-Si pregunta: con el umbral exigente, especificidad del 95 %, en el test no se detectó ninguna de las 53 pCR.
+Si pregunta por la pérdida ponderada: no ordena mejor (AUC 0,554 frente a 0,567); solo mueve el umbral.
+Si pregunta por un umbral más exigente (especificidad del 95 %): lo probé para desescalar; detecta el 6 % de las pCR, la precisión sigue en el 32 % y en el test no detectó ninguna de las 53.
 "@
 
     # ========================== 5. test, aplicacion web, limitaciones y conclusiones ==========================
